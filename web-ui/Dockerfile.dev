@@ -1,0 +1,24 @@
+# React Web UI Development Container
+# Supports live reloading and development workflow
+
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install dependencies for development
+COPY package*.json ./
+RUN npm ci
+
+# Expose port for development server
+EXPOSE 3000
+
+# Environment for development
+ENV REACT_APP_API_URL=http://localhost:8021
+ENV CHOKIDAR_USEPOLLING=true
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://localhost:3000/ || exit 1
+
+# Start development server with live reloading
+CMD ["npm", "start"]

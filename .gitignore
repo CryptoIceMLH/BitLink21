@@ -1,0 +1,15 @@
+Originals/
+.claude/
+details.md
+masterplan.md
+node_modules/
+web-ui/node_modules/
+web-ui/dist/
+__pycache__/
+*.pyc
+
+# Environment configuration (contains secrets)
+.env
+.env.local
+*.pem
+*.key

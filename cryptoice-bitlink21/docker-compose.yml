@@ -1,0 +1,48 @@
+services:
+  app_proxy:
+    environment:
+      APP_HOST: cryptoice-bitlink21_web-ui_1
+      APP_PORT: 3000
+
+  bitlink21-radio:
+    image: ghcr.io/cryptoicemlh/bitlink21-radio:v0.5.0
+    restart: unless-stopped
+    environment:
+      PLUTO_URI: "${APP_CRYPTOICE_BITLINK21_PLUTO_URI}"
+      MODEM_PORT: "40132"
+      MODEM_IP: "bitlink21-core"
+      WS_PORT: "40134"
+    ports:
+      - "${APP_CRYPTOICE_BITLINK21_WS_PORT}:40134"
+    volumes:
+      - ${APP_DATA_DIR}/data/radio:/app/data
+    networks:
+      default:
+        ipv4_address: $APP_CRYPTOICE_BITLINK21_RADIO_IP
+
+  bitlink21-core:
+    image: ghcr.io/cryptoicemlh/bitlink21-core:v0.5.0
+    restart: unless-stopped
+    environment:
+      DB_PATH: "/app/data/bitlink21.db"
+      MODEM_HOST: "${APP_CRYPTOICE_BITLINK21_RADIO_IP}"
+      MODEM_PORT: "40135"
+      API_HOST: "0.0.0.0"
+      API_PORT: "8021"
+      BITLINK_API_TOKEN: "${APP_CRYPTOICE_BITLINK21_API_TOKEN}"
+      LOG_LEVEL: "INFO"
+    ports:
+      - "${APP_CRYPTOICE_BITLINK21_API_PORT}:8021"
+    volumes:
+      - ${APP_DATA_DIR}/data/core:/app/data
+    depends_on:
+      - bitlink21-radio
+    networks:
+      default:
+        ipv4_address: $APP_CRYPTOICE_BITLINK21_CORE_IP
+
+  web-ui:
+    image: ghcr.io/cryptoicemlh/bitlink21-ui:v0.5.0
+    restart: unless-stopped
+    depends_on:
+      - bitlink21-core

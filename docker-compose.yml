@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  # C++ Radio DSP
+  bitlink21-radio:
+    build:
+      context: ./radio
+      dockerfile: Dockerfile
+    container_name: bitlink21-radio
+    environment:
+      PLUTO_URI: "ip:192.168.1.200"
+      MODEM_PORT: "40132"
+      MODEM_IP: "bitlink21-core"
+    ports:
+      - "40134:40134"  # WebSocket for waterfall FFT
+      - "40135:40135/udp"  # UDP control commands from Python core
+    volumes:
+      - ./data/radio:/app/data
+    networks:
+      - bitlink21_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -so /dev/null --max-time 2 http://localhost:40134/ || [ $? -eq 52 ]"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Python Core (REST API, encryption, storage)
+  bitlink21-core:
+    build:
+      context: ./core
+      dockerfile: Dockerfile
+    container_name: bitlink21-core
+    environment:
+      DB_PATH: "/app/data/bitlink21.db"
+      MODEM_HOST: "bitlink21-radio"
+      MODEM_PORT: "40135"
+      LOG_DEBUG: "1"
+    ports:
+      - "8021:8021"  # REST API
+    volumes:
+      - ./data/core:/app/data
+      - ./core/src:/app/src
+    networks:
+      - bitlink21_net
+    depends_on:
+      bitlink21-radio:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf --max-time 2 http://localhost:8021/api/v1/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # React Web UI (nginx reverse proxy: /api/ → core:8021, /ws → radio:40134)
+  web-ui:
+    build:
+      context: ./web-ui
+      dockerfile: Dockerfile
+    container_name: bitlink21-ui
+    ports:
+      - "3000:3000"
+    networks:
+      - bitlink21_net
+    depends_on:
+      bitlink21-core:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:3000/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  bitlink21_net:
+    driver: bridge
+
+volumes:
+  radio_data:
+  core_data:

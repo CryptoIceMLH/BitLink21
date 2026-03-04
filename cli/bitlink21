@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+"""
+BitLink21 CLI — command-line interface for BitLink21 satellite comms node
+
+Usage:
+  bitlink21 status              Show node status and signal metrics
+  bitlink21 send "message"      Send broadcast text message
+  bitlink21 send -t npub "msg"  Send P2P message to NPUB
+  bitlink21 recv                Show latest received messages
+  bitlink21 config              Show current radio config
+  bitlink21 freq 10489.55       Set center frequency (MHz)
+  bitlink21 gain rx 60          Set RX gain (dB)
+  bitlink21 gain tx 10          Set TX gain (dB)
+  bitlink21 ptt on|off          Set PTT state
+"""
+
+import sys
+import json
+import urllib.request
+import urllib.error
+
+BASE_URL = "http://localhost:8021"
+
+
+def api_get(path):
+    try:
+        with urllib.request.urlopen(f"{BASE_URL}{path}", timeout=5) as r:
+            return json.loads(r.read())
+    except urllib.error.URLError as e:
+        print(f"Error: Cannot reach BitLink21 API at {BASE_URL} — {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def api_post(path, data):
+    payload = json.dumps(data).encode()
+    req = urllib.request.Request(f"{BASE_URL}{path}", data=payload,
+                                  headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return json.loads(r.read())
+    except urllib.error.URLError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_status():
+    health = api_get("/api/v1/health")
+    config = api_get("/api/v1/radio/status")
+    print(f"BitLink21 v{health.get('version', '?')} — {health.get('status', '?')}")
+    print(f"  Freq:      {config.get('center_freq_mhz', '?')} MHz")
+    print(f"  RX Gain:   {config.get('rx_gain_db', '?')} dB")
+    print(f"  TX Gain:   {config.get('tx_gain_db', '?')} dB")
+    print(f"  Bandwidth: {config.get('bandwidth_hz', '?')} Hz")
+    print(f"  Beacon:    {config.get('beacon_mode', '?')}")
+    print(f"  PlutoSDR:  {config.get('pluto_ip', '?')}")
+    plugins = health.get('plugins', {})
+    print(f"  Plugins:   {', '.join(plugins.values()) if plugins else 'none'}")
+
+
+def cmd_send(args):
+    recipient = None
+    message = None
+
+    i = 0
+    while i < len(args):
+        if args[i] in ('-t', '--to') and i + 1 < len(args):
+            recipient = args[i + 1]
+            i += 2
+        else:
+            message = args[i]
+            i += 1
+
+    if not message:
+        print("Usage: bitlink21 send [-t NPUB] \"message\"", file=sys.stderr)
+        sys.exit(1)
+
+    payload = {
+        "destination_npub": recipient,
+        "payload_type": 0,
+        "body": message
+    }
+    result = api_post("/api/v1/send", payload)
+    if result.get("status") == "ok":
+        dest = recipient[:16] + "..." if recipient else "BROADCAST"
+        print(f"Sent to {dest}: {message[:50]}")
+    else:
+        print(f"Send failed: {result}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_recv(args):
+    limit = 10
+    for arg in args:
+        if arg.isdigit():
+            limit = int(arg)
+    result = api_get(f"/api/v1/messages?limit={limit}")
+    messages = result.get("messages", [])
+    if not messages:
+        print("No messages received.")
+        return
+    for msg in messages:
+        ts = msg.get("timestamp_ms", 0)
+        direction = msg.get("direction", "?")
+        sender = (msg.get("sender_npub") or "broadcast")[:16]
+        body = msg.get("body_base64", "[encrypted]")[:60]
+        print(f"[{direction}] {sender}... : {body}")
+
+
+def cmd_config():
+    config = api_get("/api/v1/radio/status")
+    print(json.dumps(config, indent=2))
+
+
+def cmd_freq(args):
+    if not args:
+        print("Usage: bitlink21 freq <MHz>", file=sys.stderr)
+        sys.exit(1)
+    freq = float(args[0])
+    result = api_post("/api/v1/config/center_freq_mhz", {"value": freq})
+    print(f"Frequency set to {freq} MHz")
+
+
+def cmd_gain(args):
+    if len(args) < 2:
+        print("Usage: bitlink21 gain rx|tx <dB>", file=sys.stderr)
+        sys.exit(1)
+    direction = args[0].lower()
+    value = float(args[1])
+    if direction == "rx":
+        api_post("/api/v1/config/rx_gain_db", {"value": value})
+        print(f"RX gain set to {value} dB")
+    elif direction == "tx":
+        api_post("/api/v1/config/tx_gain_db", {"value": value})
+        print(f"TX gain set to {value} dB")
+    else:
+        print("Direction must be 'rx' or 'tx'", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_ptt(args):
+    if not args or args[0].lower() not in ("on", "off", "1", "0", "true", "false"):
+        print("Usage: bitlink21 ptt on|off", file=sys.stderr)
+        sys.exit(1)
+    state = args[0].lower() in ("on", "1", "true")
+    api_post("/api/v1/ptt", {"state": state})
+    print(f"PTT {'ON' if state else 'OFF'}")
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(0)
+
+    cmd = sys.argv[1].lower()
+    args = sys.argv[2:]
+
+    commands = {
+        "status": cmd_status,
+        "send": cmd_send,
+        "recv": cmd_recv,
+        "receive": cmd_recv,
+        "config": cmd_config,
+        "freq": cmd_freq,
+        "gain": cmd_gain,
+        "ptt": cmd_ptt,
+    }
+
+    if cmd in commands:
+        if cmd in ("status", "config"):
+            commands[cmd]()
+        else:
+            commands[cmd](args)
+    else:
+        print(f"Unknown command: {cmd}", file=sys.stderr)
+        print(__doc__)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

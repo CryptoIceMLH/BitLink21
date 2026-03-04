@@ -1,0 +1,26 @@
+manifestVersion: 1.1
+id: cryptoice-bitlink21
+name: BitLink21
+tagline: Bitcoin satellite communication via QO-100
+icon: cryptoice-bitlink21/bitlink21-128.png
+category: bitcoin
+version: "0.5.0"
+port: 3000
+description: >-
+  BitLink21 is a self-hosted satellite communications layer for Bitcoin and Lightning.
+  Send encrypted Bitcoin transactions, Lightning invoices, and messages over the QO-100
+  geostationary satellite using a PlutoSDR — no internet required between nodes.
+developer: BitLink21 Contributors
+website: https://github.com/CryptoIceMLH/BitLink21
+repo: https://github.com/CryptoIceMLH/BitLink21
+support: https://github.com/CryptoIceMLH/BitLink21/issues
+dependencies: []
+releaseNotes: >-
+  v0.5.0: Initial Umbrel release — nginx reverse proxy (single-port access),
+  full SSP stack with React dashboard, PlutoSDR radio DSP, NIP-04 encryption,
+  and satellite modem.
+path: ""
+defaultUsername: ""
+defaultPassword: ""
+submitter: CryptoIceMLH
+submission: https://github.com/CryptoIceMLH/BitLink21
