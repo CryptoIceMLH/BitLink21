@@ -92,9 +92,5 @@ ENV PLUTO_URI=ip:192.168.1.200
 # Expose port for WebSocket waterfall FFT
 EXPOSE 40134
 
-# Health check (TCP probe — no endpoint needed)
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD timeout 1 bash -c 'echo > /dev/tcp/localhost/40134' || exit 1
-
 # Run the compiled radio binary (uses PLUTO_URI from environment)
 CMD ./build/bitlink21-radio --log-level 1 --lnb-offset 9750

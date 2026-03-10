@@ -37,9 +37,5 @@ RUN chmod +x /docker-entrypoint.sh
 # Expose port
 EXPOSE 3000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD wget -qO /dev/null http://127.0.0.1:3000/ || exit 1
-
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]

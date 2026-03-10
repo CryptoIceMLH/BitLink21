@@ -18,8 +18,4 @@ COPY VERSION ./VERSION
 
 EXPOSE 8021
 
-# Health check (TCP probe — no endpoint needed)
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD timeout 1 bash -c 'echo > /dev/tcp/localhost/8021' || exit 1
-
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8021"]
