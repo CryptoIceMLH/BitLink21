@@ -4,7 +4,7 @@ name: BitLink21
 tagline: Bitcoin satellite communication via QO-100
 icon: cryptoice-bitlink21/bitlink21-128.png
 category: bitcoin
-version: "0.5.3"
+version: "0.5.4"
 port: 3021
 description: >-
   BitLink21 is a self-hosted satellite communications layer for Bitcoin and Lightning.
@@ -16,7 +16,7 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 dependencies: []
 releaseNotes: >-
-  v0.5.3: Fix Umbrel API auth — nginx injects token for internal API calls
+  v0.5.4: UI restores radio state from backend on page load
 path: ""
 defaultUsername: ""
 defaultPassword: ""

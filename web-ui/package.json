@@ -1,6 +1,6 @@
 {
   "name": "bitlink21-web-ui",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "type": "module",
   "description": "BitLink21 Web UI - React + Vite + Tailwind CSS",
   "private": true,

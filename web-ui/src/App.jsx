@@ -24,7 +24,7 @@ const BAND_SPAN_HZ = 560000
 
 function App() {
   const [coreVersion, setCoreVersion] = useState('...')
-  const [activeTab, setActiveTab] = useState('radio')
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem('bl21_activeTab') || 'radio')
   const [debugSubTab, setDebugSubTab] = useState('ber')
   const [wsConnected, setWsConnected] = useState(false)
   const [unreadMessages, setUnreadMessages] = useState(0)
@@ -78,6 +78,10 @@ function App() {
     api.get('/api/v1/health').then(r => {
       setCoreVersion(r.version || '?')
     }).catch(() => setCoreVersion('offline'))
+    // Probe SDR status immediately so status bar shows correct state on load
+    api.get('/api/v1/radio/probe').then(r => {
+      if (r.connected != null) setWsMetrics(prev => ({ ...prev, sdr_connected: r.connected, sdr_hw_model: r.hw_model || '', sdr_fw_version: r.fw_version || '' }))
+    }).catch(() => {})
   }, [])
 
   // Listen for WebSocket status changes
@@ -135,9 +139,10 @@ function App() {
     return () => window.removeEventListener('bitlink21_nav', handleNav)
   }, [])
 
-  // Clear unread when switching to messages tab
+  // Clear unread when switching to messages tab + persist active tab
   useEffect(() => {
     if (activeTab === 'messages') setUnreadMessages(0)
+    localStorage.setItem('bl21_activeTab', activeTab)
   }, [activeTab])
 
   // Persist VFO offsets to localStorage
@@ -378,6 +383,25 @@ function RadioTab({ wsMetrics, onError, onSuccess, rxOffsetHz, txOffsetHz, onRxO
   const [ritOffset, setRitOffset] = useState(0)
   const [xitOffset, setXitOffset] = useState(0)
   const debounceRef = useRef(null)
+
+  // Fetch initial radio state from backend API on mount
+  useEffect(() => {
+    Promise.allSettled([
+      api.get('/api/v1/config/modem_scheme'),
+      api.get('/api/v1/config/rx_gain_db'),
+      api.get('/api/v1/config/tx_atten_db'),
+      api.get('/api/v1/config/bandwidth_hz'),
+      api.get('/api/v1/config/beacon_mode'),
+      api.get('/api/v1/config/xo_correction'),
+    ]).then(([modem, rxG, txA, bw, beacon, xo]) => {
+      if (modem.status === 'fulfilled' && modem.value.modem_scheme) setModemScheme(modem.value.modem_scheme)
+      if (rxG.status === 'fulfilled' && rxG.value.rx_gain_db != null) setRxGain(rxG.value.rx_gain_db)
+      if (txA.status === 'fulfilled' && txA.value.tx_atten_db != null) setTxAtten(txA.value.tx_atten_db)
+      if (bw.status === 'fulfilled' && bw.value.value != null) { setBandwidth(bw.value.value); onModemBwChange?.(bw.value.value) }
+      if (beacon.status === 'fulfilled' && beacon.value.beacon_mode) setBeaconMode(beacon.value.beacon_mode)
+      if (xo.status === 'fulfilled' && xo.value.xo_correction != null) setXoCorr(xo.value.xo_correction)
+    })
+  }, [])
 
   // Sync from VFO offset props
   useEffect(() => {
