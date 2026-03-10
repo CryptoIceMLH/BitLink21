@@ -26,7 +26,6 @@ function SettingsPanel({ wsMetrics, onError, onSuccess }) {
   const [lndMacaroonSaved, setLndMacaroonSaved] = useState(false)
   const [retentionDays, setRetentionDays] = useState('7')
   const [sdrConnecting, setSdrConnecting] = useState(false)
-  const [sdrConnected, setSdrConnected] = useState(wsMetrics?.sdr_connected || false)
   const [sdrInfo, setSdrInfo] = useState({})
 
   const bandwidthOptions = [520830, 1000000, 2700000, 5000000, 10000000, 20000000, 30720000] // Hz — min=520830, max=30.72MHz
@@ -65,10 +64,9 @@ function SettingsPanel({ wsMetrics, onError, onSuccess }) {
         // Backend returns "days", not "value"
         if (retention?.days) setRetentionDays(retention.days.toString())
 
-        // Load SDR connection status
+        // Load SDR hardware info for display
         if (sdrProbe && sdrProbe.connected) {
           console.debug('[SETTINGS] SDR connected', { model: sdrProbe.hw_model, fw: sdrProbe.fw_version })
-          setSdrConnected(true)
           setSdrInfo(sdrProbe)
         }
 
@@ -97,13 +95,6 @@ function SettingsPanel({ wsMetrics, onError, onSuccess }) {
 
     fetchSettings()
   }, [])
-
-  // Sync live SDR status from WS metrics (overrides stale probe cache)
-  useEffect(() => {
-    if (wsMetrics?.sdr_connected != null) {
-      setSdrConnected(wsMetrics.sdr_connected)
-    }
-  }, [wsMetrics?.sdr_connected])
 
   const handleSave = async () => {
     console.debug('[SETTINGS] Save clicked', { pttMode, retentionDays, beaconMode })
@@ -189,18 +180,15 @@ function SettingsPanel({ wsMetrics, onError, onSuccess }) {
 
       if (response.connected) {
         console.debug('[SETTINGS] SDR connected', { model: response.hw_model, fw: response.fw_version })
-        setSdrConnected(true)
         setSdrInfo(response)
         onSuccess?.(`SDR connected: ${response.hw_model}`)
       } else {
         console.debug('[SETTINGS] SDR connection failed', { error: response.error })
-        setSdrConnected(false)
         setSdrInfo({})
         onError?.(`Failed to connect SDR: ${response.error || 'unknown error'}`)
       }
     } catch (err) {
       console.error('[SETTINGS] SDR connection error', { error: err.message })
-      setSdrConnected(false)
       setSdrInfo({})
       onError?.('SDR connection error: ' + err.message)
     } finally {
@@ -214,7 +202,6 @@ function SettingsPanel({ wsMetrics, onError, onSuccess }) {
     try {
       await api.post('/api/v1/radio/disconnect', {})
       console.debug('[SETTINGS] SDR disconnected')
-      setSdrConnected(false)
       setSdrInfo({})
       onSuccess?.('SDR disconnected')
     } catch (err) {
@@ -233,7 +220,7 @@ function SettingsPanel({ wsMetrics, onError, onSuccess }) {
         <h3 className="text-cyan-400 font-bold mb-3">HARDWARE</h3>
 
         <div className="space-y-2">
-          {!sdrConnected ? (
+          {!wsMetrics?.sdr_connected ? (
             <>
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-gray-300">Device Type</label>
