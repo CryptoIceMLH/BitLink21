@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 let globalWs = null
 let wsListeners = []
 let reconnectTimeout = null
-let backoff = 1000
+let backoff = 200
+let initialConnect = true  // First connect attempt — use fast retry on refresh race
 
 function connect() {
   if (globalWs && globalWs.readyState === WebSocket.OPEN) {
@@ -24,7 +25,8 @@ function connect() {
 
     globalWs.onopen = () => {
       console.debug('[WS] Singleton connected', { url: wsUrl })
-      backoff = 1000
+      backoff = 200
+      initialConnect = false  // Connected — future disconnects use normal backoff
       wsListeners.forEach(cb => cb({ type: 'open' }))
     }
 
@@ -36,11 +38,14 @@ function connect() {
       console.debug('[WS] Singleton closed, will reconnect')
       globalWs = null
       wsListeners.forEach(cb => cb({ type: 'close' }))
+      // Fast retry (200ms) on initial connect (page refresh race condition)
+      // Normal exponential backoff (1s→2s→4s→16s max) for sustained failures
+      const delay = initialConnect ? 200 : backoff
       reconnectTimeout = setTimeout(() => {
-        backoff = Math.min(backoff * 2, 16000)
-        console.debug('[WS] Reconnecting', { backoffMs: backoff })
+        if (!initialConnect) backoff = Math.min(backoff * 2, 16000)
+        console.debug('[WS] Reconnecting', { backoffMs: delay, initial: initialConnect })
         connect()
-      }, backoff)
+      }, delay)
     }
 
     globalWs.onerror = (error) => {

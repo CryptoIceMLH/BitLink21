@@ -4,7 +4,7 @@ name: BitLink21
 tagline: Bitcoin satellite communication via QO-100
 icon: https://raw.githubusercontent.com/CryptoIceMLH/BitLink21/master/cryptoice-bitlink21/bitlink21-128.png
 category: bitcoin
-version: "0.5.4"
+version: "0.5.5"
 port: 3021
 description: >-
   BitLink21 is a self-hosted satellite communications layer for Bitcoin and Lightning.
@@ -25,7 +25,7 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 gallery: []
 releaseNotes: >-
-  v0.5.4: UI restores radio state from backend on page load
+  v0.5.5: Faster WebSocket reconnect on page refresh
 dependencies: []
 path: ""
 defaultUsername: ""
