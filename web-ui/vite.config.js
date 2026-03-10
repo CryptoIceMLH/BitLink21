@@ -4,7 +4,7 @@ import fs from 'fs'
 
 const appVersion = fs.existsSync('./VERSION')
   ? fs.readFileSync('./VERSION', 'utf-8').trim()
-  : '0.5.5-ui'
+  : '0.6.0-ui'
 
 export default defineConfig({
   define: {

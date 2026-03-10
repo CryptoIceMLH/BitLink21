@@ -678,7 +678,9 @@ const Waterfall = ({ wsMetrics, specOnly = false, wfOnly = false, zoomLevel = 1,
 
           // Fresh reads of canvas ctx and dimensions INSIDE handler
           const wfCtx = specOnly ? null : wfCanvas.getContext('2d')
-          const specCtx = wfOnly ? null : specCanvas.getContext('2d')
+          // Always get specCtx if canvas exists — wfOnly mode has a transparent
+          // overlay canvas for spectrum trace, filter bars, and band plan
+          const specCtx = specCanvas ? specCanvas.getContext('2d') : null
           const wfWidth = wfCanvas?.offsetWidth || 0
           const wfHeight = wfCanvas?.offsetHeight || 0
           const specWidth = specCanvas?.offsetWidth || 0
@@ -703,32 +705,36 @@ const Waterfall = ({ wsMetrics, specOnly = false, wfOnly = false, zoomLevel = 1,
             console.debug('[WATERFALL] FFT data received', { frameNum: frameCount, bins: msg.bins?.length || 0 })
           }
 
-          // Update SDR frequency coverage from frame metadata
+          // Update SDR frequency coverage from frame metadata (safe for all instances)
           if (msg.center_freq_mhz) MODULE_STATE.sdrCenterMhz = msg.center_freq_mhz
           if (msg.bandwidth_mhz) MODULE_STATE.sdrBandwidthMhz = msg.bandwidth_mhz
 
-          MODULE_STATE.wfLines.push(msg.bins)
-          MODULE_STATE.spectrum = msg.bins
+          // Only one instance updates shared state — prevents double-processing
+          // when both specOnly and wfOnly instances handle the same WS message
+          if (!specOnly) {
+            MODULE_STATE.wfLines.push(msg.bins)
+            MODULE_STATE.spectrum = msg.bins
 
-          // Exponential smoothing for spectrum trace (alpha=0.3 → smooth, stable line)
-          const alpha = 0.3
-          if (MODULE_STATE.spectrumSmooth.length !== msg.bins.length) {
-            MODULE_STATE.spectrumSmooth = msg.bins.slice()
-          } else {
-            for (let i = 0; i < msg.bins.length; i++) {
-              MODULE_STATE.spectrumSmooth[i] = MODULE_STATE.spectrumSmooth[i] * (1 - alpha) + msg.bins[i] * alpha
+            // Exponential smoothing for spectrum trace (alpha=0.3 → smooth, stable line)
+            const alpha = 0.3
+            if (MODULE_STATE.spectrumSmooth.length !== msg.bins.length) {
+              MODULE_STATE.spectrumSmooth = msg.bins.slice()
+            } else {
+              for (let i = 0; i < msg.bins.length; i++) {
+                MODULE_STATE.spectrumSmooth[i] = MODULE_STATE.spectrumSmooth[i] * (1 - alpha) + msg.bins[i] * alpha
+              }
             }
-          }
 
-          // Dispatch min/max dB levels for auto-scale (from waterfall frame data)
-          if (msg.min_level_db != null && msg.max_level_db != null) {
-            window.dispatchEvent(new CustomEvent('bitlink21_wf_levels', {
-              detail: { min_level_db: msg.min_level_db, max_level_db: msg.max_level_db }
-            }))
-          }
+            // Dispatch min/max dB levels for auto-scale (from waterfall frame data)
+            if (msg.min_level_db != null && msg.max_level_db != null) {
+              window.dispatchEvent(new CustomEvent('bitlink21_wf_levels', {
+                detail: { min_level_db: msg.min_level_db, max_level_db: msg.max_level_db }
+              }))
+            }
 
-          if (MODULE_STATE.wfLines.length > maxLinesRef.current) {
-            MODULE_STATE.wfLines.shift()
+            if (MODULE_STATE.wfLines.length > maxLinesRef.current) {
+              MODULE_STATE.wfLines.shift()
+            }
           }
 
           // VFO offset frequencies for drawing
@@ -748,13 +754,29 @@ const Waterfall = ({ wsMetrics, specOnly = false, wfOnly = false, zoomLevel = 1,
               : (ctx, bins, y, w, lh) => drawWaterfallLine(ctx, bins, y, w, lh, pal, min, max)
 
             if (MODULE_STATE.wfLines.length > 1) {
-              if (!MODULE_STATE.offscreenCanvas || MODULE_STATE.offscreenCanvas.width !== wfWidth || MODULE_STATE.offscreenCanvas.height !== wfHeight) {
-                MODULE_STATE.offscreenCanvas = new OffscreenCanvas(wfWidth, wfHeight)
+              // Use pixel dimensions (canvas.width/height) for offscreen copy,
+              // not CSS dimensions — prevents clipping at DPR > 1
+              const pxW = wfCanvas.width
+              const pxH = wfCanvas.height
+              const dpr = window.devicePixelRatio || 1
+              const pxLineH = Math.max(1, Math.round(lineHeight * dpr))
+
+              if (!MODULE_STATE.offscreenCanvas || MODULE_STATE.offscreenCanvas.width !== pxW || MODULE_STATE.offscreenCanvas.height !== pxH) {
+                MODULE_STATE.offscreenCanvas = new OffscreenCanvas(pxW, pxH)
               }
               const offCtx = MODULE_STATE.offscreenCanvas.getContext('2d')
-              offCtx.clearRect(0, 0, wfWidth, wfHeight)
+              offCtx.clearRect(0, 0, pxW, pxH)
               offCtx.drawImage(wfCanvas, 0, 0)
-              wfCtx.drawImage(MODULE_STATE.offscreenCanvas, 0, 0, wfWidth, wfHeight - lineHeight, 0, lineHeight, wfWidth, wfHeight - lineHeight)
+
+              // Scroll down in pixel-space (bypass DPR scale transform)
+              wfCtx.save()
+              wfCtx.setTransform(1, 0, 0, 1, 0, 0)
+              wfCtx.drawImage(MODULE_STATE.offscreenCanvas, 0, 0, pxW, pxH - pxLineH, 0, pxLineH, pxW, pxH - pxLineH)
+              // Clear the top strip for the new line (in pixel coords)
+              wfCtx.clearRect(0, 0, pxW, pxLineH)
+              wfCtx.restore()
+
+              // Draw new line at top (CSS coords, DPR transform active)
               drawLine(wfCtx, MODULE_STATE.wfLines[MODULE_STATE.wfLines.length - 1], 0, wfWidth, lineHeight)
             } else if (MODULE_STATE.wfLines.length === 1) {
               drawLine(wfCtx, MODULE_STATE.wfLines[0], Math.max(0, wfHeight - lineHeight), wfWidth, lineHeight)
