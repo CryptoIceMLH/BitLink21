@@ -4,8 +4,8 @@ name: BitLink21
 tagline: Bitcoin satellite communication via QO-100
 icon: https://raw.githubusercontent.com/CryptoIceMLH/BitLink21/master/cryptoice-bitlink21/bitlink21-128.png
 category: bitcoin
-version: "0.5.0"
-port: 3000
+version: "0.5.1"
+port: 3021
 description: >-
   BitLink21 is a self-hosted satellite communications layer for Bitcoin and Lightning.
   Send encrypted Bitcoin transactions, Lightning invoices, and messages over the QO-100
@@ -25,9 +25,8 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 gallery: []
 releaseNotes: >-
-  v0.5.0: Initial Umbrel release — nginx reverse proxy (single-port access),
-  full SSP stack with React dashboard, PlutoSDR radio DSP, NIP-04 encryption,
-  and satellite modem.
+  v0.5.1: Fix Umbrel port conflict (3000→3021), remove host port bindings
+  from Umbrel compose. No changes to standalone deployment.
 dependencies: []
 path: ""
 defaultUsername: ""
