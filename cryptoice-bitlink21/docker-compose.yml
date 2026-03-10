@@ -5,7 +5,7 @@ services:
       APP_PORT: 3000
 
   bitlink21-radio:
-    image: ghcr.io/cryptoicemlh/bitlink21-radio:v0.5.2
+    image: ghcr.io/cryptoicemlh/bitlink21-radio:v0.5.3
     restart: unless-stopped
     environment:
       PLUTO_URI: "${APP_CRYPTOICE_BITLINK21_PLUTO_URI}"
@@ -19,7 +19,7 @@ services:
         ipv4_address: $APP_CRYPTOICE_BITLINK21_RADIO_IP
 
   bitlink21-core:
-    image: ghcr.io/cryptoicemlh/bitlink21-core:v0.5.2
+    image: ghcr.io/cryptoicemlh/bitlink21-core:v0.5.3
     restart: unless-stopped
     environment:
       DB_PATH: "/app/data/bitlink21.db"
@@ -38,7 +38,9 @@ services:
         ipv4_address: $APP_CRYPTOICE_BITLINK21_CORE_IP
 
   web-ui:
-    image: ghcr.io/cryptoicemlh/bitlink21-ui:v0.5.2
+    image: ghcr.io/cryptoicemlh/bitlink21-ui:v0.5.3
     restart: unless-stopped
+    environment:
+      BITLINK_API_TOKEN: "${APP_CRYPTOICE_BITLINK21_API_TOKEN}"
     depends_on:
       - bitlink21-core

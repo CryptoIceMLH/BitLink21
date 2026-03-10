@@ -45,7 +45,7 @@ def get_version():
     if os.path.exists(version_file):
         with open(version_file, 'r') as f:
             return f.read().strip()
-    return "0.5.2-core"
+    return "0.5.3-core"
 
 VERSION = get_version()
 
