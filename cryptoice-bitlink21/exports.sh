@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Static IPs on the Umbrel network
-# Using 10.21.22.x range to avoid collision with Prometheus (10.21.21.x)
-export APP_CRYPTOICE_BITLINK21_RADIO_IP="10.21.22.2"
-export APP_CRYPTOICE_BITLINK21_CORE_IP="10.21.22.3"
+# Using 10.21.25.x range to avoid collision with other Umbrel apps
+export APP_CRYPTOICE_BITLINK21_RADIO_IP="10.21.25.2"
+export APP_CRYPTOICE_BITLINK21_CORE_IP="10.21.25.3"
 
 # Ports
 export APP_CRYPTOICE_BITLINK21_API_PORT="8021"

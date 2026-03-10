@@ -2,5 +2,5 @@
 BitLink21 Core — SSP Layer, Encryption, and Plugin System
 """
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 __author__ = "BitLink21 Contributors"

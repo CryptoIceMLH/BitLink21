@@ -4,7 +4,7 @@ name: BitLink21
 tagline: Bitcoin satellite communication via QO-100
 icon: https://raw.githubusercontent.com/CryptoIceMLH/BitLink21/master/cryptoice-bitlink21/bitlink21-128.png
 category: bitcoin
-version: "0.5.1"
+version: "0.5.2"
 port: 3021
 description: >-
   BitLink21 is a self-hosted satellite communications layer for Bitcoin and Lightning.
@@ -25,8 +25,7 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 gallery: []
 releaseNotes: >-
-  v0.5.1: Fix Umbrel port conflict (3000→3021), remove host port bindings
-  from Umbrel compose. No changes to standalone deployment.
+  v0.5.2: Fix Umbrel static IP collision (10.21.22.x → 10.21.25.x)
 dependencies: []
 path: ""
 defaultUsername: ""
