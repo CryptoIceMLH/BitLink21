@@ -859,7 +859,11 @@ bool WsServer::read_websocket_frame_(int socket_fd, std::string& payload) {
 bool WsServer::send_websocket_frame_(int socket_fd, const std::string& payload, bool is_binary) {
     auto frame = encode_websocket_frame(payload, is_binary);
 
-    if (send(socket_fd, (const char*)frame.data(), (int)frame.size(), 0) == SOCKET_ERROR) {
+    int flags = 0;
+#ifdef MSG_NOSIGNAL
+    flags = MSG_NOSIGNAL;  // Prevent SIGPIPE on broken socket
+#endif
+    if (send(socket_fd, (const char*)frame.data(), (int)frame.size(), flags) == SOCKET_ERROR) {
         return false;
     }
 

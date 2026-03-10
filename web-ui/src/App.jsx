@@ -78,9 +78,9 @@ function App() {
     api.get('/api/v1/health').then(r => {
       setCoreVersion(r.version || '?')
     }).catch(() => setCoreVersion('offline'))
-    // Probe SDR status immediately so status bar shows correct state on load
+    // Probe SDR info (hw_model, fw_version) — but NOT sdr_connected (that comes only from live WS metrics)
     api.get('/api/v1/radio/probe').then(r => {
-      if (r.connected != null) setWsMetrics(prev => ({ ...prev, sdr_connected: r.connected, sdr_hw_model: r.hw_model || '', sdr_fw_version: r.fw_version || '' }))
+      if (r.connected) setWsMetrics(prev => ({ ...prev, sdr_hw_model: r.hw_model || '', sdr_fw_version: r.fw_version || '' }))
     }).catch(() => {})
   }, [])
 

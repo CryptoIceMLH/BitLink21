@@ -1,6 +1,6 @@
 import React from 'react'
 
-const UI_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.6.0'
+const UI_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.6.1'
 
 const BottomStatusBar = ({ wsMetrics, wsConnected }) => {
   const sdrInfo = wsMetrics.sdr_connected

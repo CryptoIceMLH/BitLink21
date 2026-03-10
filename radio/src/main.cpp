@@ -258,6 +258,9 @@ int main(int argc, char* argv[]) {
     std::cerr << "[MAIN] DEBUG: Installing signal handlers for SIGINT and SIGTERM\n";
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
+#ifndef _WIN32
+    std::signal(SIGPIPE, SIG_IGN);  // Ignore SIGPIPE — broken WS client must not kill process
+#endif
 
     LOG_INFO("main", "Signal handlers installed", "{}");
     std::cout << "[MAIN] Installing signal handlers... OK\n";
