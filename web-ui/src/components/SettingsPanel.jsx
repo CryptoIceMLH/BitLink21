@@ -26,7 +26,7 @@ function SettingsPanel({ wsMetrics, onError, onSuccess }) {
   const [lndMacaroonSaved, setLndMacaroonSaved] = useState(false)
   const [retentionDays, setRetentionDays] = useState('7')
   const [sdrConnecting, setSdrConnecting] = useState(false)
-  const [sdrConnected, setSdrConnected] = useState(false)
+  const [sdrConnected, setSdrConnected] = useState(wsMetrics?.sdr_connected || false)
   const [sdrInfo, setSdrInfo] = useState({})
 
   const bandwidthOptions = [520830, 1000000, 2700000, 5000000, 10000000, 20000000, 30720000] // Hz — min=520830, max=30.72MHz
