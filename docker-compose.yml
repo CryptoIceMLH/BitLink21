@@ -19,11 +19,6 @@ services:
     networks:
       - bitlink21_net
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -so /dev/null --max-time 2 http://localhost:40134/ || [ $? -eq 52 ]"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   # Python Core (REST API, encryption, storage)
   bitlink21-core:
@@ -44,14 +39,8 @@ services:
     networks:
       - bitlink21_net
     depends_on:
-      bitlink21-radio:
-        condition: service_healthy
+      - bitlink21-radio
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf --max-time 2 http://localhost:8021/api/v1/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   # React Web UI (nginx reverse proxy: /api/ → core:8021, /ws → radio:40134)
   web-ui:
@@ -64,14 +53,8 @@ services:
     networks:
       - bitlink21_net
     depends_on:
-      bitlink21-core:
-        condition: service_healthy
+      - bitlink21-core
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:3000/ || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
 networks:
   bitlink21_net:

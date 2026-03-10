@@ -98,6 +98,13 @@ function SettingsPanel({ wsMetrics, onError, onSuccess }) {
     fetchSettings()
   }, [])
 
+  // Sync live SDR status from WS metrics (overrides stale probe cache)
+  useEffect(() => {
+    if (wsMetrics?.sdr_connected != null) {
+      setSdrConnected(wsMetrics.sdr_connected)
+    }
+  }, [wsMetrics?.sdr_connected])
+
   const handleSave = async () => {
     console.debug('[SETTINGS] Save clicked', { pttMode, retentionDays, beaconMode })
     try {
