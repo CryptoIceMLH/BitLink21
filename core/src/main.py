@@ -197,10 +197,6 @@ async def startup_event():
         await init_radio_routes()
         logger.debug("Radio routes initialized")
 
-        # Auto-reconnect SDR if previously connected
-        from .radio_routes import auto_reconnect_sdr
-        asyncio.create_task(auto_reconnect_sdr())
-
         # BUG-20: Start UDP listener for RX frames from radio on port 40132
         app_state.rx_listener = RxFrameListener(host="0.0.0.0", port=40132)
         await app_state.rx_listener.start()

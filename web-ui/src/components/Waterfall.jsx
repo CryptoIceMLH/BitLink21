@@ -662,7 +662,11 @@ const Waterfall = ({ wsMetrics, specOnly = false, wfOnly = false, zoomLevel = 1,
 
   // WebSocket handler — deps reduced to [ws, specOnly, wfOnly] to avoid churn
   useEffect(() => {
-    if (!ws) return
+    if (!ws) {
+      console.debug(`[WATERFALL] useEffect: ws is null (${specOnly ? 'specOnly' : wfOnly ? 'wfOnly' : 'both'})`)
+      return
+    }
+    console.debug(`[WATERFALL] useEffect: attaching WS listener (${specOnly ? 'specOnly' : wfOnly ? 'wfOnly' : 'both'}, readyState=${ws.readyState})`)
 
     let frameCount = 0
     const handleMessage = (event) => {
@@ -670,6 +674,7 @@ const Waterfall = ({ wsMetrics, specOnly = false, wfOnly = false, zoomLevel = 1,
         const msg = JSON.parse(event.data)
 
         if (msg.type === 'waterfall' && msg.bins) {
+          if (frameCount < 3) console.debug(`[WATERFALL] Frame #${frameCount + 1} received (${specOnly ? 'specOnly' : wfOnly ? 'wfOnly' : 'both'}, bins=${msg.bins.length})`)
           frameCount++
           const wfCanvas = wfCanvasRef.current
           const specCanvas = specCanvasRef.current

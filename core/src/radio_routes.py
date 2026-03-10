@@ -1378,13 +1378,6 @@ async def sdr_connect(request: SdrConnectRequest, token: str = Depends(verify_to
         if response.get("connected"):
             _sdr_info_cache = response
             logger.info(f"SDR connected: {response.get('hw_model')} FW {response.get('fw_version')}")
-            # Persist SDR params for auto-reconnect on restart
-            config = load_config()
-            config["sdr_auto_connect"] = True
-            config["sdr_uri"] = request.uri
-            config["sdr_lnb_offset_mhz"] = request.lnb_offset_mhz
-            config["sdr_bandwidth_hz"] = request.bandwidth_hz
-            save_config(config)
         else:
             _sdr_info_cache = {"connected": False}
             logger.error(f"SDR connection failed: {response.get('error', 'unknown error')}")
@@ -1417,11 +1410,8 @@ async def sdr_disconnect(token: str = Depends(verify_token)):
         # Wait briefly for acknowledgment
         response = await _listen_for_sdr_response(sock, timeout_sec=2)
 
-        # Clear cached SDR info and auto-connect flag
+        # Clear cached SDR info
         _sdr_info_cache = {"connected": False}
-        config = load_config()
-        config["sdr_auto_connect"] = False
-        save_config(config)
         return response
 
     except Exception as e:
@@ -1437,44 +1427,6 @@ async def sdr_probe():
     Returns {"connected":false} if SDR is not currently connected.
     """
     return _sdr_info_cache
-
-
-async def auto_reconnect_sdr():
-    """Auto-reconnect SDR if previously connected (called from startup).
-
-    Reads sdr_auto_connect flag from config.json. If True, sends sdr_connect
-    command to radio container with the last known connection parameters.
-    """
-    global _sdr_info_cache
-
-    config = load_config()
-    if not config.get("sdr_auto_connect"):
-        logger.info("SDR auto-connect: disabled (no previous connection)")
-        return
-
-    uri = config.get("sdr_uri", f"ip:{config.get('pluto_ip', '192.168.1.200')}")
-    lnb = config.get("sdr_lnb_offset_mhz", 9750.0)
-    bw = config.get("sdr_bandwidth_hz", 2700000)
-
-    logger.info(f"SDR auto-reconnect: uri={uri}, lnb={lnb} MHz, bw={bw} Hz")
-
-    # Wait for radio container to be ready
-    await asyncio.sleep(3)
-
-    try:
-        cmd_value = {"uri": uri, "lnb_offset_mhz": lnb, "bandwidth_hz": bw}
-        await radio_cmd.send_command("sdr_connect", cmd_value)
-
-        sock = _get_sdr_response_sock()
-        response = await _listen_for_sdr_response(sock, timeout_sec=15)
-
-        if response.get("connected"):
-            _sdr_info_cache = response
-            logger.info(f"SDR auto-reconnected: {response.get('hw_model')} FW {response.get('fw_version')}")
-        else:
-            logger.error(f"SDR auto-reconnect failed: {response.get('error', 'unknown')}")
-    except Exception as e:
-        logger.error(f"SDR auto-reconnect exception: {e}")
 
 
 # ============================================================================
