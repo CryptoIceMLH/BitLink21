@@ -678,9 +678,8 @@ const Waterfall = ({ wsMetrics, specOnly = false, wfOnly = false, zoomLevel = 1,
 
           // Fresh reads of canvas ctx and dimensions INSIDE handler
           const wfCtx = specOnly ? null : wfCanvas.getContext('2d')
-          // Always get specCtx if canvas exists — wfOnly mode has a transparent
-          // overlay canvas for spectrum trace, filter bars, and band plan
-          const specCtx = specCanvas ? specCanvas.getContext('2d') : null
+          // wfOnly skips spectrum overlay (top panel handles it)
+          const specCtx = wfOnly ? null : (specCanvas ? specCanvas.getContext('2d') : null)
           const wfWidth = wfCanvas?.offsetWidth || 0
           const wfHeight = wfCanvas?.offsetHeight || 0
           const specWidth = specCanvas?.offsetWidth || 0
