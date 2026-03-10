@@ -4,29 +4,54 @@ import { useEffect, useState } from 'react'
 let globalWs = null
 let wsListeners = []
 let reconnectTimeout = null
+let connectTimeout = null
 let backoff = 200
-let initialConnect = true  // First connect attempt — use fast retry on refresh race
 
 function connect() {
+  // Already open — nothing to do
   if (globalWs && globalWs.readyState === WebSocket.OPEN) {
     console.debug('[WS] Already connected')
     return
   }
 
+  // Already connecting — don't create a second socket
+  if (globalWs && globalWs.readyState === WebSocket.CONNECTING) {
+    console.debug('[WS] Already connecting, waiting...')
+    return
+  }
+
+  // Clean up any stale socket
+  if (globalWs) {
+    try { globalWs.close() } catch (e) {}
+    globalWs = null
+  }
+
+  // Clear any pending reconnect
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout)
+    reconnectTimeout = null
+  }
+
   try {
-    // Use relative /ws path — nginx proxies to bitlink21-radio:40134
-    // In dev mode, Vite proxy handles ws:// forwarding
-    // Can be overridden via localStorage for direct SDR access
     const stored = localStorage.getItem('bitlink21_ws_url')
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = stored || `${wsProtocol}//${window.location.host}/ws`
-    console.debug('[WS] Creating singleton connection', { url: wsUrl })
+    console.debug('[WS] Connecting...', { url: wsUrl })
     globalWs = new WebSocket(wsUrl)
 
+    // Timeout: if not open within 5s, abort and retry
+    connectTimeout = setTimeout(() => {
+      if (globalWs && globalWs.readyState === WebSocket.CONNECTING) {
+        console.debug('[WS] Connect timeout (5s), aborting')
+        try { globalWs.close() } catch (e) {}
+        // onclose will fire and trigger reconnect
+      }
+    }, 5000)
+
     globalWs.onopen = () => {
-      console.debug('[WS] Singleton connected', { url: wsUrl })
+      console.debug('[WS] Connected', { url: wsUrl })
+      if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null }
       backoff = 200
-      initialConnect = false  // Connected — future disconnects use normal backoff
       wsListeners.forEach(cb => cb({ type: 'open' }))
     }
 
@@ -35,24 +60,23 @@ function connect() {
     }
 
     globalWs.onclose = () => {
-      console.debug('[WS] Singleton closed, will reconnect')
+      console.debug('[WS] Closed, will reconnect')
+      if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null }
       globalWs = null
       wsListeners.forEach(cb => cb({ type: 'close' }))
-      // Fast retry (200ms) on initial connect (page refresh race condition)
-      // Normal exponential backoff (1s→2s→4s→16s max) for sustained failures
-      const delay = initialConnect ? 200 : backoff
+      // Reconnect with backoff: 200ms → 400ms → 800ms → ... → 5s max
       reconnectTimeout = setTimeout(() => {
-        if (!initialConnect) backoff = Math.min(backoff * 2, 16000)
-        console.debug('[WS] Reconnecting', { backoffMs: delay, initial: initialConnect })
+        backoff = Math.min(backoff * 2, 5000)
+        console.debug('[WS] Reconnecting', { backoffMs: backoff })
         connect()
-      }, delay)
+      }, backoff)
     }
 
     globalWs.onerror = (error) => {
-      console.error('[WS] Singleton error', { error, readyState: globalWs?.readyState })
+      console.error('[WS] Error', { readyState: globalWs?.readyState })
     }
   } catch (error) {
-    console.error('[WS] Failed to create singleton', { error })
+    console.error('[WS] Failed to create connection', { error })
   }
 }
 
@@ -60,14 +84,10 @@ export const useWebSocket = () => {
   const [ws, setWs] = useState(globalWs && globalWs.readyState === WebSocket.OPEN ? globalWs : null)
 
   useEffect(() => {
-    console.debug('[WS] Hook mounted')
-
     const listener = ({ type }) => {
       if (type === 'open') {
-        console.debug('[WS] Hook notified: open')
         setWs(globalWs)
       } else if (type === 'close') {
-        console.debug('[WS] Hook notified: close')
         setWs(null)
       }
     }
@@ -82,9 +102,7 @@ export const useWebSocket = () => {
     }
 
     return () => {
-      console.debug('[WS] Hook cleanup')
       wsListeners = wsListeners.filter(l => l !== listener)
-      // Don't close the socket on unmount — other components may still use it
     }
   }, [])
 
