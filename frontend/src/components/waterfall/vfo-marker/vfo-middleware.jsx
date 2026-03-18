@@ -299,19 +299,13 @@ const backendSyncMiddleware = (store) => (next) => (action) => {
                 // Filter out UI-only fields before sending to backend
                 const backendVfoState = filterUIOnlyFields(vfoState);
 
-                // Convert VFO frequency from RF to IF space for backend
-                const rfToIF = getVfoRfToIF(store);
-                const convertedState = {
-                    ...backendVfoState,
-                    frequency: backendVfoState.frequency != null ? rfToIF(backendVfoState.frequency) : null,
-                };
-
+                // Note: RF→IF conversion is handled inside backendUpdateVFOParameters thunk
                 store.dispatch(backendUpdateVFOParameters({
                     socket,
                     vfoNumber: vfoNum,
                     updates: {
                         vfoNumber: vfoNum,
-                        ...convertedState,
+                        ...backendVfoState,
                         active: isActive,
                         selected: isSelected,
                     },

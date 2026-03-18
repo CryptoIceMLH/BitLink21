@@ -404,7 +404,8 @@ export const DECODER_SUPPORT = {
     apt: true,
     lora: false,
     morse: false,
-    afsk: false
+    afsk: false,
+    ssp: true
 };
 
 /**

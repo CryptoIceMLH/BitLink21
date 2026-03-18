@@ -24,11 +24,26 @@ import { setIsStreaming } from '../waterfall-slice.jsx';
 
 export const backendUpdateVFOParameters = createAsyncThunk(
     'vfo/updateVFOParameters',
-    async ({socket, vfoNumber, updates}, {rejectWithValue}) => {
+    async ({socket, vfoNumber, updates}, {getState, rejectWithValue}) => {
+        // Convert VFO frequency from RF to IF space using active converter
+        const waterfallState = getState().waterfall || {};
+        const convDefs = waterfallState.converterDefinitions || [];
+        const activeConvId = waterfallState.activeConverterId;
+        const activeConv = convDefs.find(c => c.id === activeConvId);
+
+        let convertedUpdates = { ...updates };
+        if (activeConv && convertedUpdates.frequency != null) {
+            if (activeConv.type === 'down') {
+                convertedUpdates.frequency = convertedUpdates.frequency - activeConv.rxOffset;
+            } else if (activeConv.type === 'up') {
+                convertedUpdates.frequency = convertedUpdates.frequency + activeConv.rxOffset;
+            }
+        }
+
         return new Promise((resolve, reject) => {
             socket.emit('data_submission', 'update-vfo-parameters', {
                 vfoNumber,
-                ...updates
+                ...convertedUpdates
             }, (response) => {
                 if (response.success) {
                     resolve(response.data);
