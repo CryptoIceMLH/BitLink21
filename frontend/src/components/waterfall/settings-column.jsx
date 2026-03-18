@@ -972,19 +972,15 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                     isStreaming={isStreaming}
                 />
 
-                {/* BitLink21 TX/Beacon/Modem — only when streaming */}
-                {isStreaming && (
-                    <>
-                        <TxControlsAccordion
-                            expanded={expandedPanels.includes('tx')}
-                            onAccordionChange={handleAccordionChange('tx')}
-                        />
-                        <BeaconLockAccordion
-                            expanded={expandedPanels.includes('beacon')}
-                            onAccordionChange={handleAccordionChange('beacon')}
-                        />
-                    </>
-                )}
+                {/* BitLink21 TX/Beacon/Modem — always visible */}
+                <TxControlsAccordion
+                    expanded={expandedPanels.includes('tx')}
+                    onAccordionChange={handleAccordionChange('tx')}
+                />
+                <BeaconLockAccordion
+                    expanded={expandedPanels.includes('beacon')}
+                    onAccordionChange={handleAccordionChange('beacon')}
+                />
 
                 <VfoAccordion
                     expanded={expandedPanels.includes('vfo')}
@@ -1058,15 +1054,13 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                     playbackRemainingSecondsRef={playbackRemainingSecondsRef}
                 />
 
-                {/* Constellation + RIT/XIT — only when streaming */}
-                {isStreaming && (
-                    <div style={{ padding: '8px 16px' }}>
-                        <ConstellationDiagram />
-                        <div style={{ marginTop: 12 }}>
-                            <RitXitControls />
-                        </div>
+                {/* Constellation + RIT/XIT */}
+                <div style={{ padding: '8px 16px' }}>
+                    <ConstellationDiagram />
+                    <div style={{ marginTop: 12 }}>
+                        <RitXitControls />
                     </div>
-                )}
+                </div>
             </div>
         </>
     );

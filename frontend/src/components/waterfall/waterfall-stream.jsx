@@ -42,9 +42,20 @@ const useWaterfallStream = ({
         isStreaming,
         gettingSDRParameters,
         autoDBRange,
+        converterDefinitions,
+        activeConverterId,
         playbackRecordingPath,
         isRecording,
     } = useSelector((state) => state.waterfall);
+
+    // Converter: convert RF frequency (what user sees) to IF (what PlutoSDR tunes to)
+    const activeConverter = converterDefinitions?.find(c => c.id === activeConverterId);
+    const rfToIF = (rfFreq) => {
+        if (!activeConverter || activeConverter.type === 'none') return rfFreq;
+        if (activeConverter.type === 'down') return rfFreq - activeConverter.rxOffset;
+        if (activeConverter.type === 'up') return rfFreq + activeConverter.rxOffset;
+        return rfFreq;
+    };
 
     const biasT = sdrSettingsById?.[selectedSDRId]?.draft?.biasT ?? false;
     const tunerAgc = sdrSettingsById?.[selectedSDRId]?.draft?.tunerAgc ?? false;
@@ -191,7 +202,7 @@ const useWaterfallStream = ({
 
             socket.emit('sdr_data', 'configure-sdr', {
                 selectedSDRId,
-                centerFrequency,
+                centerFrequency: rfToIF(centerFrequency),
                 sampleRate,
                 gain,
                 fftSize,
