@@ -371,6 +371,9 @@ class ProcessLifecycleManager:
             iq_queue_fft: multiprocessing.Queue = multiprocessing.Queue(maxsize=3)
             iq_queue_demod: multiprocessing.Queue = multiprocessing.Queue(maxsize=3)
 
+            # TX queue for outbound IQ samples (BitLink21 SSP frames)
+            tx_queue: multiprocessing.Queue = multiprocessing.Queue(maxsize=10)
+
             # Stop event for the process
             stop_event = multiprocessing.Event()
 
@@ -413,9 +416,13 @@ class ProcessLifecycleManager:
 
             # Create and start the process with a descriptive name
             # Pass both IQ queues so SDR can broadcast to both consumers
+            # Pass tx_queue for outbound SSP frame transmission (PlutoSDR only)
+            worker_args = (config_queue, data_queue, stop_event, iq_queue_fft, iq_queue_demod)
+            if connection_type == "plutosdr":
+                worker_args = worker_args + (tx_queue,)
             process = multiprocessing.Process(
                 target=named_worker,
-                args=(config_queue, data_queue, stop_event, iq_queue_fft, iq_queue_demod),
+                args=worker_args,
                 name=process_name,
                 daemon=True,
             )
@@ -465,10 +472,29 @@ class ProcessLifecycleManager:
                 "device": sdr_device,  # Store device info for runtime snapshots
                 "persistent": True,  # SDR runs until explicit stop — browser disconnect doesn't kill it
                 "sdr_config": sdr_config,  # Store config for reconnecting clients
+                "tx_queue": tx_queue,  # TX queue for BitLink21 outbox → PlutoSDR TX
             }
 
             # Send initial configuration
             config_queue.put(config)
+
+            # Wire BitLink21 TX worker to this SDR's tx_queue
+            if connection_type == "plutosdr":
+                try:
+                    from bitlink21.tx_worker import tx_worker
+                    tx_worker.set_tx_queue(tx_queue)
+                    tx_worker.set_sio(self.sio)
+                    # Get event loop for async DB access from sync thread
+                    import asyncio
+                    try:
+                        loop = asyncio.get_running_loop()
+                        tx_worker.set_event_loop(loop)
+                    except RuntimeError:
+                        pass
+                    tx_worker.start()
+                    self.logger.info(f"BitLink21 TX Worker wired to SDR {sdr_id}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to wire TX Worker: {e}")
 
             # Add this client to the room (skip for internal observation sessions)
             if not VFOManager.is_internal_session(client_id):

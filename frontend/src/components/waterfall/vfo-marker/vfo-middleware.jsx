@@ -2,6 +2,17 @@ import { backendUpdateVFOParameters, setVFOProperty } from './vfo-slice.jsx';
 import { flushAudioBuffers } from '../../dashboard/audio-service.js';
 import { mapParametersToBackend } from './vfo-config.js';
 
+// Convert RF frequency to IF using active converter (for sending VFO freq to backend)
+const getVfoRfToIF = (store) => {
+    const { converterDefinitions, activeConverterId } = store.getState().waterfall || {};
+    if (!converterDefinitions || !activeConverterId) return (f) => f;
+    const converter = converterDefinitions.find(c => c.id === activeConverterId);
+    if (!converter || converter.type === 'none') return (f) => f;
+    if (converter.type === 'down') return (f) => f - converter.rxOffset;
+    if (converter.type === 'up') return (f) => f + converter.rxOffset;
+    return (f) => f;
+};
+
 // You might want to pass the socket as a parameter or get it differently
 let socketInstance = null;
 
@@ -288,12 +299,19 @@ const backendSyncMiddleware = (store) => (next) => (action) => {
                 // Filter out UI-only fields before sending to backend
                 const backendVfoState = filterUIOnlyFields(vfoState);
 
+                // Convert VFO frequency from RF to IF space for backend
+                const rfToIF = getVfoRfToIF(store);
+                const convertedState = {
+                    ...backendVfoState,
+                    frequency: backendVfoState.frequency != null ? rfToIF(backendVfoState.frequency) : null,
+                };
+
                 store.dispatch(backendUpdateVFOParameters({
                     socket,
                     vfoNumber: vfoNum,
                     updates: {
                         vfoNumber: vfoNum,
-                        ...backendVfoState,
+                        ...convertedState,
                         active: isActive,
                         selected: isSelected,
                     },

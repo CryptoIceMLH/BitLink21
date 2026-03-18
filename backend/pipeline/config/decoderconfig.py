@@ -49,6 +49,11 @@ class DecoderConfig:
     # BPSK-specific parameters
     differential: Optional[bool] = None  # DBPSK mode
 
+    # SSP modem parameters (BitLink21)
+    scheme: Optional[str] = None  # Modulation scheme name (QPSK, 8-PSK, 16-QAM, etc.)
+    fec: Optional[bool] = None  # FEC RS(255,223) enabled
+    encryption: Optional[bool] = None  # NIP-04 decryption enabled
+
     # LoRa-specific parameters
     sf: Optional[int] = None  # Spreading factor (7-12)
     bw: Optional[int] = None  # Bandwidth (125000, 250000, 500000)

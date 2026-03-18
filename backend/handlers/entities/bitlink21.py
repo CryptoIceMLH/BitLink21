@@ -7,6 +7,7 @@ from bitlink21.beacon_afc import beacon_afc
 from bitlink21.modem import get_scheme_list
 from bitlink21.ber_test import ber_test
 from bitlink21.test_tone import test_tone
+from bitlink21.tx_worker import tx_worker
 from common.logger import logger
 
 
@@ -329,17 +330,58 @@ async def get_ber_results(
     return {"success": True, "data": ber_test.get_results()}
 
 
+async def ptt_on(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Activate PTT — start draining outbox and transmitting."""
+    try:
+        if data:
+            tx_worker.configure(data)
+        tx_worker.set_ptt(True)
+        return {"success": True, "data": tx_worker.get_status()}
+    except Exception as e:
+        logger.error(f"Failed to activate PTT: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+async def ptt_off(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Deactivate PTT — stop transmitting."""
+    tx_worker.set_ptt(False)
+    return {"success": True, "data": tx_worker.get_status()}
+
+
+async def get_tx_status(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Get TX worker status."""
+    return {"success": True, "data": tx_worker.get_status()}
+
+
 async def test_tone_start(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
-    """Start TX test tone."""
+    """Start TX test tone via PlutoSDR worker config_queue."""
     try:
-        if data:
-            test_tone.configure(data)
-        started = test_tone.start()
-        if started:
-            return {"success": True, "data": test_tone.get_status()}
-        return {"success": False, "error": "Test tone already active or no SDR"}
+        from pipeline.orchestration.processmanager import process_manager
+        running = process_manager.get_running_sdrs()
+        if not running:
+            return {"success": False, "error": "No SDR running — start streaming first"}
+
+        sdr_id = running[0]["sdr_id"]
+        config_queue = process_manager.processes.get(sdr_id, {}).get("config_queue")
+        if not config_queue:
+            return {"success": False, "error": "SDR config queue not available"}
+
+        tone_freq = (data or {}).get("tone_freq_hz", 1000)
+        tone_gain = (data or {}).get("tx_gain_db", -20)
+        config_queue.put({
+            "test_tone_start": True,
+            "tone_freq_hz": tone_freq,
+            "tone_gain_db": tone_gain,
+        })
+        return {"success": True, "data": {"active": True, "tone_freq_hz": tone_freq}}
     except Exception as e:
         logger.error(f"Failed to start test tone: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
@@ -348,9 +390,19 @@ async def test_tone_start(
 async def test_tone_stop(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
-    """Stop TX test tone."""
-    test_tone.stop()
-    return {"success": True, "data": test_tone.get_status()}
+    """Stop TX test tone via PlutoSDR worker config_queue."""
+    try:
+        from pipeline.orchestration.processmanager import process_manager
+        running = process_manager.get_running_sdrs()
+        if running:
+            sdr_id = running[0]["sdr_id"]
+            config_queue = process_manager.processes.get(sdr_id, {}).get("config_queue")
+            if config_queue:
+                config_queue.put({"test_tone_stop": True})
+        return {"success": True, "data": {"active": False}}
+    except Exception as e:
+        logger.error(f"Failed to stop test tone: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
 
 
 def register_handlers(registry):
@@ -376,6 +428,9 @@ def register_handlers(registry):
             "bitlink21:ber_test_start": (ber_test_start, "data_submission"),
             "bitlink21:ber_test_stop": (ber_test_stop, "data_submission"),
             "bitlink21:get_ber_results": (get_ber_results, "data_request"),
+            "bitlink21:ptt_on": (ptt_on, "data_submission"),
+            "bitlink21:ptt_off": (ptt_off, "data_submission"),
+            "bitlink21:get_tx_status": (get_tx_status, "data_request"),
             "bitlink21:test_tone_start": (test_tone_start, "data_submission"),
             "bitlink21:test_tone_stop": (test_tone_stop, "data_submission"),
         }

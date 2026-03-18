@@ -419,6 +419,40 @@ def plutosdr_worker_process(
                             except Exception as e:
                                 logger.warning(f"Failed to set XO correction: {e}")
 
+                    # BitLink21 test tone command
+                    if "test_tone_start" in new_config:
+                        try:
+                            tone_freq = new_config.get("tone_freq_hz", 1000)
+                            tone_gain = new_config.get("tone_gain_db", -20)
+                            num_tone_samples = int(sample_rate * 0.1)  # 100ms of samples
+                            t = np.arange(num_tone_samples) / sample_rate
+                            tone_iq = np.exp(1j * 2 * np.pi * tone_freq * t)
+                            tone_iq = tone_iq * (2**14 - 1) * 0.8
+                            sdr.tx_hardwaregain_chan0 = tone_gain
+                            sdr.tx_cyclic_buffer = True
+                            sdr.tx(tone_iq.astype(np.complex64))
+                            logger.info(f"Test tone started: {tone_freq} Hz, gain={tone_gain} dB")
+                        except Exception as e:
+                            logger.error(f"Test tone failed: {e}")
+
+                    if "test_tone_stop" in new_config:
+                        try:
+                            sdr.tx_destroy_buffer()
+                            sdr.tx_cyclic_buffer = False
+                            logger.info("Test tone stopped")
+                        except Exception as e:
+                            logger.warning(f"Test tone stop failed: {e}")
+
+                    # BitLink21 beacon AFC — send FFT data for peak detection
+                    if "beacon_xo_correction" in new_config:
+                        try:
+                            sdr._ctrl.attrs["xo_correction"].value = str(
+                                int(new_config["beacon_xo_correction"])
+                            )
+                            logger.info(f"Beacon AFC XO correction: {new_config['beacon_xo_correction']} Hz")
+                        except Exception as e:
+                            logger.warning(f"Beacon XO correction failed: {e}")
+
                     old_config = new_config
 
             except Exception as e:

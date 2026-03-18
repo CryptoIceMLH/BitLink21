@@ -85,8 +85,16 @@ const TxControlsAccordion = ({ expanded, onAccordionChange }) => {
         const newState = !pttActive;
         dispatch(setPttActive(newState));
         if (socket) {
-            socket.emit('data_submission', 'bitlink21:set_config', {
-                key: 'ptt_active', value: String(newState)
+            const cmd = newState ? 'bitlink21:ptt_on' : 'bitlink21:ptt_off';
+            socket.emit('data_submission', cmd, {
+                scheme: modemScheme,
+                use_fec: fecEnabled,
+                sample_rate: sampleRate,
+            }, (res) => {
+                if (!res?.success) {
+                    dispatch(setPttActive(false));
+                    console.error('PTT failed:', res?.error);
+                }
             });
         }
     };

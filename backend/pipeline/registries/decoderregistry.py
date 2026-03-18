@@ -26,6 +26,7 @@ from demodulators.gmskdecoder import GMSKDecoder
 from demodulators.loradecoder import LoRaDecoder
 from demodulators.morsedecoder import MorseDecoder
 from demodulators.sstvdecoder import SSTVDecoder
+from demodulators.sspmodem import SSPModemDecoder
 
 
 @dataclass
@@ -162,6 +163,17 @@ class DecoderRegistry:
                 supports_transmitter_config=False,
                 restart_on_params=["sf", "bw", "cr", "sync_word", "preamble_len", "fldro"],
                 description="LoRa chirp spread spectrum decoder",
+            ),
+            "ssp": DecoderCapabilities(
+                name="ssp",
+                decoder_class=SSPModemDecoder,
+                needs_raw_iq=True,  # Works on raw IQ samples
+                required_demodulator=None,  # Has integrated demodulator
+                demodulator_mode=None,
+                default_bandwidth=20000,  # 20 kHz default
+                supports_transmitter_config=False,  # Uses BitLink21 config, not satellite transmitters
+                restart_on_params=["scheme", "baudrate", "fec"],
+                description="BitLink21 SSP protocol modem (BPSK to 256-QAM, FEC, encryption)",
             ),
         }
 

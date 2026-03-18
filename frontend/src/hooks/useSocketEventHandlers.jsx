@@ -194,8 +194,20 @@ export const useSocketEventHandlers = (socket) => {
                     console.log(`Reconnecting to running SDR: ${sdr_id}`, sdr_config);
 
                     // Restore waterfall state from running SDR config
+                    // Convert IF frequency back to RF for display (using active converter)
+                    const waterfallState = store.getState().waterfall || {};
+                    const convDefs = waterfallState.converterDefinitions || [];
+                    const activeConvId = waterfallState.activeConverterId;
+                    const activeConv = convDefs.find(c => c.id === activeConvId);
+                    let displayFreq = sdr_config?.center_freq;
+                    if (activeConv && activeConv.type === 'down' && displayFreq) {
+                        displayFreq = displayFreq + activeConv.rxOffset;  // IF → RF
+                    } else if (activeConv && activeConv.type === 'up' && displayFreq) {
+                        displayFreq = displayFreq - activeConv.rxOffset;  // IF → RF
+                    }
+
                     if (sdr_id) dispatch(setSelectedSDRId(sdr_id));
-                    if (sdr_config?.center_freq) dispatch(setCenterFrequency(sdr_config.center_freq));
+                    if (displayFreq) dispatch(setCenterFrequency(displayFreq));
                     if (sdr_config?.gain) dispatch(setGain(sdr_config.gain));
                     if (sdr_config?.sample_rate) dispatch(setSampleRate(sdr_config.sample_rate));
                     dispatch(setIsStreaming(true));
