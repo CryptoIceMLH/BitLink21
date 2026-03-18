@@ -97,6 +97,7 @@ import {
     setErrorMessage,
     setErrorDialogOpen,
     setStartStreamingLoading,
+    setSelectedSDRId,
 } from '../components/waterfall/waterfall-slice.jsx';
 import { updateAllVFOStates, setVFOProperty } from '../components/waterfall/vfo-marker/vfo-slice.jsx';
 import { fetchFiles } from '../components/filebrowser/filebrowser-slice.jsx';
@@ -121,7 +122,6 @@ import { fetchSatelliteGroups } from '../components/overview/overview-slice.jsx'
 import { addTranscription } from '../components/waterfall/transcription-slice.jsx';
 import { fetchSoapySDRServers } from '../components/hardware/sdr-slice.jsx';
 import { addIncomingMessage, updateBeaconStatus, updateConstellationPoints } from '../components/bitlink21/bitlink21-slice.jsx';
-import { setIsStreaming, setSelectedSDRId, setCenterFrequency, setGain, setSampleRate } from '../components/waterfall/waterfall-slice.jsx';
 import ImageIcon from '@mui/icons-material/Image';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import RadioButtonCheckedIcon from '@mui/icons-material/RadioButtonChecked';
