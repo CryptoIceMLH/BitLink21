@@ -26,9 +26,8 @@ services:
       - "${BITLINK21_PORT:-7000}:7000"
     volumes:
       - ./data:/app/backend/data
-    devices:
-      # Pass through USB devices for SDR hardware (RTL-SDR, HackRF, etc.)
-      # Uncomment if using USB-connected SDR:
-      # - /dev/bus/usb:/dev/bus/usb
+    # Uncomment to pass through USB devices for SDR hardware (RTL-SDR, HackRF, etc.):
+    # devices:
+    #   - /dev/bus/usb:/dev/bus/usb
     privileged: false
     restart: unless-stopped
