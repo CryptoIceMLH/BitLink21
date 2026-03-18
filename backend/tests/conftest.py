@@ -14,7 +14,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Pytest configuration and fixtures for the Ground Station test suite.
+Pytest configuration and fixtures for the BitLink21 test suite.
 """
 
 import pytest

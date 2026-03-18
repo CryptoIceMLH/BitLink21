@@ -17,15 +17,15 @@
  *
  */
 
-import {GroundStationLogoGreenBlue} from "../components/common/dataurl-icons.jsx";
+import {BitLink21Logo} from "../components/common/dataurl-icons.jsx";
 
 export const BRANDING = {
     logo: (
         <img
-            src={GroundStationLogoGreenBlue}
-            alt="Ground Station"
+            src={BitLink21Logo}
+            alt="BitLink21"
             style={{height: 128}}
         />
     ),
-    title: 'Ground Station',
+    title: 'BitLink21',
 };

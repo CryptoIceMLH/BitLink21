@@ -53,9 +53,9 @@ def print_banner():
 # Set process and thread names
 def configure_process_names():
     if HAS_SETPROCTITLE:
-        setproctitle.setproctitle("Ground Station - Main Thread")
-    multiprocessing.current_process().name = "Ground Station - Main"
-    threading.current_thread().name = "Ground Station - Main Thread"
+        setproctitle.setproctitle("BitLink21 - Main Thread")
+    multiprocessing.current_process().name = "BitLink21 - Main"
+    threading.current_thread().name = "BitLink21 - Main Thread"
 
 
 def main() -> None:
@@ -82,7 +82,7 @@ def main() -> None:
 
     # Note: Static files and API routes are already configured in startup.py
 
-    logger.info(f"Starting Ground Station server with parameters {arguments}")
+    logger.info(f"Starting BitLink21 server with parameters {arguments}")
     try:
         uvicorn.run(
             socket_app,
@@ -95,7 +95,7 @@ def main() -> None:
         cleanup_everything()
         os._exit(0)
     except Exception as e:  # pragma: no cover - startup errors
-        logger.error(f"Error starting Ground Station server: {str(e)}")
+        logger.error(f"Error starting BitLink21 server: {str(e)}")
         logger.exception(e)
         cleanup_everything()
         os._exit(1)

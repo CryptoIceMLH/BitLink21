@@ -1,5 +1,5 @@
-# Ground Station - Deepgram Transcription Worker
-# Developed by Claude (Anthropic AI) for the Ground Station project
+# BitLink21 - Deepgram Transcription Worker
+# Developed by Claude (Anthropic AI) for the BitLink21 project
 #
 # This module connects to Deepgram Streaming API for real-time speech-to-text
 # conversion. Extends the base TranscriptionWorker class.

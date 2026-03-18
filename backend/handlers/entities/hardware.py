@@ -25,6 +25,7 @@ from typing import Any, Dict, Optional, Union
 
 import crud
 from db import AsyncSessionLocal
+from hardware.plutosdr import probe_plutosdr
 from hardware.soapysdrbrowser import discovered_servers
 from session.service import active_sdr_clients
 from tracker.runner import get_tracker_manager
@@ -517,6 +518,89 @@ async def _fetch_sdr_parameters(dbsession, sdr_id, timeout=30.0):
                 "metadata": sdr_params.get("metadata", {}),
                 "total_samples": sdr_params.get("total_samples", 0),
                 "duration": sdr_params.get("duration", 0),
+            }
+
+            sdr_parameters_cache[sdr_id] = params
+            reply = {"success": True, "data": params}
+
+        elif sdr.get("type") in ["plutosdr"]:
+            logger.info("Getting SDR parameters from PlutoSDR for SDR: %s", sdr)
+
+            uri = f"ip:{sdr.get('host', '192.168.1.200')}"
+
+            probe_process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                "from hardware.plutosdr import probe_plutosdr; "
+                f"print(probe_plutosdr('{uri}'))",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    probe_process.communicate(), timeout=timeout
+                )
+
+                if probe_process.returncode != 0:
+                    error_output = stderr.decode().strip()
+                    raise Exception(f"PlutoSDR probe process failed: {error_output}")
+
+            except asyncio.TimeoutError:
+                probe_process.kill()
+                raise TimeoutError("Timed out while getting SDR parameters from PlutoSDR")
+
+            sdr_params_reply = eval(stdout.decode().strip())
+
+            if sdr_params_reply["success"] is False:
+                logger.error(sdr_params_reply)
+                raise Exception(sdr_params_reply["error"])
+
+            sdr_params = sdr_params_reply["data"]
+
+            logger.debug("Got SDR parameters from PlutoSDR: %s", sdr_params)
+            for log_line in sdr_params_reply.get("log", []):
+                logger.debug(log_line)
+
+            window_function_names = list(window_functions.keys())
+            fft_size_values = [256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
+            # Build gain values list from AD9361 range (0.25 dB steps)
+            gain_range = sdr_params.get("gain_range", {}).get("rx", {})
+            gain_min = gain_range.get("min", -1.0)
+            gain_max = gain_range.get("max", 73.0)
+            gain_step = gain_range.get("step", 0.25)
+            gain_values = []
+            g = gain_min
+            while g <= gain_max:
+                gain_values.append(round(g, 2))
+                g += gain_step
+
+            # Build sample rate values
+            sr_range = sdr_params.get("sample_rate_range", {})
+            sample_rate_values = [
+                520833, 1000000, 2048000, 2400000, 3000000,
+                4000000, 5000000, 6000000, 8000000, 10000000,
+                15000000, 20000000, 30720000, 40000000, 61440000,
+            ]
+            sr_min = sr_range.get("min", 520833)
+            sr_max = sr_range.get("max", 61440000)
+            sample_rate_values = [r for r in sample_rate_values if sr_min <= r <= sr_max]
+
+            params = {
+                "gain_values": gain_values,
+                "sample_rate_values": sample_rate_values,
+                "fft_size_values": fft_size_values,
+                "fft_window_values": window_function_names,
+                "has_plutosdr_agc": True,
+                "gain_control_modes": sdr_params.get("gain_control_modes", []),
+                "antennas": {"tx": ["TX"], "rx": ["RX"]},
+                "frequency_ranges": {
+                    "rx": sdr_params.get("frequency_range", {}).get("rx", {}),
+                    "tx": sdr_params.get("frequency_range", {}).get("tx", {}),
+                },
+                "temperature": sdr_params.get("temperature"),
+                "capabilities": sdr_params.get("capabilities", {}),
             }
 
             sdr_parameters_cache[sdr_id] = params

@@ -328,6 +328,42 @@ export const themeConfigs = {
         },
     },
 
+    'bitcoin': {
+        mode: 'dark',
+        primary: { main: '#f7931a' },        // Bitcoin orange
+        secondary: { main: '#ff9e40' },      // Light orange
+        success: { main: '#59d98b' },        // Green
+        warning: { main: '#ffcc66' },        // Yellow
+        error: { main: '#ff5d6c' },          // Red
+        info: { main: '#f7931a' },           // Orange (Bitcoin)
+        background: {
+            default: '#0d0d0d',              // Near black
+            paper: '#1a1408',                // Dark with warm tint
+            elevated: '#2a2010',             // Slightly lighter
+            titleBar: '#1a1408',
+        },
+        border: {
+            main: '#3d3020',                 // Warm dark border
+            light: '#4d4030',
+            dark: '#2d2010',
+        },
+        overlay: {
+            light: 'rgba(247, 147, 26, 0.08)',
+            medium: 'rgba(247, 147, 26, 0.16)',
+            dark: 'rgba(247, 147, 26, 0.24)',
+        },
+        status: {
+            connected: '#59d98b',
+            connecting: '#f7931a',
+            disconnected: '#ff5d6c',
+            polling: '#ff9e40',
+        },
+        action: {
+            play: '#59d98b',
+            stop: '#ff5d6c',
+        },
+    },
+
     'sonar': {
         mode: 'dark',
         primary: { main: '#ffb000' }, // Amber sonar
@@ -391,7 +427,7 @@ export function getSystemThemePreference() {
     if (typeof window !== 'undefined' && window.matchMedia) {
         return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     }
-    return 'dark'; // Default fallback
+    return 'bitcoin'; // Default fallback
 }
 
 /**
@@ -405,7 +441,7 @@ export function getThemeConfig(themeName) {
         const systemTheme = getSystemThemePreference();
         return themeConfigs[systemTheme];
     }
-    return themeConfigs[themeName] || themeConfigs.dark;
+    return themeConfigs[themeName] || themeConfigs.bitcoin;
 }
 
 /**
@@ -424,6 +460,7 @@ export function getAvailableThemesWithMetadata() {
         { id: 'stalker', name: 'S.T.A.L.K.E.R.' },
         { id: 'terminal', name: 'Terminal' },
         { id: 'sonar', name: 'Sonar' },
+        { id: 'bitcoin', name: 'Bitcoin' },
     ];
 }
 

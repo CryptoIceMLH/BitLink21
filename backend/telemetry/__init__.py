@@ -1,5 +1,5 @@
 """
-Telemetry parsing module for Ground Station
+Telemetry parsing module for BitLink21
 
 Generic + pluggable architecture for parsing satellite telemetry.
 Supports AX.25 framing with satellite-specific payload parsers.

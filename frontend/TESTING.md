@@ -2,7 +2,7 @@
 
 > **Quick Start**: New to testing? Jump to the [5-Minute Quick Start](#quick-start-5-minutes) to get running immediately!
 
-This document describes the complete testing infrastructure for the Ground Station frontend application.
+This document describes the complete testing infrastructure for the BitLink21 frontend application.
 
 ## Table of Contents
 

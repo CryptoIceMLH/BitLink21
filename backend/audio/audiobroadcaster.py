@@ -1,5 +1,5 @@
-# Ground Station - Audio Broadcaster
-# Developed by Claude (Anthropic AI) for the Ground Station project
+# BitLink21 - Audio Broadcaster
+# Developed by Claude (Anthropic AI) for the BitLink21 project
 #
 # This module implements a thread-safe pub/sub pattern for audio distribution.
 # It receives audio from a single input queue (fed by demodulators) and broadcasts
@@ -61,7 +61,7 @@ class AudioBroadcaster(threading.Thread):
             session_id: Optional session identifier for logging
             vfo_number: Optional VFO number for logging
         """
-        super().__init__(daemon=True, name="Ground Station - AudioBroadcaster")
+        super().__init__(daemon=True, name="BitLink21 - AudioBroadcaster")
         self.input_queue = input_queue
         self.subscribers: Dict[str, dict] = {}
         self.subscribers_lock = threading.Lock()

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The ground station application supports multiple themes with completely customizable color schemes and visual styles. The theme system is built on Material-UI's theming capabilities and allows for easy addition of new themes.
+The BitLink21 application supports multiple themes with completely customizable color schemes and visual styles. The theme system is built on Material-UI's theming capabilities and allows for easy addition of new themes.
 
 ## Current Themes
 

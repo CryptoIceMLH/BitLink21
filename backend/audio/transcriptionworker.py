@@ -1,5 +1,5 @@
-# Ground Station - Transcription Worker Base Class
-# Developed by Claude (Anthropic AI) for the Ground Station project
+# BitLink21 - Transcription Worker Base Class
+# Developed by Claude (Anthropic AI) for the BitLink21 project
 #
 # This module provides an abstract base class for transcription workers that
 # stream audio to various speech-to-text APIs. It handles:
@@ -84,7 +84,7 @@ class TranscriptionWorker(ABC, threading.Thread):
         """
         super().__init__(
             daemon=True,
-            name=f"Ground Station - {provider_name.capitalize()}Worker-{session_id[:8]}-VFO{vfo_number}",
+            name=f"BitLink21 - {provider_name.capitalize()}Worker-{session_id[:8]}-VFO{vfo_number}",
         )
         self.transcription_queue = transcription_queue
         self.sio = sio
@@ -187,7 +187,7 @@ class TranscriptionWorker(ABC, threading.Thread):
             )
 
             header = (
-                f"# Ground Station Transcription\n"
+                f"# BitLink21 Transcription\n"
                 f"# Provider: {self.provider_name}\n"
                 f"# Session: {self.session_id}\n"
                 f"# VFO: {self.vfo_number}\n"

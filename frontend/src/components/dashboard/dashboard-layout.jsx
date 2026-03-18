@@ -51,7 +51,7 @@ import {
     styled
 } from "@mui/material";
 import {Account, AccountPopoverFooter, AccountPreview, SignOutButton} from "@toolpad/core";
-import {GroundStationLogoGreenBlue} from "../common/dataurl-icons.jsx";
+import {BitLink21Logo} from "../common/dataurl-icons.jsx";
 import {stringAvatar} from "../common/common.jsx";
 import Grid from "@mui/material/Grid";
 import BorderColorIcon from '@mui/icons-material/BorderColor';
@@ -219,8 +219,8 @@ function CustomAppTitle() {
                 <Stack direction="row" alignItems="center" spacing={2}>
                     <Box display={{xs: "none", sm: "block"}}>
                         <Box display="flex" alignItems="center" gap={1}>
-                            <img src={GroundStationLogoGreenBlue} alt="Ground Station" width="30" height="30" />
-                            <Typography variant="h6">Ground Station</Typography>
+                            <img src={BitLink21Logo} alt="BitLink21" width="30" height="30" />
+                            <Typography variant="h6">BitLink21</Typography>
                             {/* Hide version indicator on phones and small tablets; show from ~768px and up */}
                             <Box sx={{
                                 display: 'none',
@@ -856,11 +856,11 @@ export default function Layout() {
                         color: 'warning.main',
                     }}
                 >
-                    {t('dashboard.location_not_set_title', 'Ground Station Location Required')}
+                    {t('dashboard.location_not_set_title', 'Station Location Required')}
                 </DialogTitle>
                 <DialogContent sx={{ pt: 2 }}>
                     <DialogContentText sx={{ fontSize: '1rem', lineHeight: 1.6, color: 'text.primary' }}>
-                        {t('dashboard.location_not_set_message', 'Your ground station location has not been configured yet. Location information is required for:')}
+                        {t('dashboard.location_not_set_message', 'Your station location has not been configured yet. Location information is required for:')}
                     </DialogContentText>
                     <Box component="ul" sx={{ mt: 2, mb: 2, pl: 3, '& li': { mb: 1, color: 'text.primary' } }}>
                         <li>{t('dashboard.location_required_tracking', 'Real-time satellite tracking and visualization')}</li>

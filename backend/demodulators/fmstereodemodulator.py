@@ -1,5 +1,5 @@
-# Ground Station - FM Stereo Demodulator
-# Developed by Claude (Anthropic AI) for the Ground Station project
+# BitLink21 - FM Stereo Demodulator
+# Developed by Claude (Anthropic AI) for the BitLink21 project
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by

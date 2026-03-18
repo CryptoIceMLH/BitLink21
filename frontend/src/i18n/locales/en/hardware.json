@@ -85,7 +85,7 @@
   },
   "camera": {
     "title": "Camera Integration Setup",
-    "subtitle": "Configure camera streams for visual monitoring during satellite tracking operations. Currently, only WebRTC is fully supported for real-time, low-latency streaming. For RTSP camera sources, consider using go2rtc, which is now built into Home Assistant 2024.11 and later. Go2rtc provides a comprehensive streaming solution supporting RTSP, WebRTC, HomeKit, FFmpeg, and RTMP formats. Add, edit, and manage camera connections with custom names and stream URLs for integration with your ground station setup.",
+    "subtitle": "Configure camera streams for visual monitoring during satellite tracking operations. Currently, only WebRTC is fully supported for real-time, low-latency streaming. For RTSP camera sources, consider using go2rtc, which is now built into Home Assistant 2024.11 and later. Go2rtc provides a comprehensive streaming solution supporting RTSP, WebRTC, HomeKit, FFmpeg, and RTMP formats. Add, edit, and manage camera connections with custom names and stream URLs for integration with your station setup.",
     "add": "Add",
     "edit": "Edit",
     "delete": "Delete",
@@ -106,7 +106,7 @@
   },
   "sdr": {
     "title": "Software Defined Radio (SDR) Configuration",
-    "subtitle": "Configure Software Defined Radio devices for receiving satellite signals. This system supports RTL-SDR dongles (both v3 and v4 models), SoapySDR devices (both local USB and remote network devices), and USRP devices via UHD. SDRs can be connected locally via USB or remotely over TCP/IP for flexible ground station configurations. Define device parameters including supported frequency ranges, network addresses for remote devices, driver specifications for SoapySDR, and serial numbers for device identification.",
+    "subtitle": "Configure Software Defined Radio devices for receiving satellite signals. This system supports RTL-SDR dongles (both v3 and v4 models), SoapySDR devices (both local USB and remote network devices), USRP devices via UHD, and ADALM-PLUTO (PlutoSDR) devices via network. SDRs can be connected locally via USB or remotely over TCP/IP for flexible station configurations. Define device parameters including supported frequency ranges, network addresses for remote devices, driver specifications for SoapySDR, and serial numbers for device identification.",
     "add": "Add",
     "edit": "Edit",
     "delete": "Delete",
@@ -132,6 +132,7 @@
     "soapysdr_remote": "SoapySDR Remote",
     "soapysdr_usb": "SoapySDR USB",
     "uhd": "UHD",
+    "plutosdr": "PlutoSDR (Network)",
     "cancel": "Cancel",
     "submit": "Submit",
     "confirm_deletion": "Confirm Deletion",

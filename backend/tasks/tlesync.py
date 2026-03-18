@@ -61,8 +61,8 @@ def tle_sync_background_task(_progress_queue: Optional[Queue] = None):
     """
     # Set process name
     if HAS_SETPROCTITLE:
-        setproctitle.setproctitle("Ground Station - TLE-Sync")
-    multiprocessing.current_process().name = "Ground Station - TLE-Sync"
+        setproctitle.setproctitle("BitLink21 - TLE-Sync")
+    multiprocessing.current_process().name = "BitLink21 - TLE-Sync"
 
     killer = GracefulKiller()
 

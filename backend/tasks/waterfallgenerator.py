@@ -39,8 +39,8 @@ def generate_waterfall_task(
     """
     # Set process name
     if HAS_SETPROCTITLE:
-        setproctitle.setproctitle("Ground Station - Waterfall-Generator")
-    multiprocessing.current_process().name = "Ground Station - Waterfall-Generator"
+        setproctitle.setproctitle("BitLink21 - Waterfall-Generator")
+    multiprocessing.current_process().name = "BitLink21 - Waterfall-Generator"
 
     try:
         recording_path_obj = Path(recording_path)

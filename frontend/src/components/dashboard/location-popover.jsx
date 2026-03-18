@@ -86,7 +86,7 @@ function LocationWarningPopover() {
                     </Box>
                     <Divider sx={{ mb: 2 }} />
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        {t('location_warning.message', 'Your ground station location has not been configured. Location is required for satellite tracking and pass predictions.')}
+                        {t('location_warning.message', 'Your station location has not been configured. Location is required for satellite tracking and pass predictions.')}
                     </Typography>
                     <Button
                         variant="contained"

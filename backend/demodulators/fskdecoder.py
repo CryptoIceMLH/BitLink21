@@ -1,5 +1,5 @@
-# Ground Station - FSK-Family Decoder using GNU Radio
-# Developed by Claude (Anthropic AI) for the Ground Station project
+# BitLink21 - FSK-Family Decoder using GNU Radio
+# Developed by Claude (Anthropic AI) for the BitLink21 project
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -908,7 +908,7 @@ class FSKDecoder(BaseDecoderProcess):
         # Set process name for visibility in system monitoring tools
         if HAS_SETPROCTITLE:
             setproctitle.setproctitle(
-                f"Ground Station - {self.modulation_subtype} Decoder (VFO {self.vfo})"
+                f"BitLink21 - {self.modulation_subtype} Decoder (VFO {self.vfo})"
             )
 
         # Initialize components in the subprocess

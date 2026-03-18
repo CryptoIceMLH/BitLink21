@@ -1,5 +1,5 @@
-# Ground Station - BPSK Decoder using GNU Radio
-# Developed by Claude (Anthropic AI) for the Ground Station project
+# BitLink21 - BPSK Decoder using GNU Radio
+# Developed by Claude (Anthropic AI) for the BitLink21 project
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -865,7 +865,7 @@ class BPSKDecoder(BaseDecoderProcess):
         """Main thread loop - processes IQ samples continuously"""
         # Set process name for visibility in system monitoring tools
         if HAS_SETPROCTITLE:
-            setproctitle.setproctitle(f"Ground Station - BPSK Decoder (VFO {self.vfo})")
+            setproctitle.setproctitle(f"BitLink21 - BPSK Decoder (VFO {self.vfo})")
 
         # Initialize components in subprocess (CRITICAL!)
         self.telemetry_parser = TelemetryParser()

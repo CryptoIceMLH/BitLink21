@@ -21,7 +21,7 @@ from pathlib import Path
 
 from common.appconfig import load_app_config
 
-parser = argparse.ArgumentParser(description="Start the Ground Station app with custom arguments.")
+parser = argparse.ArgumentParser(description="Start the BitLink21 app with custom arguments.")
 parser.add_argument(
     "--config",
     type=str,

@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Setup script for Ground Station frontend testing infrastructure
+# Setup script for BitLink21 frontend testing infrastructure
 # Run this script once to install all testing dependencies
 
 set -e  # Exit on error
 
-echo "🚀 Setting up Ground Station Frontend Testing..."
+echo "🚀 Setting up BitLink21 Frontend Testing..."
 echo ""
 
 # Check if we're in the frontend directory

@@ -15,7 +15,7 @@
 
 
 """
-Constants module for Ground Station application.
+Constants module for BitLink21 application.
 Contains all magic strings used throughout the application for consistency and maintainability.
 """
 

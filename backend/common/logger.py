@@ -58,20 +58,20 @@ def get_logger(args):
 
     This function reads the logging configuration from a YAML file specified in the provided
     arguments, converts it to a JSON-compatible dictionary, and then applies it to configure
-    the Python logging module. It retrieves a logger instance named "ground-station" and logs
+    the Python logging module. It retrieves a logger instance named "bitlink21" and logs
     an informational message containing the provided arguments.
 
     :param args: The command-line arguments containing the path to the logging
                  configuration file (YAML format).
     :type args: argparse.Namespace
-    :return: A logger instance named "ground-station".
+    :return: A logger instance named "bitlink21".
     :rtype: logging.Logger
     """
     logging_config = get_logger_config(args)
 
     logging.config.dictConfig(logging_config)
 
-    log = logging.getLogger("ground-station")
+    log = logging.getLogger("bitlink21")
     log.setLevel(args.log_level)
 
     return log

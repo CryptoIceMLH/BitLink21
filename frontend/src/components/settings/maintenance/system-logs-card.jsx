@@ -85,7 +85,7 @@ function matchesFilter(log, searchText, levelFilter) {
 
 // Extract clean message (remove logging formatter prefix if present)
 function extractCleanMessage(message) {
-    // The message might contain the formatter prefix like "2025-12-15 21:00:43,276 - ground-station - INFO - "
+    // The message might contain the formatter prefix like "2025-12-15 21:00:43,276 - bitlink21 - INFO - "
     // We want to extract just the actual message part
     const match = message.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} - .+ - \w+ - (.+)$/);
     if (match) {

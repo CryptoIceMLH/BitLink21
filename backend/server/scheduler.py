@@ -1,4 +1,4 @@
-"""Background task scheduler for the ground station."""
+"""Background task scheduler for BitLink21."""
 
 import logging
 from typing import Optional

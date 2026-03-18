@@ -57,8 +57,8 @@ def soapysdr_discovery_task(
     """
     # Set process name
     if HAS_SETPROCTITLE:
-        setproctitle.setproctitle("Ground Station - SoapySDR-Discovery")
-    multiprocessing.current_process().name = "Ground Station - SoapySDR-Discovery"
+        setproctitle.setproctitle("BitLink21 - SoapySDR-Discovery")
+    multiprocessing.current_process().name = "BitLink21 - SoapySDR-Discovery"
 
     killer = GracefulKiller()
 
@@ -352,8 +352,8 @@ def soapysdr_quick_refresh_task(_progress_queue: Optional[Queue] = None):
     """
     # Set process name
     if HAS_SETPROCTITLE:
-        setproctitle.setproctitle("Ground Station - SoapySDR-Refresh")
-    multiprocessing.current_process().name = "Ground Station - SoapySDR-Refresh"
+        setproctitle.setproctitle("BitLink21 - SoapySDR-Refresh")
+    multiprocessing.current_process().name = "BitLink21 - SoapySDR-Refresh"
 
     try:
         if _progress_queue:

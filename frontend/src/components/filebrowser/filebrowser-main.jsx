@@ -1532,7 +1532,7 @@ export default function FilebrowserMain() {
                                             </Typography>
                                         ) : (
                                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                                                {t('snapshot.description', 'Ground Station Waterfall Snapshot')}
+                                                {t('snapshot.description', 'BitLink21 Waterfall Snapshot')}
                                             </Typography>
                                         )}
                                         <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>

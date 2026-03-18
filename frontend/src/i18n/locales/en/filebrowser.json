@@ -39,7 +39,7 @@
   },
   "snapshot": {
     "type": "Snapshot",
-    "description": "Ground Station Waterfall Snapshot"
+    "description": "BitLink21 Waterfall Snapshot"
   },
   "audio": {
     "type": "Audio Recording",

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Constants package for Ground Station backend
+Constants package for BitLink21 backend
 """
 
 from .modulations import (

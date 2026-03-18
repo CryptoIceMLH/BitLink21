@@ -1,5 +1,5 @@
-# Ground Station - SSTV Decoder v2 (Process-based with integrated FM demodulation)
-# Developed by Claude (Anthropic AI) for the Ground Station project
+# BitLink21 - SSTV Decoder v2 (Process-based with integrated FM demodulation)
+# Developed by Claude (Anthropic AI) for the BitLink21 project
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -923,7 +923,7 @@ class SSTVDecoder(BaseDecoderProcess):
         # Set process title for easier discovery via `ps`/`pgrep`
         if HAS_SETPROCTITLE:
             try:
-                setproctitle.setproctitle(f"Ground Station - SSTV Decoder (VFO {self.vfo})")
+                setproctitle.setproctitle(f"BitLink21 - SSTV Decoder (VFO {self.vfo})")
             except Exception:
                 pass
         logger.info(f"SSTV decoder v2 process started for {self.session_id}")

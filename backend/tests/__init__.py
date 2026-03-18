@@ -14,5 +14,5 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
-Ground Station test suite.
+BitLink21 test suite.
 """

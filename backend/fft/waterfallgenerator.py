@@ -1,4 +1,4 @@
-# Ground Station - Waterfall Generator
+# BitLink21 - Waterfall Generator
 # Copyright (c) 2025 Efstratios Goudelis
 #
 # This program is free software: you can redistribute it and/or modify

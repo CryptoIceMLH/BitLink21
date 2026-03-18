@@ -1,17 +1,17 @@
 # Database Migrations with Alembic
 
-This directory contains Alembic database migrations for the Ground Station application.
+This directory contains Alembic database migrations for the BitLink21 application.
 
 ## Overview
 
-The Ground Station uses Alembic for database schema migrations. This ensures that:
+The BitLink21 uses Alembic for database schema migrations. This ensures that:
 - Users can upgrade to new versions without losing data
 - Database schema changes are versioned and tracked
 - Migrations run automatically when the Docker container starts
 
 ## Automatic Migrations
 
-**For end users**: No action required! When you start the Ground Station container, migrations run automatically during startup. Your database will be automatically upgraded to the latest schema version.
+**For end users**: No action required! When you start the BitLink21 container, migrations run automatically during startup. Your database will be automatically upgraded to the latest schema version.
 
 ## For Developers
 

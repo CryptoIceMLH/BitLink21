@@ -1,5 +1,5 @@
-# Ground Station - Web Audio Consumer
-# Developed by Claude (Anthropic AI) for the Ground Station project
+# BitLink21 - Web Audio Consumer
+# Developed by Claude (Anthropic AI) for the BitLink21 project
 #
 # This module bridges the gap between demodulated audio (from FM/AM/SSB demodulators)
 # and web clients via Socket.IO. It runs as a background thread that:
@@ -43,7 +43,7 @@ logger = logging.getLogger("audio-streamer")
 
 class WebAudioStreamer(threading.Thread):
     def __init__(self, audio_queue, sio, loop):
-        super().__init__(daemon=True, name="Ground Station - WebAudioStreamer")
+        super().__init__(daemon=True, name="BitLink21 - WebAudioStreamer")
         self.audio_queue = audio_queue
         self.sio = sio
         self.loop = loop  # Pass the main event loop

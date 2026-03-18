@@ -1,5 +1,5 @@
 #!/bin/bash
-# Startup script for Ground Station with conditional UHD device support
+# Startup script for BitLink21 with conditional UHD device support
 
 # Run once here to make sure all new libraries are loaded
 ldconfig
@@ -95,6 +95,6 @@ echo "UHD FPGA images in $UHD_IMAGES_DIR:"
 ls -lh "$UHD_IMAGES_DIR"/*.bin 2>/dev/null || echo "No UHD images found yet in $UHD_IMAGES_DIR"
 
 # Start the application
-echo "Starting Ground Station application..."
+echo "Starting BitLink21 application..."
 cd /app/backend
 exec /app/venv/bin/python app.py --log-level=INFO --host=0.0.0.0 --port=7000

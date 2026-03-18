@@ -263,7 +263,7 @@ class TestNamedWorkerInit:
             result = pool.apply(_worker_test_func)
 
         # Check that process name was set
-        assert result == "Ground Station - SatellitePassWorker"
+        assert result == "BitLink21 - SatellitePassWorker"
 
     def test_named_worker_init_no_errors(self):
         """Test that worker init completes without errors."""

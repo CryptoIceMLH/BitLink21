@@ -41,6 +41,7 @@ class SDRConfig:
     connection_type: Optional[str] = None
     driver: Optional[str] = None
     soapy_agc: Optional[bool] = None
+    uri: Optional[str] = None
     offset_freq: Optional[Number] = None
     antenna: Optional[str] = None
     ppm_error: Optional[Number] = None
@@ -80,6 +81,8 @@ class SDRConfig:
             payload["driver"] = self.driver
         if self.soapy_agc is not None:
             payload["soapy_agc"] = self.soapy_agc
+        if self.uri is not None:
+            payload["uri"] = self.uri
         if self.offset_freq is not None:
             payload["offset_freq"] = self.offset_freq
         if self.antenna is not None:

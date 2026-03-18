@@ -66,7 +66,7 @@ const preferencesSlice = createSlice({
             {
                 id: null,
                 name: 'theme',
-                value: 'auto',
+                value: 'bitcoin',
             },
             {
                 id: null,

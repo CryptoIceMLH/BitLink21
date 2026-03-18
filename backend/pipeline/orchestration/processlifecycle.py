@@ -27,6 +27,7 @@ from fft.processor import fft_processor_process
 from handlers.entities.filebrowser import emit_file_browser_state
 from pipeline.streaming.iqbroadcaster import IQBroadcaster
 from vfos.state import VFOManager
+from workers.plutosdrworker import plutosdr_worker_process
 from workers.rtlsdrworker import rtlsdr_worker_process
 from workers.sigmfplaybackworker import sigmf_playback_worker_process
 from workers.soapysdrlocalworker import soapysdr_local_worker_process
@@ -186,6 +187,7 @@ class ProcessLifecycleManager:
             "soapysdrlocal",
             "uhd",
             "sigmfplayback",
+            "plutosdr",
         ]
         assert sdr_device["id"]
 
@@ -201,7 +203,7 @@ class ProcessLifecycleManager:
             connection_type = "usb"
             driver = None
             worker_process = rtlsdr_worker_process
-            process_name = f"Ground Station - RTL-SDR-USB-v3-{sdr_id}"
+            process_name = f"BitLink21 - RTL-SDR-USB-v3-{sdr_id}"
 
         elif sdr_device["type"] == "rtlsdrtcpv3":
             hostname = sdr_device["host"]
@@ -209,13 +211,13 @@ class ProcessLifecycleManager:
             connection_type = "tcp"
             driver = None
             worker_process = rtlsdr_worker_process
-            process_name = f"Ground Station - RTL-SDR-TCP-v3-{sdr_id}"
+            process_name = f"BitLink21 - RTL-SDR-TCP-v3-{sdr_id}"
 
         elif sdr_device["type"] == "rtlsdrusbv4":
             connection_type = "usb"
             driver = None
             worker_process = rtlsdr_worker_process
-            process_name = f"Ground Station - RTL-SDR-USB-v4-{sdr_id}"
+            process_name = f"BitLink21 - RTL-SDR-USB-v4-{sdr_id}"
 
         elif sdr_device["type"] == "rtlsdrtcpv4":
             hostname = sdr_device["host"]
@@ -223,7 +225,7 @@ class ProcessLifecycleManager:
             connection_type = "tcp"
             driver = None
             worker_process = rtlsdr_worker_process
-            process_name = f"Ground Station - RTL-SDR-TCP-v4-{sdr_id}"
+            process_name = f"BitLink21 - RTL-SDR-TCP-v4-{sdr_id}"
 
         elif sdr_device["type"] == "soapysdrremote":
             hostname = sdr_device["host"]
@@ -231,25 +233,32 @@ class ProcessLifecycleManager:
             connection_type = "soapysdrremote"
             driver = sdr_device["driver"]
             worker_process = soapysdr_remote_worker_process
-            process_name = f"Ground Station - SoapySDR-Remote-{sdr_id}"
+            process_name = f"BitLink21 - SoapySDR-Remote-{sdr_id}"
 
         elif sdr_device["type"] == "soapysdrlocal":
             connection_type = "soapysdrlocal"
             driver = sdr_device["driver"]
             worker_process = soapysdr_local_worker_process
-            process_name = f"Ground Station - SoapySDR-Local-{sdr_id}"
+            process_name = f"BitLink21 - SoapySDR-Local-{sdr_id}"
 
         elif sdr_device["type"] == "uhd":
             connection_type = "uhd"
             driver = "uhd"
             worker_process = uhd_worker_process
-            process_name = f"Ground Station - UHD-Worker-{sdr_id}"
+            process_name = f"BitLink21 - UHD-Worker-{sdr_id}"
 
         elif sdr_device["type"] == "sigmfplayback":
             connection_type = "sigmfplayback"
             driver = "sigmfplayback"
             worker_process = sigmf_playback_worker_process
-            process_name = f"Ground Station - SigMF-Playback-{sdr_id}"
+            process_name = f"BitLink21 - SigMF-Playback-{sdr_id}"
+
+        elif sdr_device["type"] == "plutosdr":
+            hostname = sdr_device.get("host", "192.168.1.200")
+            connection_type = "plutosdr"
+            driver = sdr_device.get("driver", "plutosdr")
+            worker_process = plutosdr_worker_process
+            process_name = f"BitLink21 - PlutoSDR-{sdr_id}"
 
         # Check if a process for this device already exists
         if sdr_id in self.processes and self.processes[sdr_id]["process"].is_alive():
@@ -355,6 +364,10 @@ class ProcessLifecycleManager:
                 connection_type=connection_type,
                 driver=driver,
                 soapy_agc=sdr_config.get("soapy_agc", False),
+                uri=(
+                    f"ip:{hostname}" if connection_type == "plutosdr" and hostname else
+                    sdr_config.get("uri")
+                ),
                 offset_freq=int(sdr_config.get("offset_freq", 0)),
                 antenna=sdr_config.get("antenna", "RX"),
                 ppm_error=sdr_config.get("ppm_error"),
@@ -383,7 +396,7 @@ class ProcessLifecycleManager:
             )
 
             # Create and start FFT processor process
-            fft_process_name = f"Ground Station - FFT-Processor-{sdr_id}"
+            fft_process_name = f"BitLink21 - FFT-Processor-{sdr_id}"
             fft_named_worker = _create_named_worker_process(fft_processor_process, fft_process_name)
             fft_process = multiprocessing.Process(
                 target=fft_named_worker,

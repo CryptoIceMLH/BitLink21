@@ -142,6 +142,16 @@ const sdrTypeFields = {
             frequency_max: 6000,
             serial: ''
         }
+    },
+    plutosdr: {
+        excludeFields: ['port', 'driver', 'serial'],
+        fields: ['name', 'host', 'frequency_min', 'frequency_max'],
+        defaults: {
+            name: 'PlutoSDR',
+            host: '192.168.1.200',
+            frequency_min: 70,
+            frequency_max: 6000,
+        }
     }
 };
 
@@ -225,6 +235,8 @@ export default function SDRsPage() {
                 return t('sdr.soapysdr_usb');
             case 'uhd':
                 return t('sdr.uhd');
+            case 'plutosdr':
+                return t('sdr.plutosdr', 'PlutoSDR (Network)');
             default:
                 return type || '-';
         }
@@ -425,6 +437,7 @@ export default function SDRsPage() {
                     <MenuItem value="soapysdrremote">{t('sdr.soapysdr_remote')}</MenuItem>
                     <MenuItem value="soapysdrlocal">{t('sdr.soapysdr_usb')}</MenuItem>
                     <MenuItem value="uhd">{t('sdr.uhd')}</MenuItem>
+                    <MenuItem value="plutosdr">{t('sdr.plutosdr', 'PlutoSDR (Network)')}</MenuItem>
                 </Select>
             </FormControl>
         ];

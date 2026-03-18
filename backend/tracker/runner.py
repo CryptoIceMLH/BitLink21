@@ -53,10 +53,10 @@ def start_tracker_process():
     # Define the process target function that will run the async tracking task
     def run_tracking_task():
         # Set the process title for system monitoring tools
-        setproctitle.setproctitle("Ground Station - SatelliteTracker")
+        setproctitle.setproctitle("BitLink21 - SatelliteTracker")
 
         # Set the multiprocessing process name
-        multiprocessing.current_process().name = "Ground Station - SatelliteTracker"
+        multiprocessing.current_process().name = "BitLink21 - SatelliteTracker"
 
         # Create a new event loop for this process
         loop = asyncio.new_event_loop()
@@ -75,7 +75,7 @@ def start_tracker_process():
 
     # Create and start the process
     tracker_process = multiprocessing.Process(
-        target=run_tracking_task, name="Ground Station - SatelliteTracker"
+        target=run_tracking_task, name="BitLink21 - SatelliteTracker"
     )
 
     # Start the process (not daemon - we want proper cleanup)

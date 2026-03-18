@@ -31,7 +31,7 @@ import {
     useTheme,
     Link,
 } from "@mui/material";
-import { GroundStationLogoGreenBlue } from "../common/dataurl-icons.jsx";
+import { BitLink21Logo } from "../common/dataurl-icons.jsx";
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import SettingsInputAntennaIcon from '@mui/icons-material/SettingsInputAntenna';
 import RadioIcon from '@mui/icons-material/Radio';
@@ -89,7 +89,7 @@ const AboutPage = () => {
             icon: <ComputerIcon fontSize="small" color="primary" />
         },
         {
-            text: "Responsive Web Interface: A modern, responsive, and intuitive web interface built with Material-UI that adapts seamlessly to desktop, tablet, and mobile devices, allowing you to control all aspects of the ground station from anywhere on your network. Works great on a tablet and cell.",
+            text: "Responsive Web Interface: A modern, responsive, and intuitive web interface built with Material-UI that adapts seamlessly to desktop, tablet, and mobile devices, allowing you to control all aspects of the station from anywhere on your network. Works great on a tablet and cell.",
             icon: <DevicesIcon fontSize="small" color="primary" />
         }
     ];
@@ -175,8 +175,8 @@ const AboutPage = () => {
                     >
                         <Box sx={{ display: "flex", alignItems: "center" }}>
                             <img
-                                src={GroundStationLogoGreenBlue}
-                                alt="Ground Station Logo"
+                                src={BitLink21Logo}
+                                alt="BitLink21 Logo"
                                 style={{ height: "70px", marginRight: "20px" }}
                             />
                             <Typography
@@ -189,7 +189,7 @@ const AboutPage = () => {
                                     WebkitTextFillColor: 'transparent',
                                 }}
                             >
-                                Ground Station
+                                BitLink21
                             </Typography>
                         </Box>
                         
@@ -271,11 +271,11 @@ const AboutPage = () => {
                     {/* Introduction */}
                     <Card elevation={1} sx={{ padding: 2, backgroundColor: 'rgba(255,255,255,0.05)' }}>
                         <Typography variant="body1" paragraph sx={{ fontSize: '1.1rem', lineHeight: 1.6 }}>
-                            <strong>Ground Station is a full-featured, open-source software solution for satellite tracking and radio communication.</strong> Designed for amateur radio operators, satellite enthusiasts, and researchers, it provides a comprehensive and easy-to-use platform for monitoring spacecraft, controlling radio equipment, and receiving live radio signals from satellites.
+                            <strong>BitLink21 is a self-hosted satellite communication layer for Bitcoin/Lightning data over QO-100 using PlutoSDR.</strong> Designed for amateur radio operators, satellite enthusiasts, and researchers, it provides a comprehensive and easy-to-use platform for monitoring spacecraft, controlling radio equipment, and receiving live radio signals from satellites.
                         </Typography>
                         <Typography variant="body2">
                             <Link
-                                href="https://github.com/sgoudelis/ground-station"
+                                href="https://github.com/CryptoIceMLH/BitLink21"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 sx={{ display: "inline-flex", alignItems: "center" }}
@@ -296,7 +296,7 @@ const AboutPage = () => {
                         </Typography>
                         <Divider sx={{ mb: 2 }} />
                         <Typography variant="body1" sx={{ lineHeight: 1.7, mb: 2 }}>
-                            The Ground Station application is composed of a frontend, a backend, and a set of worker processes:
+                            The BitLink21 application is composed of a frontend, a backend, and a set of worker processes:
                         </Typography>
                         <Stack spacing={1}>
                             <Typography variant="body1">

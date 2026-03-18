@@ -91,8 +91,8 @@ test.describe('About Page', () => {
   test('should display application information', async ({ page }) => {
     await page.waitForTimeout(2000);
 
-    // Look for common about page elements like version, copyright, or Ground Station text
-    const aboutContent = page.getByText(/version|copyright|ground station|license/i);
+    // Look for common about page elements like version, copyright, or BitLink21 text
+    const aboutContent = page.getByText(/version|copyright|bitlink21|license/i);
     await expect(aboutContent.first()).toBeVisible({ timeout: 10000 });
   });
 });

@@ -1,4 +1,4 @@
-# Development and testing dependencies for Ground Station backend
+# Development and testing dependencies for BitLink21 backend
 
 # Testing framework
 pytest==8.3.4

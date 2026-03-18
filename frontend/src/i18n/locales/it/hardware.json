@@ -132,6 +132,7 @@
     "soapysdr_remote": "SoapySDR Remoto",
     "soapysdr_usb": "SoapySDR USB",
     "uhd": "UHD",
+    "plutosdr": "PlutoSDR (Rete)",
     "cancel": "Annulla",
     "submit": "Invia",
     "confirm_deletion": "Conferma Eliminazione",

@@ -38,7 +38,7 @@ _version_info = None
 _update_check_cache: UpdateCheckCache = {"timestamp": 0.0, "data": None}
 
 # GitHub releases endpoint (public)
-GITHUB_RELEASES_URL = "https://api.github.com/repos/sgoudelis/ground-station/releases/latest"
+GITHUB_RELEASES_URL = "https://api.github.com/repos/CryptoIceMLH/BitLink21/releases/latest"
 
 
 def _normalize_version(raw: str) -> str:
@@ -86,7 +86,7 @@ def _compare_versions(a: str, b: str) -> int:
 def _fetch_latest_release() -> dict[str, Any]:
     headers = {
         "Accept": "application/vnd.github+json",
-        "User-Agent": "ground-station",
+        "User-Agent": "bitlink21",
     }
     token = os.environ.get("GITHUB_TOKEN")
     if token:

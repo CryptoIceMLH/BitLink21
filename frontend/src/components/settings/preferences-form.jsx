@@ -409,7 +409,7 @@ const PreferencesForm = () => {
                                 Google's Terms
                             </a>
                             {' • '}
-                            <a href="https://github.com/sgoudelis/ground-station/blob/main/TRANSCRIPTION_PRIVACY.md" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>
+                            <a href="https://github.com/CryptoIceMLH/BitLink21/blob/main/TRANSCRIPTION_PRIVACY.md" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>
                                 Privacy Notice
                             </a>
                         </Alert>
@@ -459,7 +459,7 @@ const PreferencesForm = () => {
                                 Deepgram Pricing
                             </a>
                             {' • '}
-                            <a href="https://github.com/sgoudelis/ground-station/blob/main/TRANSCRIPTION_PRIVACY.md" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>
+                            <a href="https://github.com/CryptoIceMLH/BitLink21/blob/main/TRANSCRIPTION_PRIVACY.md" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>
                                 Privacy Notice
                             </a>
                         </Alert>

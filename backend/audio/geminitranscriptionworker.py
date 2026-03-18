@@ -1,5 +1,5 @@
-# Ground Station - Gemini Transcription Worker
-# Developed by Claude (Anthropic AI) for the Ground Station project
+# BitLink21 - Gemini Transcription Worker
+# Developed by Claude (Anthropic AI) for the BitLink21 project
 #
 # This module connects to Google Gemini Live API for real-time speech-to-text
 # conversion with optional translation. Extends the base TranscriptionWorker class.

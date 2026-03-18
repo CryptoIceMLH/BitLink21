@@ -1,5 +1,5 @@
 /**
- * Smoke tests for Ground Station
+ * Smoke tests for BitLink21
  * Quick, high-level tests to verify basic functionality
  */
 

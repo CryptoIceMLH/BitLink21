@@ -1,5 +1,5 @@
 /**
- * Ground Station - Custom Icons
+ * BitLink21 - Custom Icons
  * Developed with assistance from Claude (Anthropic AI)
  *
  * This program is free software: you can redistribute it and/or modify

@@ -1,4 +1,4 @@
-# Ground Station - IQ Recorder
+# BitLink21 - IQ Recorder
 # Copyright (c) 2025 Efstratios Goudelis
 #
 # This program is free software: you can redistribute it and/or modify
@@ -228,8 +228,8 @@ class IQRecorder(threading.Thread):
         global_metadata: dict = {
             "core:datatype": "cf32_le",
             "core:version": "1.0.0",
-            "core:description": "Ground Station IQ Recording",
-            "core:recorder": "ground-station",
+            "core:description": "BitLink21 IQ Recording",
+            "core:recorder": "bitlink21",
             "gs:recording_in_progress": True,
             "gs:start_time": self.start_time_iso,
             "gs:session_id": self.session_id,
@@ -279,8 +279,8 @@ class IQRecorder(threading.Thread):
             "core:datatype": "cf32_le",
             "core:sample_rate": self.current_sample_rate,
             "core:version": "1.0.0",
-            "core:description": "Ground Station IQ Recording",
-            "core:recorder": "ground-station",
+            "core:description": "BitLink21 IQ Recording",
+            "core:recorder": "bitlink21",
             "gs:start_time": self.start_time_iso,
             "gs:finalized_time": datetime.now(timezone.utc)
             .replace(microsecond=0, tzinfo=None)

@@ -22,7 +22,7 @@ logger = logging.getLogger("app-config")
 
 
 DEFAULT_APP_CONFIG: Dict[str, Any] = {
-    "_comment": "Ground Station app defaults. Remove or change values to override.",
+    "_comment": "BitLink21 app defaults. Remove or change values to override.",
     "host": "0.0.0.0",
     "port": 5000,
     "db": "data/db/gs.db",

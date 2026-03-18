@@ -58,10 +58,10 @@ def _generate_cache_key(tle_groups, homelat, homelon, hours, above_el, step_minu
 def _named_worker_init():
     """Initialize worker process with a descriptive name"""
     # Set process title for system monitoring tools
-    setproctitle.setproctitle("Ground Station - SatellitePassWorker")
+    setproctitle.setproctitle("BitLink21 - SatellitePassWorker")
 
     # Set multiprocessing process name
-    multiprocessing.current_process().name = "Ground Station - SatellitePassWorker"
+    multiprocessing.current_process().name = "BitLink21 - SatellitePassWorker"
 
 
 def _calculate_elevation_curve(
@@ -234,8 +234,8 @@ def run_events_calculation(
     # Set process name if not already set by pool initializer
     current_proc = multiprocessing.current_process()
     if current_proc.name.startswith("ForkPoolWorker"):
-        setproctitle.setproctitle("Ground Station - SatellitePassWorker")
-        current_proc.name = "Ground Station - SatellitePassWorker"
+        setproctitle.setproctitle("BitLink21 - SatellitePassWorker")
+        current_proc.name = "BitLink21 - SatellitePassWorker"
 
     # Calculate events (no cache access - handled in main process)
     events = calculate_next_events(
