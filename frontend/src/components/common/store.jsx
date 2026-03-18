@@ -60,7 +60,7 @@ const waterfallPersistConfig = {
         'showLeftSideWaterFallAccessories', 'selectedAntenna', 'selectedSDRId', 'selectedOffsetMode',
         'selectedOffsetValue', 'fftAveraging', 'showRotatorDottedLines', 'autoScalePreset', 'expandedPanels',
         'packetsDrawerHeight', 'packetsDrawerOpen', 'showNeighboringTransmitters', 'showBookmarkSources',
-        'sdrSettingsById', 'converterDefinitions', 'activeConverterId']
+        'sdrSettingsById', 'converterDefinitions', 'activeConverterId', 'panelOrder']
 };
 
 // Persist configuration for VFO slice

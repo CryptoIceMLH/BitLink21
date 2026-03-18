@@ -11,6 +11,51 @@ import CellTowerIcon from '@mui/icons-material/CellTower';
 import { setPttActive, setTxFreq, setTxGain } from '../bitlink21/bitlink21-slice.jsx';
 import { useSocket } from '../common/socket.jsx';
 
+const TestToneButton = ({ socket }) => {
+    const [active, setActive] = useState(false);
+    const [toneFreq, setToneFreq] = useState(1000);
+
+    const handleToggle = () => {
+        if (!socket) return;
+        if (active) {
+            socket.emit('data_submission', 'bitlink21:test_tone_stop', {}, (res) => {
+                if (res?.success) setActive(false);
+            });
+        } else {
+            socket.emit('data_submission', 'bitlink21:test_tone_start', { tone_freq_hz: toneFreq }, (res) => {
+                if (res?.success) setActive(true);
+            });
+        }
+    };
+
+    return (
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <Button
+                variant="outlined"
+                size="small"
+                onClick={handleToggle}
+                color={active ? 'error' : 'primary'}
+                sx={{ flex: 1, fontSize: '0.8rem' }}
+            >
+                {active ? 'Stop Tone' : 'Test Tone'}
+            </Button>
+            <TextField
+                size="small"
+                value={toneFreq}
+                onChange={e => setToneFreq(parseInt(e.target.value) || 1000)}
+                type="number"
+                InputProps={{
+                    endAdornment: <InputAdornment position="end">Hz</InputAdornment>,
+                    sx: { fontSize: '0.75rem' },
+                    inputProps: { step: 100 },
+                }}
+                sx={{ width: 120 }}
+                disabled={active}
+            />
+        </Box>
+    );
+};
+
 const TxControlsAccordion = ({ expanded, onAccordionChange }) => {
     const { t } = useTranslation('bitlink21');
     const dispatch = useDispatch();
@@ -96,6 +141,9 @@ const TxControlsAccordion = ({ expanded, onAccordionChange }) => {
                     >
                         {pttActive ? 'TX ON — Click to Stop' : 'PTT — Click to Transmit'}
                     </Button>
+
+                    {/* Test Tone */}
+                    <TestToneButton socket={socket} />
 
                     <Divider />
 

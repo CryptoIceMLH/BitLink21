@@ -124,7 +124,6 @@ const initialState = {
     selectedOffsetMode: "",
     selectedOffsetValue: 0,
     converterDefinitions: [
-        { id: 'qo100', name: 'QO-100', type: 'down', rxOffset: 9750000000, txOffset: 8089500000 },
         { id: 'none', name: 'None', type: 'none', rxOffset: 0, txOffset: 0 },
     ],
     activeConverterId: 'none',
@@ -155,6 +154,7 @@ const initialState = {
     showRightSideWaterFallAccessories: true,
     showLeftSideWaterFallAccessories: true,
     expandedPanels: ['recording', 'playback', 'sdr', 'freqControl', 'fft', 'vfo'],
+    panelOrder: ['sdr', 'freqControl', 'vfo', 'fft', 'recording', 'playback', 'tx', 'beacon'],
     selectedSDRId: "none",
     selectedTransmitterId: "none",
     startStreamingLoading: false,
@@ -259,6 +259,25 @@ export const waterfallSlice = createSlice({
             if (state.activeConverterId === action.payload) {
                 state.activeConverterId = 'none';
                 state.selectedOffsetValue = 0;
+            }
+        },
+        setPanelOrder: (state, action) => {
+            state.panelOrder = action.payload;
+        },
+        movePanelUp: (state, action) => {
+            const idx = state.panelOrder.indexOf(action.payload);
+            if (idx > 0) {
+                const newOrder = [...state.panelOrder];
+                [newOrder[idx - 1], newOrder[idx]] = [newOrder[idx], newOrder[idx - 1]];
+                state.panelOrder = newOrder;
+            }
+        },
+        movePanelDown: (state, action) => {
+            const idx = state.panelOrder.indexOf(action.payload);
+            if (idx >= 0 && idx < state.panelOrder.length - 1) {
+                const newOrder = [...state.panelOrder];
+                [newOrder[idx], newOrder[idx + 1]] = [newOrder[idx + 1], newOrder[idx]];
+                state.panelOrder = newOrder;
             }
         },
         setErrorMessage: (state, action) => {
@@ -689,6 +708,9 @@ export const {
     setNeighboringTransmitters,
     setShowNeighboringTransmitters,
     setShowBookmarkSource,
+    setPanelOrder,
+    movePanelUp,
+    movePanelDown,
     setActiveConverterId,
     setConverterDefinitions,
     addConverterDefinition,

@@ -310,8 +310,8 @@ class Storage:
     # --- Aliases expected by bitlink21 handlers ---
 
     async def enqueue_message(self, data: Dict[str, Any]) -> int:
-        """Alias for enqueue_to_outbox (handler-compatible)."""
-        return await self.enqueue_to_outbox(
+        """Alias for add_to_outbox (handler-compatible)."""
+        return await self.add_to_outbox(
             destination_npub=data.get("destination_npub"),
             payload_type=data.get("payload_type", "text"),
             body=data.get("body", ""),

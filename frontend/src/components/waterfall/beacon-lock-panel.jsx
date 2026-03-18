@@ -26,7 +26,7 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
     const {socket} = useSocket();
     const { beaconLockState, beaconOffset, beaconPhaseError } = useSelector(state => state.bitlink21);
 
-    const [beaconFreq, setBeaconFreq] = useState('10489500000');
+    const [beaconFreq, setBeaconFreq] = useState('');
     const [xoCorrection, setXoCorrection] = useState(0);
     const isRunning = beaconLockState !== 'UNLOCKED';
 
@@ -78,7 +78,7 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
                             endAdornment: <InputAdornment position="end">Hz</InputAdornment>,
                             sx: { fontFamily: 'monospace', fontSize: '0.85rem' },
                         }}
-                        helperText="QO-100 CW beacon: 10489500000 Hz"
+                        helperText="Enter beacon frequency in Hz"
                     />
 
                     {/* Lock/Unlock Button */}

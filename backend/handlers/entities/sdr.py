@@ -158,6 +158,12 @@ async def sdr_data_request_routing(sio, cmd, data, logger, client_id):
                                 f"({freq_min:.2f} MHz - {freq_max:.2f} MHz)"
                             )
 
+                # Apply offset to center_freq so the worker receives the IF frequency directly.
+                # The worker doesn't need to know about the converter — it just tunes to what it's told.
+                if offset_freq:
+                    center_freq = center_freq + offset_freq  # RF → IF (e.g., 10489 + (-9750) = 739 MHz)
+                    offset_freq = 0  # Already applied — don't double-apply in worker
+
                 # Default to 2.048 MSPS
                 sample_rate = _coerce_float(
                     data.get("sampleRate", 2.048e6), 2.048e6, "sampleRate", logger

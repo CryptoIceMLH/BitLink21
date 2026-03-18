@@ -220,6 +220,18 @@ class ProcessManager:
         """
         await self.lifecycle_manager.update_configuration(sdr_id, config)
 
+    def get_running_sdrs(self):
+        """Return list of running SDR processes with configs."""
+        return self.lifecycle_manager.get_running_sdrs()
+
+    async def rejoin_client(self, sdr_id, client_id):
+        """Add a reconnecting client to an already-running SDR process."""
+        return await self.lifecycle_manager.rejoin_client(sdr_id, client_id)
+
+    async def force_stop_sdr(self, sdr_id):
+        """Force-stop an SDR process regardless of persistent flag."""
+        return await self.lifecycle_manager.force_stop_sdr(sdr_id)
+
     def is_sdr_process_running(self, sdr_id):
         """
         Check if an SDR process exists and is running

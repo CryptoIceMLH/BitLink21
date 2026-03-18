@@ -6,6 +6,7 @@ from bitlink21.storage import storage
 from bitlink21.beacon_afc import beacon_afc
 from bitlink21.modem import get_scheme_list
 from bitlink21.ber_test import ber_test
+from bitlink21.test_tone import test_tone
 from common.logger import logger
 
 
@@ -328,6 +329,30 @@ async def get_ber_results(
     return {"success": True, "data": ber_test.get_results()}
 
 
+async def test_tone_start(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Start TX test tone."""
+    try:
+        if data:
+            test_tone.configure(data)
+        started = test_tone.start()
+        if started:
+            return {"success": True, "data": test_tone.get_status()}
+        return {"success": False, "error": "Test tone already active or no SDR"}
+    except Exception as e:
+        logger.error(f"Failed to start test tone: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+async def test_tone_stop(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Stop TX test tone."""
+    test_tone.stop()
+    return {"success": True, "data": test_tone.get_status()}
+
+
 def register_handlers(registry):
     """Register BitLink21 handlers with the command registry."""
     registry.register_batch(
@@ -351,5 +376,7 @@ def register_handlers(registry):
             "bitlink21:ber_test_start": (ber_test_start, "data_submission"),
             "bitlink21:ber_test_stop": (ber_test_stop, "data_submission"),
             "bitlink21:get_ber_results": (get_ber_results, "data_request"),
+            "bitlink21:test_tone_start": (test_tone_start, "data_submission"),
+            "bitlink21:test_tone_stop": (test_tone_stop, "data_submission"),
         }
     )
