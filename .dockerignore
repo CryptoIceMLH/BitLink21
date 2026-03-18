@@ -4,15 +4,42 @@ build/
 __pycache__/
 *.o
 *.a
-Originals/
-.git/
-.claude/
 *.pyc
 .pytest_cache/
 .coverage
 *.swp
 *.swo
 *.log
+
+# Git and dev tools
+.git/
+.claude/
+.github/
+
+# Secrets
 .env
 .env.local
+*.pem
+*.key
+
+# Old BitLink21 v1 directories (reference only, not in container)
+Originals/
+radio/
+core/
+web-ui/
+cli/
+server-prep/
+
+# Docs and config (not needed in container)
+details.md
+masterplan.md
+DEV-SERVER-HOWTO.md
+*.md
+!backend/docs/*.md
+
+# Data volumes (mounted at runtime)
+data/
+
+# OS
 .DS_Store
+Thumbs.db

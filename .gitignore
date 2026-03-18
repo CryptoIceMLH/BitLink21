@@ -2,14 +2,33 @@ Originals/
 .claude/
 details.md
 masterplan.md
+
+# Dependencies
 node_modules/
-web-ui/node_modules/
-web-ui/dist/
+frontend/node_modules/
+frontend/dist/
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# Data (persistent volumes)
+data/
 
 # Environment configuration (contains secrets)
 .env
 .env.local
 *.pem
 *.key
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

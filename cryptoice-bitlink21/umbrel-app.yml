@@ -1,31 +1,35 @@
 manifestVersion: 1.1
 id: cryptoice-bitlink21
 name: BitLink21
-tagline: Bitcoin satellite communication via QO-100
+tagline: Bitcoin decentralized satellite communication system
 icon: https://raw.githubusercontent.com/CryptoIceMLH/BitLink21/master/cryptoice-bitlink21/bitlink21-128.png
 category: bitcoin
-version: "0.6.1"
-port: 3021
+version: "2.0.0"
+port: 7000
 description: >-
   BitLink21 is a self-hosted satellite communications layer for Bitcoin and Lightning.
-  Send encrypted Bitcoin transactions, Lightning invoices, and messages over the QO-100
-  geostationary satellite using a PlutoSDR — no internet required between nodes.
+  Send encrypted Bitcoin transactions, Lightning invoices, and messages over satellite
+  using SDR hardware — no internet required between nodes.
 
   Features:
-  - Real-time waterfall spectrum display (2048-bin FFT, WebGL-rendered)
-  - All 52 liquid-dsp modulation schemes (BPSK to QAM256)
+  - Multi-SDR support (RTL-SDR, SoapySDR, UHD/USRP, HackRF, Airspy, LimeSDR, PlutoSDR)
+  - PlutoSDR TX+RX via pyadi-iio (full duplex, burst TX for SSP frames)
+  - Web Worker waterfall with 7 color maps and auto-scaling
   - Nostr NIP-04 encryption (AES-256-CBC + ECDH secp256k1)
   - Bitcoin transaction relay over satellite
   - Lightning invoice relay
-  - CSMA collision avoidance
-  - PlutoSDR SDR hardware integration
+  - Satellite tracking, rotator control, scheduled observations
+  - Socket.IO real-time communication
+  - Material-UI v7 + Redux Toolkit frontend
 developer: BitLink21 Contributors
 website: https://github.com/CryptoIceMLH/BitLink21
 repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 gallery: []
 releaseNotes: >-
-  v0.6.1: Fix waterfall rendering — deduplicate WS processing, fix OffscreenCanvas DPR scaling, spectrum overlay on waterfall
+  v2.0.0: Complete architecture rewrite — forked Ground Station, single container,
+  Socket.IO, Redux, MUI v7, Web Worker waterfall, multi-SDR support, PlutoSDR TX+RX
+  via pyadi-iio, SQLAlchemy + Alembic, all existing BitLink21 features preserved.
 dependencies: []
 path: ""
 defaultUsername: ""

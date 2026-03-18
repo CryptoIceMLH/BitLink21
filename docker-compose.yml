@@ -1,65 +1,34 @@
-version: '3.8'
+# BitLink21 v2.0.0 — Single Container Architecture
+# Forked from Ground Station + BitLink21 features (SSP, NIP-04, Bitcoin/Lightning, PlutoSDR TX+RX)
 
 services:
-  # C++ Radio DSP
-  bitlink21-radio:
+  bitlink21:
     build:
-      context: ./radio
+      context: .
       dockerfile: Dockerfile
-    container_name: bitlink21-radio
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+        BUILD_VERSION: ${BUILD_VERSION:-2.0.0}
+    container_name: bitlink21
     environment:
-      PLUTO_URI: "ip:192.168.1.200"
-      MODEM_PORT: "40132"
-      MODEM_IP: "bitlink21-core"
+      # PlutoSDR configuration
+      PLUTO_URI: "${PLUTO_URI:-ip:192.168.1.200}"
+      # BitLink21 specific
+      BITLINK21_DB_PATH: "/app/backend/data/bitlink21.db"
+      # Bitcoin Core RPC (optional)
+      BITCOIN_RPC_URL: "${BITCOIN_RPC_URL:-}"
+      BITCOIN_RPC_USER: "${BITCOIN_RPC_USER:-}"
+      BITCOIN_RPC_PASS: "${BITCOIN_RPC_PASS:-}"
+      # LND REST (optional)
+      LND_REST_URL: "${LND_REST_URL:-}"
     ports:
-      - "40134:40134"  # WebSocket for waterfall FFT
-      - "40135:40135/udp"  # UDP control commands from Python core
+      - "${BITLINK21_PORT:-7000}:7000"
     volumes:
-      - ./data/radio:/app/data
-    networks:
-      - bitlink21_net
+      - ./data:/app/backend/data
+    devices:
+      # Pass through USB devices for SDR hardware (RTL-SDR, HackRF, etc.)
+      # Uncomment if using USB-connected SDR:
+      # - /dev/bus/usb:/dev/bus/usb
+    privileged: false
     restart: unless-stopped
-
-  # Python Core (REST API, encryption, storage)
-  bitlink21-core:
-    build:
-      context: ./core
-      dockerfile: Dockerfile
-    container_name: bitlink21-core
-    environment:
-      DB_PATH: "/app/data/bitlink21.db"
-      MODEM_HOST: "bitlink21-radio"
-      MODEM_PORT: "40135"
-      LOG_DEBUG: "1"
-    ports:
-      - "8021:8021"  # REST API
-    volumes:
-      - ./data/core:/app/data
-      - ./core/src:/app/src
-    networks:
-      - bitlink21_net
-    depends_on:
-      - bitlink21-radio
-    restart: unless-stopped
-
-  # React Web UI (nginx reverse proxy: /api/ → core:8021, /ws → radio:40134)
-  web-ui:
-    build:
-      context: ./web-ui
-      dockerfile: Dockerfile
-    container_name: bitlink21-ui
-    ports:
-      - "3000:3000"
-    networks:
-      - bitlink21_net
-    depends_on:
-      - bitlink21-core
-    restart: unless-stopped
-
-networks:
-  bitlink21_net:
-    driver: bridge
-
-volumes:
-  radio_data:
-  core_data:
