@@ -30,7 +30,7 @@ from server.audiorecorder import start_audio_recording, stop_audio_recording
 from server.recorder import start_recording, stop_recording
 from server.snapshots import save_waterfall_snapshot
 from server.startup import audio_queue
-from session.service import session_service
+from session.service import session_service, add_sdr_session
 from session.tracker import session_tracker
 
 
@@ -315,7 +315,7 @@ async def sdr_data_request_routing(sio, cmd, data, logger, client_id):
         elif cmd == "get-current-sdr-state":
             # Return currently running SDR state for reconnecting clients
             try:
-                from pipeline.orchestration.processmanager import process_manager
+                # process_manager already imported at top level
                 running = process_manager.get_running_sdrs()
                 if running:
                     reply["success"] = True
@@ -330,7 +330,7 @@ async def sdr_data_request_routing(sio, cmd, data, logger, client_id):
         elif cmd == "rejoin-sdr":
             # Lightweight rejoin — add client to existing SDR room without re-validating config
             try:
-                from pipeline.orchestration.processmanager import process_manager
+                # process_manager already imported at top level
                 sdr_id = data.get("sdr_id") if data else None
                 if not sdr_id:
                     reply["success"] = False
@@ -339,7 +339,7 @@ async def sdr_data_request_routing(sio, cmd, data, logger, client_id):
                     joined = await process_manager.rejoin_client(sdr_id, client_id)
                     if joined:
                         # Also register in session tracking
-                        from session.service import add_sdr_session
+                        # add_sdr_session already imported at top level
                         running = process_manager.get_running_sdrs()
                         sdr_info = next((s for s in running if s["sdr_id"] == sdr_id), None)
                         if sdr_info:
@@ -380,7 +380,7 @@ async def sdr_data_request_routing(sio, cmd, data, logger, client_id):
 
                 if sdr_id:
                     # Force-stop the SDR process (explicit user action overrides persistence)
-                    from pipeline.orchestration.processmanager import process_manager
+                    # process_manager already imported at top level
                     await process_manager.force_stop_sdr(sdr_id)
 
                 if not session_service.session_exists(client_id):
