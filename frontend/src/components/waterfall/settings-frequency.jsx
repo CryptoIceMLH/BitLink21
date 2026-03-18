@@ -27,11 +27,27 @@ import { useSelector, useDispatch } from 'react-redux';
 import { setActiveConverterId } from './waterfall-slice.jsx';
 import ConverterDefinitionsDialog from './converter-definitions.jsx';
 import SettingsIcon from '@mui/icons-material/Settings';
+import { useSocket } from '../common/socket.jsx';
 
 const ConverterSelector = () => {
     const dispatch = useDispatch();
-    const { converterDefinitions, activeConverterId } = useSelector(state => state.waterfall);
+    const {socket} = useSocket();
+    const { converterDefinitions, activeConverterId, selectedSDRId, isStreaming } = useSelector(state => state.waterfall);
     const [dialogOpen, setDialogOpen] = React.useState(false);
+
+    const handleConverterChange = (converterId) => {
+        dispatch(setActiveConverterId(converterId));
+        // If streaming, immediately send updated offset to backend
+        if (isStreaming && socket && selectedSDRId && selectedSDRId !== 'none') {
+            const converter = converterDefinitions.find(c => c.id === converterId);
+            const offset = converter?.type === 'down' ? -converter.rxOffset :
+                           converter?.type === 'up' ? converter.rxOffset : 0;
+            socket.emit('sdr_data', 'configure-sdr', {
+                selectedSDRId,
+                offsetFrequency: offset,
+            });
+        }
+    };
 
     return (
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 1 }}>
@@ -39,7 +55,7 @@ const ConverterSelector = () => {
                 <InputLabel>Converter</InputLabel>
                 <Select
                     value={activeConverterId || 'none'}
-                    onChange={(e) => dispatch(setActiveConverterId(e.target.value))}
+                    onChange={(e) => handleConverterChange(e.target.value)}
                     label="Converter"
                     size="small"
                 >

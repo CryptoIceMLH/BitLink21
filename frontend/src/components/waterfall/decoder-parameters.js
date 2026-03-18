@@ -434,6 +434,50 @@ export const SATDUMP_PIPELINES = {
 /**
  * Combined parameter definitions for all decoders
  */
+export const SSP_PARAMETERS = {
+    ssp_scheme: {
+        label: 'Modulation Scheme',
+        description: 'PSK/QAM modulation for SSP protocol',
+        type: 'select',
+        default: 'QPSK',
+        options: [
+            { value: 'BPSK', label: 'BPSK (1 bps)' },
+            { value: 'QPSK', label: 'QPSK (2 bps)' },
+            { value: '8-PSK', label: '8-PSK (3 bps)' },
+            { value: '16-QAM', label: '16-QAM (4 bps)' },
+            { value: '32-QAM', label: '32-QAM (5 bps)' },
+            { value: '64-QAM', label: '64-QAM (6 bps)' },
+            { value: '128-QAM', label: '128-QAM (7 bps)' },
+            { value: '256-QAM', label: '256-QAM (8 bps)' },
+            { value: 'DBPSK', label: 'DBPSK (1 bps)' },
+            { value: 'DQPSK', label: 'DQPSK (2 bps)' },
+            { value: 'OOK', label: 'OOK (1 bps)' },
+            { value: 'GMSK', label: 'GMSK (1 bps)' },
+            { value: '2-FSK', label: '2-FSK (1 bps)' },
+            { value: '4-FSK', label: '4-FSK (2 bps)' },
+        ]
+    },
+    ssp_baudrate: {
+        label: 'Symbol Rate',
+        description: 'Symbols per second',
+        type: 'select',
+        default: 9600,
+        options: [300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200]
+    },
+    ssp_fec: {
+        label: 'FEC (RS 255,223)',
+        description: 'Forward Error Correction — Reed-Solomon',
+        type: 'switch',
+        default: true
+    },
+    ssp_encryption: {
+        label: 'NIP-04 Encryption',
+        description: 'Decrypt incoming SSP frames with your NSEC key',
+        type: 'switch',
+        default: true
+    },
+};
+
 export const DECODER_PARAMETERS = {
     ...LORA_PARAMETERS,
     ...FSK_PARAMETERS,
@@ -441,7 +485,8 @@ export const DECODER_PARAMETERS = {
     ...GFSK_PARAMETERS,
     ...BPSK_PARAMETERS,
     ...AFSK_PARAMETERS,
-    ...SSTV_PARAMETERS
+    ...SSTV_PARAMETERS,
+    ...SSP_PARAMETERS
 };
 
 /**
@@ -526,6 +571,15 @@ export function mapParametersToBackend(decoder, parameters) {
             af_carrier: parameters.afsk_af_carrier,
             deviation: parameters.afsk_deviation,
             framing: parameters.afsk_framing
+        };
+    }
+
+    if (decoder === 'ssp') {
+        return {
+            scheme: parameters.ssp_scheme,
+            baudrate: parameters.ssp_baudrate,
+            fec: parameters.ssp_fec,
+            encryption: parameters.ssp_encryption
         };
     }
 

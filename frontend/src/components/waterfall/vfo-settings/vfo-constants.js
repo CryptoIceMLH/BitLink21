@@ -31,6 +31,10 @@ export const BANDWIDTHS = {
 };
 
 export const STEP_SIZES = [
+    { value: 1, label: '1 Hz' },
+    { value: 5, label: '5 Hz' },
+    { value: 10, label: '10 Hz' },
+    { value: 25, label: '25 Hz' },
     { value: 50, label: '50 Hz' },
     { value: 100, label: '100 Hz' },
     { value: 250, label: '250 Hz' },
