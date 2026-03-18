@@ -120,6 +120,7 @@ import { setRuntimeSnapshot } from '../components/settings/sessions-slice.jsx';
 import { fetchSatelliteGroups } from '../components/overview/overview-slice.jsx';
 import { addTranscription } from '../components/waterfall/transcription-slice.jsx';
 import { fetchSoapySDRServers } from '../components/hardware/sdr-slice.jsx';
+import { addIncomingMessage, updateBeaconStatus, updateConstellationPoints } from '../components/bitlink21/bitlink21-slice.jsx';
 import ImageIcon from '@mui/icons-material/Image';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import RadioButtonCheckedIcon from '@mui/icons-material/RadioButtonChecked';
@@ -1013,6 +1014,19 @@ export const useSocketEventHandlers = (socket) => {
             );
         });
 
+        // BitLink21 events
+        socket.on('bitlink21:incoming_message', (data) => {
+            dispatch(addIncomingMessage(data));
+        });
+
+        socket.on('bitlink21:beacon_status', (data) => {
+            dispatch(updateBeaconStatus(data));
+        });
+
+        socket.on('bitlink21:constellation_data', (data) => {
+            dispatch(updateConstellationPoints(data));
+        });
+
         // Cleanup function
         return () => {
             unsubscribe();
@@ -1055,6 +1069,9 @@ export const useSocketEventHandlers = (socket) => {
             socket.off("soapysdr:discovery_complete");
             socket.off("soapysdr:refresh_complete");
             socket.off("soapysdr:discovery_error");
+            socket.off("bitlink21:incoming_message");
+            socket.off("bitlink21:beacon_status");
+            socket.off("bitlink21:constellation_data");
         };
     }, [socket, dispatch, t]);
 };

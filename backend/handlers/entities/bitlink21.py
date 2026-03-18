@@ -3,6 +3,9 @@
 from typing import Any, Dict, Optional, Union
 
 from bitlink21.storage import storage
+from bitlink21.beacon_afc import beacon_afc
+from bitlink21.modem import get_scheme_list
+from bitlink21.ber_test import ber_test
 from common.logger import logger
 
 
@@ -233,6 +236,98 @@ async def get_stats(
         return {"success": False, "error": str(e)}
 
 
+async def beacon_start(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Start beacon AFC loop."""
+    try:
+        if data:
+            beacon_afc.configure(data)
+        beacon_afc.set_sio(sio)
+        await beacon_afc.start()
+        return {"success": True, "data": beacon_afc.get_status()}
+    except Exception as e:
+        logger.error(f"Failed to start beacon AFC: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+async def beacon_stop(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Stop beacon AFC loop."""
+    try:
+        await beacon_afc.stop()
+        return {"success": True, "data": beacon_afc.get_status()}
+    except Exception as e:
+        logger.error(f"Failed to stop beacon AFC: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+async def beacon_config(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Configure beacon AFC parameters."""
+    if not data:
+        return {"success": False, "error": "No data provided"}
+    try:
+        beacon_afc.configure(data)
+        return {"success": True, "data": beacon_afc.get_status()}
+    except Exception as e:
+        logger.error(f"Failed to configure beacon AFC: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+async def get_beacon_status(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Get current beacon AFC status."""
+    return {"success": True, "data": beacon_afc.get_status()}
+
+
+async def get_modem_schemes(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, list, str]]:
+    """Get list of available modulation schemes."""
+    return {"success": True, "data": get_scheme_list()}
+
+
+async def ber_test_start(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Start BER test — generate and queue PRBS data for TX."""
+    try:
+        if data:
+            ber_test.configure(data)
+        ber_test.set_sio(sio)
+        tx_data = ber_test.start_tx()
+        # Queue the PRBS data for TX via send_message
+        outbox_id = await storage.enqueue_message({
+            "destination_npub": None,
+            "payload_type": "binary",
+            "body": tx_data.hex(),
+        })
+        logger.info(f"BER test TX queued: {len(tx_data)} bytes, outbox_id={outbox_id}")
+        return {"success": True, "data": ber_test.get_results()}
+    except Exception as e:
+        logger.error(f"Failed to start BER test: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+async def ber_test_stop(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Stop BER test."""
+    ber_test.stop()
+    return {"success": True, "data": ber_test.get_results()}
+
+
+async def get_ber_results(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Get BER test results."""
+    return {"success": True, "data": ber_test.get_results()}
+
+
 def register_handlers(registry):
     """Register BitLink21 handlers with the command registry."""
     registry.register_batch(
@@ -248,5 +343,13 @@ def register_handlers(registry):
             "bitlink21:get_config": (get_config, "data_request"),
             "bitlink21:set_config": (set_config, "data_submission"),
             "bitlink21:get_stats": (get_stats, "data_request"),
+            "bitlink21:beacon_start": (beacon_start, "data_submission"),
+            "bitlink21:beacon_stop": (beacon_stop, "data_submission"),
+            "bitlink21:beacon_config": (beacon_config, "data_submission"),
+            "bitlink21:get_beacon_status": (get_beacon_status, "data_request"),
+            "bitlink21:get_modem_schemes": (get_modem_schemes, "data_request"),
+            "bitlink21:ber_test_start": (ber_test_start, "data_submission"),
+            "bitlink21:ber_test_stop": (ber_test_stop, "data_submission"),
+            "bitlink21:get_ber_results": (get_ber_results, "data_request"),
         }
     )

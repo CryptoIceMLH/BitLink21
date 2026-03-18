@@ -48,6 +48,7 @@ import sessionsReducer from '../settings/sessions-slice.jsx';
 import transcriptionReducer from '../waterfall/transcription-slice.jsx';
 import schedulerReducer from '../scheduler/scheduler-slice.jsx';
 import tasksReducer from '../tasks/tasks-slice.jsx';
+import bitlink21Reducer from '../bitlink21/bitlink21-slice.jsx';
 import backendSyncMiddleware from '../waterfall/vfo-marker/vfo-middleware.jsx';
 
 
@@ -255,6 +256,13 @@ const tasksPersistConfig = {
     whitelist: []  // Don't persist tasks (they're ephemeral)
 };
 
+// Persist configuration for BitLink21 slice
+const bitlink21PersistConfig = {
+    key: 'bitlink21',
+    storage,
+    whitelist: ['txFreq', 'txGain', 'config']  // Persist TX settings and config cache
+};
+
 
 // Wrap reducers with persistReducer
 const persistedWaterfallReducer = persistReducer(waterfallPersistConfig, waterfallReducer);
@@ -282,6 +290,7 @@ const persistedSystemInfoReducer = persistReducer(systemInfoPersistConfig, syste
 const persistedTranscriptionReducer = persistReducer(transcriptionPersistConfig, transcriptionReducer);
 const persistedSchedulerReducer = persistReducer(schedulerPersistConfig, schedulerReducer);
 const persistedTasksReducer = persistReducer(tasksPersistConfig, tasksReducer);
+const persistedBitlink21Reducer = persistReducer(bitlink21PersistConfig, bitlink21Reducer);
 
 
 export const store = configureStore({
@@ -312,6 +321,7 @@ export const store = configureStore({
         transcription: persistedTranscriptionReducer,
         scheduler: persistedSchedulerReducer,
         backgroundTasks: persistedTasksReducer,
+        bitlink21: persistedBitlink21Reducer,
     },
     devTools: process.env.NODE_ENV !== "production",
     middleware: (getDefaultMiddleware) =>

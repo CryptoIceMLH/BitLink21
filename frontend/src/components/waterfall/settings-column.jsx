@@ -92,6 +92,10 @@ import FftAccordion from "./settings-fft.jsx";
 import VfoAccordion from "./vfo-settings/settings-vfo.jsx";
 import RecordingAccordion from "./settings-recording.jsx";
 import PlaybackAccordion from "./settings-playback.jsx";
+import TxControlsAccordion from "./tx-controls.jsx";
+import BeaconLockAccordion from "./beacon-lock-panel.jsx";
+import ConstellationDiagram from "./constellation-diagram.jsx";
+import RitXitControls from "./rit-xit-controls.jsx";
 import { useTranslation } from 'react-i18next';
 
 const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemainingSecondsRef }, ref) {
@@ -1028,6 +1032,24 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                     playbackStartTime={playbackStartTime}
                     playbackRemainingSecondsRef={playbackRemainingSecondsRef}
                 />
+
+                <TxControlsAccordion
+                    expanded={expandedPanels.includes('tx')}
+                    onAccordionChange={handleAccordionChange('tx')}
+                />
+
+                <BeaconLockAccordion
+                    expanded={expandedPanels.includes('beacon')}
+                    onAccordionChange={handleAccordionChange('beacon')}
+                />
+
+                {/* Constellation + RIT/XIT in a compact section */}
+                <div style={{ padding: '8px 16px' }}>
+                    <ConstellationDiagram />
+                    <div style={{ marginTop: 12 }}>
+                        <RitXitControls />
+                    </div>
+                </div>
             </div>
         </>
     );

@@ -32,6 +32,7 @@ import targetEN from './locales/en/target.json';
 import dashboardEN from './locales/en/dashboard.json';
 import waterfallEN from './locales/en/waterfall.json';
 import filebrowserEN from './locales/en/filebrowser.json';
+import bitlink21EN from './locales/en/bitlink21.json';
 
 import commonEL from './locales/el/common.json';
 import navigationEL from './locales/el/navigation.json';
@@ -44,6 +45,7 @@ import targetEL from './locales/el/target.json';
 import dashboardEL from './locales/el/dashboard.json';
 import waterfallEL from './locales/el/waterfall.json';
 import filebrowserEL from './locales/el/filebrowser.json';
+import bitlink21EL from './locales/el/bitlink21.json';
 
 import commonFR from './locales/fr/common.json';
 import navigationFR from './locales/fr/navigation.json';
@@ -56,6 +58,7 @@ import targetFR from './locales/fr/target.json';
 import dashboardFR from './locales/fr/dashboard.json';
 import waterfallFR from './locales/fr/waterfall.json';
 import filebrowserFR from './locales/fr/filebrowser.json';
+import bitlink21FR from './locales/fr/bitlink21.json';
 
 import commonES from './locales/es/common.json';
 import navigationES from './locales/es/navigation.json';
@@ -68,6 +71,7 @@ import targetES from './locales/es/target.json';
 import dashboardES from './locales/es/dashboard.json';
 import waterfallES from './locales/es/waterfall.json';
 import filebrowserES from './locales/es/filebrowser.json';
+import bitlink21ES from './locales/es/bitlink21.json';
 
 import commonDE from './locales/de/common.json';
 import navigationDE from './locales/de/navigation.json';
@@ -80,6 +84,7 @@ import targetDE from './locales/de/target.json';
 import dashboardDE from './locales/de/dashboard.json';
 import waterfallDE from './locales/de/waterfall.json';
 import filebrowserDE from './locales/de/filebrowser.json';
+import bitlink21DE from './locales/de/bitlink21.json';
 
 import commonNL from './locales/nl/common.json';
 import navigationNL from './locales/nl/navigation.json';
@@ -92,6 +97,7 @@ import targetNL from './locales/nl/target.json';
 import dashboardNL from './locales/nl/dashboard.json';
 import waterfallNL from './locales/nl/waterfall.json';
 import filebrowserNL from './locales/nl/filebrowser.json';
+import bitlink21NL from './locales/nl/bitlink21.json';
 
 import commonIT from './locales/it/common.json';
 import navigationIT from './locales/it/navigation.json';
@@ -104,6 +110,7 @@ import targetIT from './locales/it/target.json';
 import dashboardIT from './locales/it/dashboard.json';
 import waterfallIT from './locales/it/waterfall.json';
 import filebrowserIT from './locales/it/filebrowser.json';
+import bitlink21IT from './locales/it/bitlink21.json';
 
 const resources = {
     en: {
@@ -118,6 +125,7 @@ const resources = {
         dashboard: dashboardEN,
         waterfall: waterfallEN,
         filebrowser: filebrowserEN,
+        bitlink21: bitlink21EN,
     },
     el: {
         common: commonEL,
@@ -131,6 +139,7 @@ const resources = {
         dashboard: dashboardEL,
         waterfall: waterfallEL,
         filebrowser: filebrowserEL,
+        bitlink21: bitlink21EL,
     },
     fr: {
         common: commonFR,
@@ -144,6 +153,7 @@ const resources = {
         dashboard: dashboardFR,
         waterfall: waterfallFR,
         filebrowser: filebrowserFR,
+        bitlink21: bitlink21FR,
     },
     es: {
         common: commonES,
@@ -157,6 +167,7 @@ const resources = {
         dashboard: dashboardES,
         waterfall: waterfallES,
         filebrowser: filebrowserES,
+        bitlink21: bitlink21ES,
     },
     de: {
         common: commonDE,
@@ -170,6 +181,7 @@ const resources = {
         dashboard: dashboardDE,
         waterfall: waterfallDE,
         filebrowser: filebrowserDE,
+        bitlink21: bitlink21DE,
     },
     nl: {
         common: commonNL,
@@ -183,6 +195,7 @@ const resources = {
         dashboard: dashboardNL,
         waterfall: waterfallNL,
         filebrowser: filebrowserNL,
+        bitlink21: bitlink21NL,
     },
     it: {
         common: commonIT,
@@ -196,6 +209,7 @@ const resources = {
         dashboard: dashboardIT,
         waterfall: waterfallIT,
         filebrowser: filebrowserIT,
+        bitlink21: bitlink21IT,
     },
 };
 

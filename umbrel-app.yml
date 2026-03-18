@@ -7,11 +7,13 @@ category: bitcoin
 version: "2.0.0"
 port: 7000
 description: >-
-  BitLink21 is a self-hosted satellite communications layer for Bitcoin and Lightning.
-  Send encrypted Bitcoin transactions, Lightning invoices, and messages over satellite
-  using SDR hardware — no internet required between nodes.
+  BitLink21 is a Bitcoin-native decentralized communication system that transmits
+  encrypted messages, Bitcoin transactions, and Lightning invoices over satellite
+  links using the Satoshi Signal Protocol (SSP). No internet required between nodes.
 
-  v2.0.0 — Complete rewrite forked from Ground Station with full SDR ecosystem support.
+  Features: 52 modulation schemes via GNU Radio, NIP-04 encryption, FEC coding,
+  beacon AFC for QO-100, PlutoSDR TX+RX, CSMA, constellation diagram, BER testing,
+  full waterfall/satellite tracking from Ground Station fork.
 developer: BitLink21 Contributors
 website: https://github.com/CryptoIceMLH/BitLink21
 repo: https://github.com/CryptoIceMLH/BitLink21

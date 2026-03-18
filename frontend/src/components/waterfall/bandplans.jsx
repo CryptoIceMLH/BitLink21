@@ -278,5 +278,48 @@ export const frequencyBands = [
         name: 'Galileo E1',
         color: 'rgba(63,81,181,0.4)',
         textColor: '#ffffff'
+    },
+    // QO-100 NB Transponder (Es'hail-2) — downlink frequencies
+    {
+        startFrequency: 10489500000,
+        endFrequency: 10489550000,
+        name: 'QO-100 Beacon/CW',
+        color: 'rgba(247,147,26,0.5)',
+        textColor: '#ffffff'
+    },
+    {
+        startFrequency: 10489550000,
+        endFrequency: 10489600000,
+        name: 'QO-100 CW',
+        color: 'rgba(247,147,26,0.35)',
+        textColor: '#ffffff'
+    },
+    {
+        startFrequency: 10489600000,
+        endFrequency: 10489650000,
+        name: 'QO-100 NB Digital',
+        color: 'rgba(33,150,243,0.35)',
+        textColor: '#ffffff'
+    },
+    {
+        startFrequency: 10489650000,
+        endFrequency: 10489800000,
+        name: 'QO-100 SSB/Digital',
+        color: 'rgba(76,175,80,0.3)',
+        textColor: '#ffffff'
+    },
+    {
+        startFrequency: 10489800000,
+        endFrequency: 10489850000,
+        name: 'QO-100 Contest',
+        color: 'rgba(255,152,0,0.35)',
+        textColor: '#ffffff'
+    },
+    {
+        startFrequency: 10489850000,
+        endFrequency: 10490000000,
+        name: 'QO-100 Experimental',
+        color: 'rgba(156,39,176,0.3)',
+        textColor: '#ffffff'
     }
 ];
