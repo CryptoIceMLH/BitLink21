@@ -307,9 +307,72 @@ class Storage:
         await self.db.commit()
         logger.debug(f"[DB] Message cleanup completed")
 
+    # --- Aliases expected by bitlink21 handlers ---
+
+    async def enqueue_message(self, data: Dict[str, Any]) -> int:
+        """Alias for enqueue_to_outbox (handler-compatible)."""
+        return await self.enqueue_to_outbox(
+            destination_npub=data.get("destination_npub"),
+            payload_type=data.get("payload_type", "text"),
+            body=data.get("body", ""),
+        )
+
+    async def get_messages(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        """Get messages with pagination."""
+        cursor = await self.db.execute("""
+            SELECT id, sender_npub, payload_type, body, rssi, snr, timestamp
+            FROM messages ORDER BY timestamp DESC LIMIT ? OFFSET ?
+        """, (limit, offset))
+        rows = await cursor.fetchall()
+        return [
+            {"id": r[0], "sender_npub": r[1], "payload_type": r[2], "body": r[3],
+             "rssi": r[4], "snr": r[5], "timestamp": r[6]}
+            for r in rows
+        ]
+
+    async def get_outbox(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        """Get outbox entries with pagination."""
+        cursor = await self.db.execute("""
+            SELECT id, destination_npub, payload_type, body, status, error_msg, timestamp
+            FROM outbox ORDER BY timestamp DESC LIMIT ? OFFSET ?
+        """, (limit, offset))
+        rows = await cursor.fetchall()
+        return [
+            {"id": r[0], "destination_npub": r[1], "payload_type": r[2], "body": r[3],
+             "status": r[4], "error_msg": r[5], "timestamp": r[6]}
+            for r in rows
+        ]
+
+    async def get_outbox_pending_count(self) -> int:
+        """Alias for get_outbox_depth."""
+        return await self.get_outbox_depth()
+
+    async def delete_contact(self, npub: str) -> bool:
+        """Delete a contact by npub."""
+        cursor = await self.db.execute("DELETE FROM contacts WHERE npub = ?", (npub,))
+        await self.db.commit()
+        return cursor.rowcount > 0
+
+    async def get_stats(self) -> Dict[str, Any]:
+        """Get messaging statistics."""
+        msg_count = (await (await self.db.execute("SELECT COUNT(*) FROM messages")).fetchone())[0]
+        outbox_queued = await self.get_outbox_depth()
+        outbox_total = (await (await self.db.execute("SELECT COUNT(*) FROM outbox")).fetchone())[0]
+        contact_count = (await (await self.db.execute("SELECT COUNT(*) FROM contacts")).fetchone())[0]
+        return {
+            "messages_received": msg_count,
+            "outbox_queued": outbox_queued,
+            "outbox_total": outbox_total,
+            "contacts": contact_count,
+        }
+
     async def close(self) -> None:
         """Close database connection."""
         if self.db:
             logger.debug(f"[DB] Closing database connection")
             await self.db.close()
             logger.debug(f"[DB] Database connection closed")
+
+
+# Module-level singleton instance
+storage = Storage()
