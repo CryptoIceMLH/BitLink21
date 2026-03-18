@@ -191,7 +191,7 @@ export const useSocketEventHandlers = (socket) => {
             socket.emit('sdr_data', 'get-current-sdr-state', null, (res) => {
                 if (res?.success && res?.data) {
                     const { sdr_id, sdr_config } = res.data;
-                    console.log(`Reconnecting to running SDR: ${sdr_id}`);
+                    console.log(`Reconnecting to running SDR: ${sdr_id}`, sdr_config);
 
                     // Restore waterfall state from running SDR config
                     if (sdr_id) dispatch(setSelectedSDRId(sdr_id));
@@ -200,16 +200,10 @@ export const useSocketEventHandlers = (socket) => {
                     if (sdr_config?.sample_rate) dispatch(setSampleRate(sdr_config.sample_rate));
                     dispatch(setIsStreaming(true));
 
-                    // Rejoin the SDR room to receive FFT data
-                    socket.emit('sdr_data', 'configure-sdr', {
-                        selectedSDRId: sdr_id,
-                        centerFrequency: sdr_config?.center_freq,
-                        gain: sdr_config?.gain,
-                        sampleRate: sdr_config?.sample_rate,
-                        fftSize: sdr_config?.fft_size,
-                        fftWindow: sdr_config?.fft_window,
-                        offsetFrequency: sdr_config?.offset_freq || 0,
-                    });
+                    // Lightweight rejoin — just add client to existing SDR room, no re-validation
+                    socket.emit('sdr_data', 'rejoin-sdr', { sdr_id });
+                } else {
+                    console.log('No running SDR found — fresh session');
                 }
             });
         });

@@ -143,7 +143,8 @@ async def sdr_data_request_routing(sio, cmd, data, logger, client_id):
                         "SDR frequency limits invalid; skipping center frequency validation."
                     )
                 else:
-                    effective_freq = center_freq - offset_freq if offset_freq else center_freq
+                    # offset_freq is already signed: negative for downconverter (e.g., -9750 MHz)
+                    effective_freq = center_freq + offset_freq if offset_freq else center_freq
                     if not (freq_min * 1e6 <= effective_freq <= freq_max * 1e6):
                         if offset_freq:
                             raise Exception(
@@ -324,6 +325,34 @@ async def sdr_data_request_routing(sio, cmd, data, logger, client_id):
                     reply["data"] = None
             except Exception as e:
                 logger.error(f"Error getting SDR state: {str(e)}")
+                reply["success"] = False
+
+        elif cmd == "rejoin-sdr":
+            # Lightweight rejoin — add client to existing SDR room without re-validating config
+            try:
+                from pipeline.orchestration.processmanager import process_manager
+                sdr_id = data.get("sdr_id") if data else None
+                if not sdr_id:
+                    reply["success"] = False
+                    reply["data"] = {"error": "sdr_id required"}
+                else:
+                    joined = await process_manager.rejoin_client(sdr_id, client_id)
+                    if joined:
+                        # Also register in session tracking
+                        from session.service import add_sdr_session
+                        running = process_manager.get_running_sdrs()
+                        sdr_info = next((s for s in running if s["sdr_id"] == sdr_id), None)
+                        if sdr_info:
+                            add_sdr_session(client_id, {"sdr_id": sdr_id, **sdr_info.get("sdr_config", {})})
+                        await sio.emit("sdr-status", {"streaming": True}, room=client_id)
+                        reply["success"] = True
+                        reply["data"] = {"sdr_id": sdr_id, "rejoined": True}
+                        logger.info(f"Client {client_id} rejoined running SDR {sdr_id}")
+                    else:
+                        reply["success"] = False
+                        reply["data"] = {"error": f"SDR {sdr_id} not running"}
+            except Exception as e:
+                logger.error(f"Error rejoining SDR: {str(e)}")
                 reply["success"] = False
 
         elif cmd == "stop-streaming":

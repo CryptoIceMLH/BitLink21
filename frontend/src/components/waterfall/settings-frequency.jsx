@@ -16,12 +16,55 @@ import {
     ButtonGroup,
     Menu,
     ListSubheader,
+    IconButton,
 } from "@mui/material";
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 
 import { humanizeFrequency, preciseHumanizeFrequency, getFrequencyBand } from "../common/common.jsx";
 import FrequencyDisplay from "./frequency-dial.jsx";
 import { useTranslation } from 'react-i18next';
+import { useSelector, useDispatch } from 'react-redux';
+import { setActiveConverterId } from './waterfall-slice.jsx';
+import ConverterDefinitionsDialog from './converter-definitions.jsx';
+import SettingsIcon from '@mui/icons-material/Settings';
+
+const ConverterSelector = () => {
+    const dispatch = useDispatch();
+    const { converterDefinitions, activeConverterId } = useSelector(state => state.waterfall);
+    const [dialogOpen, setDialogOpen] = React.useState(false);
+
+    return (
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 1 }}>
+            <FormControl fullWidth size="small" variant="outlined">
+                <InputLabel>Converter</InputLabel>
+                <Select
+                    value={activeConverterId || 'none'}
+                    onChange={(e) => dispatch(setActiveConverterId(e.target.value))}
+                    label="Converter"
+                    size="small"
+                >
+                    {converterDefinitions.map(conv => (
+                        <MenuItem key={conv.id} value={conv.id}>
+                            <Box>
+                                <Box sx={{ fontWeight: 600 }}>{conv.name}</Box>
+                                {conv.rxOffset > 0 && (
+                                    <Box sx={{ fontSize: '0.7rem', color: 'text.secondary' }}>
+                                        RX: {conv.type === 'down' ? '-' : '+'}{(conv.rxOffset / 1e6).toFixed(0)} MHz
+                                        {conv.txOffset > 0 && ` | TX: ${(conv.txOffset / 1e6).toFixed(0)} MHz`}
+                                    </Box>
+                                )}
+                            </Box>
+                        </MenuItem>
+                    ))}
+                </Select>
+            </FormControl>
+            <IconButton size="small" onClick={() => setDialogOpen(true)}>
+                <SettingsIcon fontSize="small" />
+            </IconButton>
+            <ConverterDefinitionsDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
+        </Box>
+    );
+};
 
 const FrequencyControlAccordion = ({
                                        expanded,
@@ -291,6 +334,8 @@ const FrequencyControlAccordion = ({
                     </Select>
                 </FormControl>
                 */}
+
+                <ConverterSelector />
 
                 <FormControl
                     disabled={isRecording || isPlayingback}

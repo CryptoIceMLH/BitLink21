@@ -123,6 +123,11 @@ const initialState = {
     centerFrequency: 100000000,
     selectedOffsetMode: "",
     selectedOffsetValue: 0,
+    converterDefinitions: [
+        { id: 'qo100', name: 'QO-100', type: 'down', rxOffset: 9750000000, txOffset: 8089500000 },
+        { id: 'none', name: 'None', type: 'none', rxOffset: 0, txOffset: 0 },
+    ],
+    activeConverterId: 'none',
     errorMessage: null,
     errorDialogOpen: false,
     isStreaming: false,
@@ -229,6 +234,32 @@ export const waterfallSlice = createSlice({
         },
         setSelectedOffsetValue: (state, action) => {
             state.selectedOffsetValue = action.payload;
+        },
+        setActiveConverterId: (state, action) => {
+            state.activeConverterId = action.payload;
+            const converter = state.converterDefinitions.find(c => c.id === action.payload);
+            if (converter && converter.type === 'down') {
+                state.selectedOffsetValue = -converter.rxOffset;
+                state.selectedOffsetMode = 'custom';
+            } else if (converter && converter.type === 'up') {
+                state.selectedOffsetValue = converter.rxOffset;
+                state.selectedOffsetMode = 'custom';
+            } else {
+                state.selectedOffsetValue = 0;
+            }
+        },
+        setConverterDefinitions: (state, action) => {
+            state.converterDefinitions = action.payload;
+        },
+        addConverterDefinition: (state, action) => {
+            state.converterDefinitions.push(action.payload);
+        },
+        removeConverterDefinition: (state, action) => {
+            state.converterDefinitions = state.converterDefinitions.filter(c => c.id !== action.payload);
+            if (state.activeConverterId === action.payload) {
+                state.activeConverterId = 'none';
+                state.selectedOffsetValue = 0;
+            }
         },
         setErrorMessage: (state, action) => {
             state.errorMessage = action.payload;
@@ -658,6 +689,10 @@ export const {
     setNeighboringTransmitters,
     setShowNeighboringTransmitters,
     setShowBookmarkSource,
+    setActiveConverterId,
+    setConverterDefinitions,
+    addConverterDefinition,
+    removeConverterDefinition,
 } = waterfallSlice.actions;
 
 export default waterfallSlice.reducer;
