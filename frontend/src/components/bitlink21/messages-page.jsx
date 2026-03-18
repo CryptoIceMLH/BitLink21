@@ -236,7 +236,7 @@ const MessageList = ({ messages, loading, type = 'inbox' }) => {
 export default function MessagesPage() {
     const { t } = useTranslation('bitlink21');
     const dispatch = useDispatch();
-    const socket = useSocket();
+    const {socket} = useSocket();
     const [tab, setTab] = useState(0);
     const { messages, messagesLoading, outbox, outboxLoading, stats, contacts } = useSelector(state => state.bitlink21);
 

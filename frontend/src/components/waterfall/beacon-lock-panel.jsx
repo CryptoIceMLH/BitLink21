@@ -23,7 +23,7 @@ const lockStateIcons = {
 };
 
 const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
-    const socket = useSocket();
+    const {socket} = useSocket();
     const { beaconLockState, beaconOffset, beaconPhaseError } = useSelector(state => state.bitlink21);
 
     const [beaconFreq, setBeaconFreq] = useState('10489500000');

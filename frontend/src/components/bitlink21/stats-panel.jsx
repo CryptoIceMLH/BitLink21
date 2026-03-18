@@ -38,7 +38,7 @@ const MetricCard = ({ label, value, unit, color }) => (
 
 export const StatsCompact = () => {
     const dispatch = useDispatch();
-    const socket = useSocket();
+    const {socket} = useSocket();
     const { stats, statsLoading, beaconLockState, beaconOffset } = useSelector(state => state.bitlink21);
 
     useEffect(() => {
@@ -79,7 +79,7 @@ export const StatsCompact = () => {
 
 export const StatsFullPanel = () => {
     const dispatch = useDispatch();
-    const socket = useSocket();
+    const {socket} = useSocket();
     const { stats, beaconLockState, beaconOffset, beaconPhaseError, outbox } = useSelector(state => state.bitlink21);
 
     useEffect(() => {

@@ -269,7 +269,7 @@ const ContactsList = ({ socket }) => {
 export default function IdentityPage() {
     const { t } = useTranslation('bitlink21');
     const dispatch = useDispatch();
-    const socket = useSocket();
+    const {socket} = useSocket();
 
     useEffect(() => {
         if (!socket) return;

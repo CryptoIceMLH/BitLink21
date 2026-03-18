@@ -14,7 +14,7 @@ import { useSocket } from '../common/socket.jsx';
 const TxControlsAccordion = ({ expanded, onAccordionChange }) => {
     const { t } = useTranslation('bitlink21');
     const dispatch = useDispatch();
-    const socket = useSocket();
+    const {socket} = useSocket();
     const { pttActive, txFreq, txGain, outbox } = useSelector(state => state.bitlink21);
     const { centerFrequency, sampleRate } = useSelector(state => state.waterfall);
     const pendingCount = outbox?.pending_count || 0;

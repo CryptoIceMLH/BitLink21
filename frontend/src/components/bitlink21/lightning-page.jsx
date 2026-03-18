@@ -23,7 +23,7 @@ const CONFIG_KEYS = {
 export default function LightningPage() {
     const { t } = useTranslation('bitlink21');
     const dispatch = useDispatch();
-    const socket = useSocket();
+    const {socket} = useSocket();
     const { config } = useSelector(state => state.bitlink21);
 
     const [lndRestUrl, setLndRestUrl] = useState('https://localhost:8080');

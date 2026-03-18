@@ -24,7 +24,7 @@ const CONFIG_KEYS = {
 export default function BitcoinPage() {
     const { t } = useTranslation('bitlink21');
     const dispatch = useDispatch();
-    const socket = useSocket();
+    const {socket} = useSocket();
     const { config } = useSelector(state => state.bitlink21);
 
     const [rpcUrl, setRpcUrl] = useState('http://localhost:8332');
