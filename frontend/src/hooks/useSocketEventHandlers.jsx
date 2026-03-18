@@ -121,6 +121,7 @@ import { fetchSatelliteGroups } from '../components/overview/overview-slice.jsx'
 import { addTranscription } from '../components/waterfall/transcription-slice.jsx';
 import { fetchSoapySDRServers } from '../components/hardware/sdr-slice.jsx';
 import { addIncomingMessage, updateBeaconStatus, updateConstellationPoints } from '../components/bitlink21/bitlink21-slice.jsx';
+import { setIsStreaming, setSelectedSDRId, setCenterFrequency, setGain, setSampleRate } from '../components/waterfall/waterfall-slice.jsx';
 import ImageIcon from '@mui/icons-material/Image';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import RadioButtonCheckedIcon from '@mui/icons-material/RadioButtonChecked';
@@ -185,6 +186,32 @@ export const useSocketEventHandlers = (socket) => {
             //     }
             // );
             await initializeAppData(socket);
+
+            // Check if an SDR is already running (persistent mode — radio survives browser close)
+            socket.emit('sdr_data', 'get-current-sdr-state', null, (res) => {
+                if (res?.success && res?.data) {
+                    const { sdr_id, sdr_config } = res.data;
+                    console.log(`Reconnecting to running SDR: ${sdr_id}`);
+
+                    // Restore waterfall state from running SDR config
+                    if (sdr_id) dispatch(setSelectedSDRId(sdr_id));
+                    if (sdr_config?.center_freq) dispatch(setCenterFrequency(sdr_config.center_freq));
+                    if (sdr_config?.gain) dispatch(setGain(sdr_config.gain));
+                    if (sdr_config?.sample_rate) dispatch(setSampleRate(sdr_config.sample_rate));
+                    dispatch(setIsStreaming(true));
+
+                    // Rejoin the SDR room to receive FFT data
+                    socket.emit('sdr_data', 'configure-sdr', {
+                        selectedSDRId: sdr_id,
+                        centerFrequency: sdr_config?.center_freq,
+                        gain: sdr_config?.gain,
+                        sampleRate: sdr_config?.sample_rate,
+                        fftSize: sdr_config?.fft_size,
+                        fftWindow: sdr_config?.fft_window,
+                        offsetFrequency: sdr_config?.offset_freq || 0,
+                    });
+                }
+            });
         });
 
         // Reconnection attempt event

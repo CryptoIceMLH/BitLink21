@@ -109,6 +109,36 @@ class ProcessLifecycleManager:
         # Per-(SDR, session, VFO) restart serialization locks
         self._restart_locks = {}
 
+    def get_running_sdrs(self):
+        """Return list of running SDR processes with their configs (for reconnecting clients)."""
+        running = []
+        for sdr_id, info in self.processes.items():
+            if info["process"].is_alive():
+                running.append({
+                    "sdr_id": sdr_id,
+                    "sdr_config": info.get("sdr_config", {}),
+                    "device": info.get("device", {}),
+                    "persistent": info.get("persistent", False),
+                    "client_count": len(info.get("clients", set())),
+                })
+        return running
+
+    async def rejoin_client(self, sdr_id, client_id):
+        """Add a reconnecting client to an already-running SDR process."""
+        if sdr_id not in self.processes or not self.processes[sdr_id]["process"].is_alive():
+            return False
+        self.processes[sdr_id]["clients"].add(client_id)
+        if not VFOManager.is_internal_session(client_id):
+            await self.sio.enter_room(client_id, sdr_id)
+        self.logger.info(f"Client {client_id} rejoined running SDR {sdr_id}")
+        return True
+
+    async def force_stop_sdr(self, sdr_id):
+        """Force-stop an SDR process regardless of persistent flag (explicit user stop)."""
+        if sdr_id in self.processes:
+            self.processes[sdr_id]["persistent"] = False
+        await self.stop_sdr_process(sdr_id)
+
     async def get_center_frequency(self, sdr_id):
         """
         Get the current center frequency of an SDR worker process
@@ -433,6 +463,8 @@ class ProcessLifecycleManager:
                 "decoders": {},  # Will store decoder threads per session (SSTV, AFSK, Morse, etc.)
                 "fft_stats": {},  # Latest stats from FFT processor
                 "device": sdr_device,  # Store device info for runtime snapshots
+                "persistent": True,  # SDR runs until explicit stop — browser disconnect doesn't kill it
+                "sdr_config": sdr_config,  # Store config for reconnecting clients
             }
 
             # Send initial configuration
@@ -500,6 +532,14 @@ class ProcessLifecycleManager:
 
             # If there are still other clients, don't stop the process
             if process_info["clients"]:
+                return
+
+            # Persistent mode: SDR keeps running even with zero clients.
+            # Browser is just a control panel — radio runs independently.
+            if process_info.get("persistent", False):
+                self.logger.info(
+                    f"SDR {sdr_id} has no clients but is persistent — keeping process alive"
+                )
                 return
 
         # Stop the broadcaster first

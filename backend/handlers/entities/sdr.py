@@ -311,6 +311,21 @@ async def sdr_data_request_routing(sio, cmd, data, logger, client_id):
                 )
                 reply["success"] = False
 
+        elif cmd == "get-current-sdr-state":
+            # Return currently running SDR state for reconnecting clients
+            try:
+                from pipeline.orchestration.processmanager import process_manager
+                running = process_manager.get_running_sdrs()
+                if running:
+                    reply["success"] = True
+                    reply["data"] = running[0]  # Return first running SDR
+                else:
+                    reply["success"] = True
+                    reply["data"] = None
+            except Exception as e:
+                logger.error(f"Error getting SDR state: {str(e)}")
+                reply["success"] = False
+
         elif cmd == "stop-streaming":
 
             try:
@@ -335,8 +350,9 @@ async def sdr_data_request_routing(sio, cmd, data, logger, client_id):
                 _ = session_service.get_session_config(client_id)
 
                 if sdr_id:
-                    # Stop or leave the SDR process (via service)
-                    await session_service.stop_streaming(client_id, sdr_id)
+                    # Force-stop the SDR process (explicit user action overrides persistence)
+                    from pipeline.orchestration.processmanager import process_manager
+                    await process_manager.force_stop_sdr(sdr_id)
 
                 if not session_service.session_exists(client_id):
                     logger.error(f"Client {client_id} not registered while stopping SDR stream")
