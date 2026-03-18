@@ -119,15 +119,9 @@ async def sdr_data_request_routing(sio, cmd, data, logger, client_id):
                     data.get("centerFrequency", 100e6), 100e6, "centerFrequency", logger
                 )
 
-                # Parse offset frequency early — needed for validation below
-                offset_freq = _coerce_float(
-                    data.get("offsetFrequency", 0), 0, "offsetFrequency", logger
-                )
-
-                # Validate effective frequency (center - LNB offset) against device limits.
-                # When using an LNB downconverter (e.g., 9750 MHz for QO-100), the user
-                # enters the RF frequency (e.g., 10489 MHz) but the SDR tunes to the
-                # effective frequency after LNB subtraction (e.g., 739 MHz).
+                # Validate center frequency against device limits.
+                # The frontend converts RF → IF using the converter definition before sending.
+                # Backend always receives IF frequency (what PlutoSDR actually tunes to).
                 freq_min = sdr_device.get("frequency_min", None)
                 freq_max = sdr_device.get("frequency_max", None)
 
@@ -143,26 +137,11 @@ async def sdr_data_request_routing(sio, cmd, data, logger, client_id):
                         "SDR frequency limits invalid; skipping center frequency validation."
                     )
                 else:
-                    # offset_freq is already signed: negative for downconverter (e.g., -9750 MHz)
-                    effective_freq = center_freq + offset_freq if offset_freq else center_freq
-                    if not (freq_min * 1e6 <= effective_freq <= freq_max * 1e6):
-                        if offset_freq:
-                            raise Exception(
-                                f"Effective frequency {effective_freq / 1e6:.2f} MHz "
-                                f"(center {center_freq / 1e6:.2f} MHz - offset {offset_freq / 1e6:.2f} MHz) "
-                                f"is outside device limits ({freq_min:.2f} MHz - {freq_max:.2f} MHz)"
-                            )
-                        else:
-                            raise Exception(
-                                f"Center frequency {center_freq / 1e6:.2f} MHz is outside device limits "
-                                f"({freq_min:.2f} MHz - {freq_max:.2f} MHz)"
-                            )
-
-                # Apply offset to center_freq so the worker receives the IF frequency directly.
-                # The worker doesn't need to know about the converter — it just tunes to what it's told.
-                if offset_freq:
-                    center_freq = center_freq + offset_freq  # RF → IF (e.g., 10489 + (-9750) = 739 MHz)
-                    offset_freq = 0  # Already applied — don't double-apply in worker
+                    if not (freq_min * 1e6 <= center_freq <= freq_max * 1e6):
+                        raise Exception(
+                            f"Center frequency {center_freq / 1e6:.2f} MHz is outside device limits "
+                            f"({freq_min:.2f} MHz - {freq_max:.2f} MHz)"
+                        )
 
                 # Default to 2.048 MSPS
                 sample_rate = _coerce_float(
@@ -201,7 +180,10 @@ async def sdr_data_request_routing(sio, cmd, data, logger, client_id):
                 # Soapy AGC
                 soapy_agc = data.get("soapyAgc", False)
 
-                # offset_freq already parsed above (before frequency validation)
+                # Offset frequency for downconverters and upconverters
+                offset_freq = _coerce_float(
+                    data.get("offsetFrequency", 0), 0, "offsetFrequency", logger
+                )
 
                 # Recording path for sigmfplayback
                 recording_path = data.get("recordingPath", "")

@@ -32,19 +32,20 @@ import { useSocket } from '../common/socket.jsx';
 const ConverterSelector = () => {
     const dispatch = useDispatch();
     const {socket} = useSocket();
-    const { converterDefinitions, activeConverterId, selectedSDRId, isStreaming } = useSelector(state => state.waterfall);
+    const { converterDefinitions, activeConverterId, selectedSDRId, isStreaming, centerFrequency } = useSelector(state => state.waterfall);
     const [dialogOpen, setDialogOpen] = React.useState(false);
 
     const handleConverterChange = (converterId) => {
         dispatch(setActiveConverterId(converterId));
-        // If streaming, immediately send updated offset to backend
+        // If streaming, reconfigure SDR with the new IF frequency
         if (isStreaming && socket && selectedSDRId && selectedSDRId !== 'none') {
             const converter = converterDefinitions.find(c => c.id === converterId);
-            const offset = converter?.type === 'down' ? -converter.rxOffset :
-                           converter?.type === 'up' ? converter.rxOffset : 0;
+            let ifFreq = centerFrequency; // RF frequency from Redux
+            if (converter?.type === 'down') ifFreq = centerFrequency - converter.rxOffset;
+            else if (converter?.type === 'up') ifFreq = centerFrequency + converter.rxOffset;
             socket.emit('sdr_data', 'configure-sdr', {
                 selectedSDRId,
-                offsetFrequency: offset,
+                centerFrequency: ifFreq,
             });
         }
     };

@@ -237,16 +237,9 @@ export const waterfallSlice = createSlice({
         },
         setActiveConverterId: (state, action) => {
             state.activeConverterId = action.payload;
-            const converter = state.converterDefinitions.find(c => c.id === action.payload);
-            if (converter && converter.type === 'down') {
-                state.selectedOffsetValue = -converter.rxOffset;
-                state.selectedOffsetMode = 'custom';
-            } else if (converter && converter.type === 'up') {
-                state.selectedOffsetValue = converter.rxOffset;
-                state.selectedOffsetMode = 'custom';
-            } else {
-                state.selectedOffsetValue = 0;
-            }
+            // Converter is purely a frontend display/math layer.
+            // RF→IF conversion is done in rfToIF() when sending to backend.
+            // No need to modify selectedOffsetValue — that's the Ground Station offset system.
         },
         setConverterDefinitions: (state, action) => {
             state.converterDefinitions = action.payload;

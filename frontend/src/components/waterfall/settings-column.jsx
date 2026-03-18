@@ -147,7 +147,18 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
         selectedPlaybackRecording,
         playbackRecordingPath,
         playbackStartTime,
+        converterDefinitions,
+        activeConverterId,
     } = useSelector((state) => state.waterfall);
+
+    // Converter: convert RF frequency (what user sees) to IF (what PlutoSDR tunes to)
+    const activeConverter = converterDefinitions?.find(c => c.id === activeConverterId);
+    const rfToIF = (rfFreq) => {
+        if (!activeConverter || activeConverter.type === 'none') return rfFreq;
+        if (activeConverter.type === 'down') return rfFreq - activeConverter.rxOffset;
+        if (activeConverter.type === 'up') return rfFreq + activeConverter.rxOffset;
+        return rfFreq;
+    };
 
     const sdrSettings = sdrSettingsById?.[selectedSDRId]?.draft || {};
     const biasT = sdrSettings?.biasT ?? false;
@@ -262,7 +273,7 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
 
                 let SDRSettings = {
                     selectedSDRId: targetSDRId,
-                    centerFrequency: centerFrequency,
+                    centerFrequency: rfToIF(centerFrequency),
                     sampleRate: sampleRate,
                     gain: gain,
                     fftSize: fftSize,
@@ -427,7 +438,7 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
     const updateCenterFrequency = (newFrequency) => (dispatch) => {
         let centerFrequency = newFrequency * 1000.0;
         dispatch(setCenterFrequency(centerFrequency));
-        return sendSDRConfigToBackend({centerFrequency: centerFrequency});
+        return sendSDRConfigToBackend({centerFrequency: rfToIF(centerFrequency)});
     };
 
     const updateSDRGain = (gain) => (dispatch) => {
@@ -994,7 +1005,7 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                     sampleRate={sampleRate}
                     onCenterFrequencyChange={(newFreq) => {
                         dispatch(setCenterFrequency(newFreq));
-                        sendSDRConfigToBackend({centerFrequency: newFreq});
+                        sendSDRConfigToBackend({centerFrequency: rfToIF(newFreq)});
                     }}
                 />
 
