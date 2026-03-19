@@ -167,11 +167,11 @@ class DecoderRegistry:
             "ssp": DecoderCapabilities(
                 name="ssp",
                 decoder_class=SSPModemDecoder,
-                needs_raw_iq=True,  # Works on raw IQ samples
-                required_demodulator=None,  # Has integrated demodulator
+                needs_raw_iq=False,  # Runs alongside audio demodulator (USB/LSB)
+                required_demodulator=None,  # Doesn't require a specific demodulator
                 demodulator_mode=None,
-                default_bandwidth=20000,  # 20 kHz default
-                supports_transmitter_config=False,  # Uses BitLink21 config, not satellite transmitters
+                default_bandwidth=3800,  # ~3.8 kHz (QPSK 4800 mode)
+                supports_transmitter_config=False,
                 restart_on_params=["scheme", "baudrate", "fec"],
                 description="BitLink21 SSP protocol modem (BPSK to 256-QAM, FEC, encryption)",
             ),
