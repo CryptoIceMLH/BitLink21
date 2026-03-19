@@ -8,6 +8,7 @@ from bitlink21.modem import get_scheme_list
 from bitlink21.ber_test import ber_test
 from bitlink21.test_tone import test_tone
 from bitlink21.tx_worker import tx_worker
+from pipeline.orchestration.processmanager import process_manager
 from common.logger import logger
 
 
@@ -244,7 +245,6 @@ async def beacon_start(
     """Start beacon tracking in PlutoSDR worker process."""
     try:
         # Send beacon config to PlutoSDR worker via config_queue
-        # process_manager already imported at top level
         running = process_manager.get_running_sdrs()
         if not running:
             return {"success": False, "error": "No SDR running"}
