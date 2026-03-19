@@ -50,7 +50,8 @@ class SSPFlowgraph:
             Demodulator, FECDecoder, ModScheme, SCHEME_INFO,
             create_demodulator, create_fec_decoder
         )
-        from bitlink21.ssp_frame import SSPFrameAssembler
+        from bitlink21.ssp_frame import SSPFrameAssembler, SSPFrame
+        self._SSPFrame = SSPFrame
 
         # Find scheme enum from name
         self.scheme = ModScheme.QPSK  # default
@@ -85,30 +86,40 @@ class SSPFlowgraph:
             if max_val > 0:
                 iq_samples = iq_samples / max_val
 
-            # Demodulate
+            # Demodulate — produces raw bytes + constellation points
             data, constellation_pts, evm_db = self._demodulator.demodulate(iq_samples)
-            self.constellation_points = constellation_pts[-100:]  # Keep last 100 points
+            self.constellation_points = constellation_pts[-100:]  # Keep last 100 for display
 
             if not data or len(data) == 0:
                 return
 
-            # FEC decode
-            decoded, fec_errors = self._fec_decoder.decode(data)
-            if fec_errors >= 0:
-                self.fec_corrections += fec_errors
-            elif fec_errors == -1:
-                self.errors += 1
-                return  # Uncorrectable
+            # FEC decode (if enabled)
+            if self.use_fec and self._fec_decoder:
+                decoded, fec_errors = self._fec_decoder.decode(data)
+                if fec_errors >= 0:
+                    self.fec_corrections += fec_errors
+                elif fec_errors == -1:
+                    self.errors += 1
+                    return  # Uncorrectable
+            else:
+                decoded = data
 
-            # Try to parse SSP frames from decoded data
-            # Feed bytes one at a time to the assembler
-            for byte_val in decoded:
-                result = self._assembler.feed_byte(byte_val)
-                if result is not None:
-                    # Complete SSP frame received
-                    self.frames_decoded += 1
-                    if self.callback:
-                        self.callback(result)
+            # Scan for SSP magic header (0x53535021 = "SSP!") in decoded bytes
+            magic = b'\x53\x53\x50\x21'
+            idx = decoded.find(magic) if isinstance(decoded, bytes) else -1
+            if idx >= 0 and idx + 219 <= len(decoded):
+                # Found potential SSP frame (219 bytes)
+                frame_bytes = decoded[idx:idx + 219]
+                try:
+                    frame = self._SSPFrame.from_bytes(frame_bytes)
+                    if frame:
+                        result = self._assembler.add_frame(frame)
+                        if result is not None:
+                            self.frames_decoded += 1
+                            if self.callback:
+                                self.callback(result)
+                except Exception as e:
+                    logger.debug(f"SSP frame parse error: {e}")
 
         except Exception as e:
             self.errors += 1
@@ -170,6 +181,7 @@ class SSPModemDecoder(BaseDecoderProcess):
     def run(self):
         """Main process loop — receive IQ, demodulate, output SSP frames."""
         import signal
+        import queue as queue_module
         signal.signal(signal.SIGINT, signal.SIG_IGN)
 
         logger.info(f"SSPModemDecoder process started (PID: {self.pid})")
@@ -178,41 +190,52 @@ class SSPModemDecoder(BaseDecoderProcess):
         last_process_time = time.time()
 
         try:
-            while True:
+            while self.running.value:
                 try:
-                    # Read IQ data from queue (with timeout)
-                    data = self.iq_queue.get(timeout=2.0)
-
-                    if data is None:
-                        break  # Poison pill
-
-                    # Handle metadata updates
-                    if isinstance(data, dict):
-                        if "sample_rate" in data:
-                            self.sdr_sample_rate = data["sample_rate"]
-                            self.sample_rate = self.sdr_sample_rate
-                        if "center_freq" in data:
-                            self.sdr_center_freq = data["center_freq"]
-                        if "vfo_freq" in data:
-                            pass  # VFO frequency update
+                    # Read IQ message from queue (same format as BPSK decoder)
+                    try:
+                        iq_message = self.iq_queue.get(timeout=0.5)
+                    except queue_module.Empty:
                         continue
 
-                    # Accumulate IQ samples
-                    samples = np.frombuffer(data, dtype=np.complex64)
-                    sample_buffer = np.concatenate([sample_buffer, samples])
+                    if iq_message is None:
+                        break  # Poison pill
 
-                    # Process in batches
-                    now = time.time()
-                    if now - last_process_time >= self.batch_interval:
-                        if len(sample_buffer) > 0 and self.sample_rate:
-                            self._process_batch(sample_buffer)
-                            sample_buffer = np.array([], dtype=np.complex64)
-                        last_process_time = now
+                    # IQ data comes as dict: {samples, center_freq, sample_rate, timestamp}
+                    if isinstance(iq_message, dict):
+                        samples = iq_message.get("samples")
+                        sdr_center = iq_message.get("center_freq")
+                        sdr_rate = iq_message.get("sample_rate")
+
+                        if sdr_rate and sdr_rate != self.sample_rate:
+                            self.sample_rate = sdr_rate
+                            self.sdr_sample_rate = sdr_rate
+                        if sdr_center:
+                            self.sdr_center_freq = sdr_center
+
+                        if samples is None or len(samples) == 0:
+                            continue
+
+                        # Accumulate IQ samples
+                        if not isinstance(samples, np.ndarray):
+                            samples = np.array(samples, dtype=np.complex64)
+                        elif samples.dtype != np.complex64:
+                            samples = samples.astype(np.complex64)
+
+                        sample_buffer = np.concatenate([sample_buffer, samples])
+
+                        # Process in batches
+                        now = time.time()
+                        if now - last_process_time >= self.batch_interval:
+                            if len(sample_buffer) > 0 and self.sample_rate:
+                                self._process_batch(sample_buffer)
+                                sample_buffer = np.array([], dtype=np.complex64)
+                            last_process_time = now
+                    else:
+                        logger.warning(f"SSP modem received non-dict IQ data: {type(iq_message)}")
 
                 except Exception as e:
-                    if "Empty" in str(type(e).__name__):
-                        continue  # Queue timeout, normal
-                    logger.error(f"SSPModemDecoder error: {e}", exc_info=True)
+                    logger.error(f"SSPModemDecoder loop error: {e}", exc_info=True)
 
         except Exception as e:
             logger.error(f"SSPModemDecoder fatal error: {e}", exc_info=True)
