@@ -31,6 +31,7 @@ import {
 import VFOMarkersContainer from './vfo-marker/vfo-container.jsx';
 import FrequencyBandOverlay from './bandplan-overlay.jsx';
 import {useDopplerNeighbors} from '../../hooks/useDopplerNeighbors.jsx';
+import {setBandScopeHeight} from './waterfall-slice.jsx';
 
 
 const WaterfallAndBandscope = forwardRef(function WaterfallAndBandscope({
@@ -597,6 +598,40 @@ const WaterfallAndBandscope = forwardRef(function WaterfallAndBandscope({
                         zoomScale={scaleRef.current}
                         currentPositionX={positionXRef.current}
                     />
+                </Box>
+
+                {/* Draggable resize handle between spectrum and waterfall */}
+                <Box
+                    sx={{
+                        height: '6px',
+                        cursor: 'row-resize',
+                        backgroundColor: 'transparent',
+                        '&:hover': { backgroundColor: theme.palette.primary.main, opacity: 0.5 },
+                        '&:active': { backgroundColor: theme.palette.primary.main, opacity: 0.8 },
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 10,
+                        position: 'relative',
+                    }}
+                    onMouseDown={(e) => {
+                        e.preventDefault();
+                        const startY = e.clientY;
+                        const startHeight = bandScopeHeight;
+                        const onMouseMove = (me) => {
+                            const delta = me.clientY - startY;
+                            const newHeight = Math.max(60, Math.min(500, startHeight + delta));
+                            dispatch(setBandScopeHeight(newHeight));
+                        };
+                        const onMouseUp = () => {
+                            document.removeEventListener('mousemove', onMouseMove);
+                            document.removeEventListener('mouseup', onMouseUp);
+                        };
+                        document.addEventListener('mousemove', onMouseMove);
+                        document.addEventListener('mouseup', onMouseUp);
+                    }}
+                >
+                    <Box sx={{ width: '40px', height: '2px', backgroundColor: theme.palette.divider, borderRadius: '1px' }} />
                 </Box>
 
                 <FrequencyScale
