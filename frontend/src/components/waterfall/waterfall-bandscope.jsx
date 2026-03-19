@@ -321,6 +321,8 @@ const WaterfallAndBandscope = forwardRef(function WaterfallAndBandscope({
 
         // Mouse events for panning
         const handleMouseDown = (e) => {
+            // Skip pan if beacon marker drag is active (global flag)
+            if (window.__beaconDragActive) return;
             isDraggingRef.current = true;
             lastXRef.current = e.clientX;
             // Prevent text selection during drag

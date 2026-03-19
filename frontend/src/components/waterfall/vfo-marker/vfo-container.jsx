@@ -122,15 +122,18 @@ const VFOMarkersContainer = ({
         // Check edges first (closest wins)
         if (distToLow < hitRange && distToLow <= distToHigh) {
             beaconDragRef.current = 'low';
+            window.__beaconDragActive = true;
             return true;
         }
         if (distToHigh < hitRange) {
             beaconDragRef.current = 'high';
+            window.__beaconDragActive = true;
             return true;
         }
         // Drag body (between markers, not near edges)
         if (freq > beaconMarkers.lowFreq + hitRange && freq < beaconMarkers.highFreq - hitRange) {
             beaconDragRef.current = 'body';
+            window.__beaconDragActive = true;
             return true;
         }
         return false;
@@ -162,6 +165,7 @@ const VFOMarkersContainer = ({
             });
         }
         beaconDragRef.current = null;
+        window.__beaconDragActive = false;
     }, [beaconMarkers, beaconSocket, bcnRfToIF]);
 
     // Document-level listeners for beacon drag (always active when markers exist)

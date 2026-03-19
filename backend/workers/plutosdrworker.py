@@ -598,7 +598,9 @@ def plutosdr_worker_process(
             # --------------------------------------------------------
             # Beacon tracking (runs inside worker — no browser needed)
             # --------------------------------------------------------
-            if beacon_active and samples is not None and len(samples) > 0:
+            if (beacon_active and samples is not None and len(samples) > 0
+                    and center_freq and sample_rate and beacon_marker_low is not None
+                    and beacon_marker_high is not None and beacon_freq):
                 if current_time - beacon_last_update >= beacon_update_interval:
                     beacon_last_update = current_time
                     try:
@@ -608,9 +610,10 @@ def plutosdr_worker_process(
                         fft_db = 20 * np.log10(fft_data + 1e-10)
 
                         # Convert marker frequencies to FFT bin indices
-                        freq_resolution = sample_rate / fft_size_beacon
-                        bin_low = int((beacon_marker_low - (center_freq - sample_rate / 2)) / freq_resolution)
-                        bin_high = int((beacon_marker_high - (center_freq - sample_rate / 2)) / freq_resolution)
+                        freq_resolution = float(sample_rate) / fft_size_beacon
+                        start_freq = float(center_freq) - float(sample_rate) / 2
+                        bin_low = int((float(beacon_marker_low) - start_freq) / freq_resolution)
+                        bin_high = int((float(beacon_marker_high) - start_freq) / freq_resolution)
                         bin_low = max(0, min(fft_size_beacon - 1, bin_low))
                         bin_high = max(bin_low + 1, min(fft_size_beacon, bin_high))
 
