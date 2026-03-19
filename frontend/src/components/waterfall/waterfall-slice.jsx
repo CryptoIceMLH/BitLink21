@@ -127,6 +127,7 @@ const initialState = {
         { id: 'none', name: 'None', type: 'none', rxOffset: 0, txOffset: 0 },
     ],
     activeConverterId: 'none',
+    beaconMarkers: { active: false, lowFreq: null, highFreq: null, lockState: 'UNLOCKED', offsetHz: 0 },
     errorMessage: null,
     errorDialogOpen: false,
     isStreaming: false,
@@ -253,6 +254,9 @@ export const waterfallSlice = createSlice({
                 state.activeConverterId = 'none';
                 state.selectedOffsetValue = 0;
             }
+        },
+        setBeaconMarkers: (state, action) => {
+            state.beaconMarkers = { ...state.beaconMarkers, ...action.payload };
         },
         setPanelOrder: (state, action) => {
             state.panelOrder = action.payload;
@@ -701,6 +705,7 @@ export const {
     setNeighboringTransmitters,
     setShowNeighboringTransmitters,
     setShowBookmarkSource,
+    setBeaconMarkers,
     setPanelOrder,
     movePanelUp,
     movePanelDown,

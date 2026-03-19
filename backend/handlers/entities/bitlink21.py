@@ -359,6 +359,36 @@ async def get_tx_status(
     return {"success": True, "data": tx_worker.get_status()}
 
 
+async def bitcoin_test_connection(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Test Bitcoin Core RPC connection (backend proxy to avoid CORS)."""
+    if not data:
+        return {"success": False, "error": "No data provided"}
+    try:
+        import urllib.request
+        import json
+        import base64
+
+        rpc_url = data.get("rpc_url", "http://localhost:8332")
+        rpc_user = data.get("rpc_user", "")
+        rpc_pass = data.get("rpc_pass", "")
+
+        auth = base64.b64encode(f"{rpc_user}:{rpc_pass}".encode()).decode()
+        req = urllib.request.Request(
+            rpc_url,
+            data=json.dumps({"jsonrpc": "1.0", "id": "test", "method": "getblockchaininfo", "params": []}).encode(),
+            headers={"Content-Type": "application/json", "Authorization": f"Basic {auth}"},
+        )
+        resp = urllib.request.urlopen(req, timeout=10)
+        result = json.loads(resp.read())
+        chain = result.get("result", {}).get("chain", "unknown")
+        blocks = result.get("result", {}).get("blocks", 0)
+        return {"success": True, "data": {"message": f"Connected! Chain: {chain}, Blocks: {blocks}"}}
+    except Exception as e:
+        return {"success": False, "error": f"Connection failed: {str(e)}"}
+
+
 async def test_tone_start(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
@@ -428,6 +458,7 @@ def register_handlers(registry):
             "bitlink21:ber_test_start": (ber_test_start, "data_submission"),
             "bitlink21:ber_test_stop": (ber_test_stop, "data_submission"),
             "bitlink21:get_ber_results": (get_ber_results, "data_request"),
+            "bitlink21:bitcoin_test_connection": (bitcoin_test_connection, "data_submission"),
             "bitlink21:ptt_on": (ptt_on, "data_submission"),
             "bitlink21:ptt_off": (ptt_off, "data_submission"),
             "bitlink21:get_tx_status": (get_tx_status, "data_request"),

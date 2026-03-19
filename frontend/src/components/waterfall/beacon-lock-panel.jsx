@@ -1,14 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
     Accordion, AccordionSummary, AccordionDetails,
-    Box, Typography, TextField, Button, Chip, Divider, InputAdornment, Slider
+    Box, Typography, Button, Chip, Divider, Slider, InputAdornment, TextField
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import LockIcon from '@mui/icons-material/Lock';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
 import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import { useSocket } from '../common/socket.jsx';
+import { setBeaconMarkers } from './waterfall-slice.jsx';
 
 const lockStateColors = {
     UNLOCKED: 'error',
@@ -24,30 +25,72 @@ const lockStateIcons = {
 
 const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
     const {socket} = useSocket();
+    const dispatch = useDispatch();
+    const { beaconMarkers, centerFrequency, sampleRate } = useSelector(state => state.waterfall);
     const { beaconLockState, beaconOffset, beaconPhaseError } = useSelector(state => state.bitlink21);
 
-    const [beaconFreq, setBeaconFreq] = useState('');
     const [xoCorrection, setXoCorrection] = useState(0);
-    const isRunning = beaconLockState !== 'UNLOCKED';
+    const [markerSpread, setMarkerSpread] = useState(2500); // ±Hz from center
 
+    const isRunning = beaconMarkers?.active || false;
+    const lockState = beaconLockState || 'UNLOCKED';
+
+    // When markers are activated, set them around the current center frequency
     const handleStartLock = () => {
         if (!socket) return;
+
+        const lowFreq = centerFrequency - markerSpread;
+        const highFreq = centerFrequency + markerSpread;
+
+        dispatch(setBeaconMarkers({
+            active: true,
+            lowFreq,
+            highFreq,
+            lockState: 'TRACKING',
+        }));
+
         socket.emit('data_submission', 'bitlink21:beacon_start', {
-            beacon_freq_hz: parseFloat(beaconFreq),
+            beacon_freq_hz: centerFrequency,
+            marker_low_hz: lowFreq,
+            marker_high_hz: highFreq,
         });
     };
 
     const handleStopLock = () => {
         if (!socket) return;
+        dispatch(setBeaconMarkers({ active: false, lockState: 'UNLOCKED', offsetHz: 0 }));
         socket.emit('data_submission', 'bitlink21:beacon_stop', {});
+    };
+
+    const handleMarkerSpreadChange = (_, value) => {
+        setMarkerSpread(value);
+        if (isRunning && socket) {
+            const lowFreq = centerFrequency - value;
+            const highFreq = centerFrequency + value;
+            dispatch(setBeaconMarkers({ lowFreq, highFreq }));
+            socket.emit('data_submission', 'bitlink21:beacon_config', {
+                marker_low_hz: lowFreq,
+                marker_high_hz: highFreq,
+            });
+        }
     };
 
     const handleManualXO = () => {
         if (!socket) return;
-        socket.emit('data_submission', 'bitlink21:set_config', {
-            key: 'xo_correction', value: String(xoCorrection),
+        socket.emit('sdr_data', 'configure-sdr', {
+            xo_correction: parseInt(xoCorrection),
         });
     };
+
+    // Update lock state from backend
+    useEffect(() => {
+        if (beaconLockState && beaconMarkers?.active) {
+            dispatch(setBeaconMarkers({
+                lockState: beaconLockState,
+                offsetHz: beaconOffset || 0,
+            }));
+        }
+    }, [beaconLockState, beaconOffset, dispatch, beaconMarkers?.active]);
 
     return (
         <Accordion expanded={expanded} onChange={onAccordionChange}>
@@ -58,9 +101,9 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
                         Beacon Lock
                     </Typography>
                     <Chip
-                        icon={lockStateIcons[beaconLockState] || lockStateIcons.UNLOCKED}
-                        label={beaconLockState || 'UNLOCKED'}
-                        color={lockStateColors[beaconLockState] || 'default'}
+                        icon={lockStateIcons[lockState] || lockStateIcons.UNLOCKED}
+                        label={lockState}
+                        color={lockStateColors[lockState] || 'default'}
                         size="small"
                         sx={{ ml: 'auto', mr: 1 }}
                     />
@@ -68,18 +111,22 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
             </AccordionSummary>
             <AccordionDetails>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    {/* Beacon Frequency */}
-                    <TextField
-                        size="small"
-                        label="Beacon Frequency"
-                        value={beaconFreq}
-                        onChange={e => setBeaconFreq(e.target.value)}
-                        InputProps={{
-                            endAdornment: <InputAdornment position="end">Hz</InputAdornment>,
-                            sx: { fontFamily: 'monospace', fontSize: '0.85rem' },
-                        }}
-                        helperText="Enter beacon frequency in Hz"
-                    />
+                    {/* Marker spread control */}
+                    <Box>
+                        <Typography variant="caption" color="text.secondary">
+                            Marker Spread: ±{markerSpread} Hz ({(markerSpread * 2 / 1000).toFixed(1)} kHz window)
+                        </Typography>
+                        <Slider
+                            value={markerSpread}
+                            onChange={handleMarkerSpreadChange}
+                            min={500}
+                            max={10000}
+                            step={100}
+                            size="small"
+                            valueLabelDisplay="auto"
+                            valueLabelFormat={v => `±${v} Hz`}
+                        />
+                    </Box>
 
                     {/* Lock/Unlock Button */}
                     <Button
@@ -87,26 +134,30 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
                         fullWidth
                         onClick={isRunning ? handleStopLock : handleStartLock}
                         color={isRunning ? 'error' : 'primary'}
+                        sx={{ py: 1 }}
                     >
                         {isRunning ? 'Stop Beacon Lock' : 'Start Beacon Lock'}
                     </Button>
 
-                    {/* Status */}
+                    {/* Status when running */}
                     {isRunning && (
                         <>
                             <Divider />
                             <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                                 <Typography variant="caption" color="text.secondary">Offset</Typography>
                                 <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
-                                    {beaconOffset > 0 ? '+' : ''}{beaconOffset.toFixed(1)} Hz
+                                    {beaconOffset > 0 ? '+' : ''}{(beaconOffset || 0).toFixed(1)} Hz
                                 </Typography>
                             </Box>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                                 <Typography variant="caption" color="text.secondary">Phase Error</Typography>
                                 <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                                    {beaconPhaseError.toFixed(2)}°
+                                    {(beaconPhaseError || 0).toFixed(2)}°
                                 </Typography>
                             </Box>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                                Tune to beacon → markers show on waterfall → AFC auto-corrects
+                            </Typography>
                         </>
                     )}
 

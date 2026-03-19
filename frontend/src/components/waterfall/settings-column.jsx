@@ -1058,7 +1058,14 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                 <div style={{ padding: '8px 16px' }}>
                     <ConstellationDiagram />
                     <div style={{ marginTop: 12 }}>
-                        <RitXitControls />
+                        <RitXitControls
+                            onRitChange={(offsetHz) => {
+                                sendSDRConfigToBackend({ rit_offset: offsetHz });
+                            }}
+                            onXitChange={(offsetHz) => {
+                                sendSDRConfigToBackend({ xit_offset: offsetHz });
+                            }}
+                        />
                     </div>
                 </div>
             </div>

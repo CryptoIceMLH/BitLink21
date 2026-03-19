@@ -11,7 +11,7 @@ import CellTowerIcon from '@mui/icons-material/CellTower';
 import { setPttActive, setTxFreq, setTxGain } from '../bitlink21/bitlink21-slice.jsx';
 import { useSocket } from '../common/socket.jsx';
 
-const TestToneButton = ({ socket }) => {
+const TestToneButton = ({ socket, txGain }) => {
     const [active, setActive] = useState(false);
     const [toneFreq, setToneFreq] = useState(1000);
 
@@ -22,7 +22,10 @@ const TestToneButton = ({ socket }) => {
                 if (res?.success) setActive(false);
             });
         } else {
-            socket.emit('data_submission', 'bitlink21:test_tone_start', { tone_freq_hz: toneFreq }, (res) => {
+            socket.emit('data_submission', 'bitlink21:test_tone_start', {
+                tone_freq_hz: toneFreq,
+                tx_gain_db: txGain,
+            }, (res) => {
                 if (res?.success) setActive(true);
             });
         }
@@ -61,7 +64,7 @@ const TxControlsAccordion = ({ expanded, onAccordionChange }) => {
     const dispatch = useDispatch();
     const {socket} = useSocket();
     const { pttActive, txFreq, txGain, outbox } = useSelector(state => state.bitlink21);
-    const { centerFrequency, sampleRate } = useSelector(state => state.waterfall);
+    const { centerFrequency, sampleRate, selectedSDRId } = useSelector(state => state.waterfall);
     const pendingCount = outbox?.pending_count || 0;
 
     const [speedModeId, setSpeedModeId] = useState(5); // Default: QPSK 4800
@@ -109,11 +112,17 @@ const TxControlsAccordion = ({ expanded, onAccordionChange }) => {
         const freq = parseFloat(value);
         if (!isNaN(freq)) {
             dispatch(setTxFreq(freq));
+            if (socket && selectedSDRId && selectedSDRId !== 'none') {
+                socket.emit('sdr_data', 'configure-sdr', { selectedSDRId, tx_freq: freq });
+            }
         }
     };
 
     const handleTxGainChange = (_, value) => {
         dispatch(setTxGain(value));
+        if (socket && selectedSDRId && selectedSDRId !== 'none') {
+            socket.emit('sdr_data', 'configure-sdr', { selectedSDRId, tx_gain: value });
+        }
     };
 
     const handleCopyRxFreq = () => {
@@ -157,7 +166,7 @@ const TxControlsAccordion = ({ expanded, onAccordionChange }) => {
                     </Button>
 
                     {/* Test Tone */}
-                    <TestToneButton socket={socket} />
+                    <TestToneButton socket={socket} txGain={txGain} />
 
                     <Divider />
 

@@ -81,6 +81,9 @@ const VFOMarkersContainer = ({
     // Get runtime snapshot for internal VFO data
     const runtimeSnapshot = useSelector(state => state.sessions?.runtimeSnapshot?.data);
 
+    // Beacon lock markers
+    const beaconMarkers = useSelector(state => state.waterfall?.beaconMarkers);
+
     const containerRef = useRef(null);
     const canvasRef = useRef(null);
     // Canvas context caching for performance
@@ -399,7 +402,7 @@ const VFOMarkersContainer = ({
     useEffect(() => {
         renderVFOMarkersDirect();
     }, [vfoActive, vfoMarkers, actualWidth, height,
-        centerFrequency, sampleRate, selectedVFO, streamingVFOs, vfoMuted, containerWidth, currentPositionX, activeDecoders, decoderOutputs, runtimeSnapshot]);
+        centerFrequency, sampleRate, selectedVFO, streamingVFOs, vfoMuted, containerWidth, currentPositionX, activeDecoders, decoderOutputs, runtimeSnapshot, beaconMarkers]);
 
     // Rendering function with cached context
     const renderVFOMarkersDirect = () => {
@@ -579,6 +582,54 @@ const VFOMarkersContainer = ({
 
             canvasDrawingUtils.drawVFOLabel(ctx, centerX, labelText, marker.color, lineOpacity, isSelected, isLocked, decoderInfo, morseText, isStreaming, packetOutputs, isMuted);
         });
+
+        // Draw beacon lock markers (two dashed vertical lines)
+        if (beaconMarkers?.active && beaconMarkers.lowFreq && beaconMarkers.highFreq) {
+            const startFreq = centerFrequency - sampleRate / 2;
+            const freqRange = sampleRate;
+
+            const lowX = ((beaconMarkers.lowFreq - startFreq) / freqRange) * actualWidth;
+            const highX = ((beaconMarkers.highFreq - startFreq) / freqRange) * actualWidth;
+
+            // Beacon marker color based on lock state
+            const beaconColor = beaconMarkers.lockState === 'LOCKED' ? '#4caf50' :
+                               beaconMarkers.lockState === 'TRACKING' ? '#ff9800' : '#f44336';
+
+            ctx.setLineDash([6, 4]);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = beaconColor;
+
+            // Left marker
+            if (lowX >= 0 && lowX <= actualWidth) {
+                ctx.beginPath();
+                ctx.moveTo(lowX, 0);
+                ctx.lineTo(lowX, height);
+                ctx.stroke();
+            }
+
+            // Right marker
+            if (highX >= 0 && highX <= actualWidth) {
+                ctx.beginPath();
+                ctx.moveTo(highX, 0);
+                ctx.lineTo(highX, height);
+                ctx.stroke();
+            }
+
+            // Shaded region between markers
+            if (lowX < actualWidth && highX > 0) {
+                ctx.fillStyle = beaconColor.replace(')', ', 0.08)').replace('rgb', 'rgba');
+                ctx.fillRect(Math.max(0, lowX), 0, Math.min(actualWidth, highX) - Math.max(0, lowX), height);
+            }
+
+            // Label
+            ctx.setLineDash([]);
+            ctx.font = 'bold 10px Monospace';
+            ctx.fillStyle = beaconColor;
+            const label = `BEACON ${beaconMarkers.lockState} ${beaconMarkers.offsetHz ? (beaconMarkers.offsetHz > 0 ? '+' : '') + beaconMarkers.offsetHz.toFixed(0) + 'Hz' : ''}`;
+            const labelWidth = ctx.measureText(label).width;
+            const labelX = (lowX + highX) / 2 - labelWidth / 2;
+            ctx.fillText(label, Math.max(2, labelX), height - 5);
+        }
     };
 
     // Check if mouse/touch is over a handle or edge

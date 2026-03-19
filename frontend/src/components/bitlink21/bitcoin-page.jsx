@@ -59,25 +59,24 @@ export default function BitcoinPage() {
     const handleTestConnection = async () => {
         setTesting(true);
         setTestResult(null);
-        try {
-            const res = await fetch(`${rpcUrl}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Basic ' + btoa(`${rpcUser}:${rpcPass}`),
-                },
-                body: JSON.stringify({ jsonrpc: '1.0', id: 'test', method: 'getblockchaininfo', params: [] }),
+        // Route through backend to avoid CORS issues
+        if (socket) {
+            socket.emit('data_submission', 'bitlink21:bitcoin_test_connection', {
+                rpc_url: rpcUrl,
+                rpc_user: rpcUser,
+                rpc_pass: rpcPass,
+            }, (res) => {
+                if (res?.success) {
+                    setTestResult({ success: true, message: res.data?.message || 'Connected!' });
+                } else {
+                    setTestResult({ success: false, message: res?.error || 'Connection failed' });
+                }
+                setTesting(false);
             });
-            if (res.ok) {
-                const data = await res.json();
-                setTestResult({ success: true, message: `Connected! Chain: ${data.result?.chain}, Blocks: ${data.result?.blocks}` });
-            } else {
-                setTestResult({ success: false, message: `HTTP ${res.status}: ${res.statusText}` });
-            }
-        } catch (err) {
-            setTestResult({ success: false, message: `Connection failed: ${err.message}` });
+        } else {
+            setTestResult({ success: false, message: 'No socket connection' });
+            setTesting(false);
         }
-        setTesting(false);
     };
 
     return (

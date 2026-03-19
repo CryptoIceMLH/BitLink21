@@ -22,13 +22,15 @@ from multiprocessing import Queue
 
 import numpy as np
 
-from bitlink21.storage import storage
 from bitlink21.ssp_frame import SSPFrame
 from bitlink21.modem import (
     Modulator, FECEncoder, ModScheme, SCHEME_INFO,
     create_modulator, create_fec_encoder, is_gnuradio_available, GNURadioModem
 )
 from bitlink21.csma import csma
+import sqlite3
+
+DB_PATH = "/app/data/bitlink21.db"
 
 logger = logging.getLogger("bitlink21")
 
@@ -165,16 +167,23 @@ class TXWorker:
                     self._stop_event.wait(1.0)
                     continue
 
-                # Read next queued message from outbox (async DB call from sync thread)
+                # Read next queued message from outbox (sync SQLite — safe from thread)
                 message = None
-                if self._event_loop:
-                    future = asyncio.run_coroutine_threadsafe(
-                        storage.pop_from_outbox(), self._event_loop
+                try:
+                    conn = sqlite3.connect(DB_PATH)
+                    cursor = conn.execute(
+                        "SELECT id, destination_npub, payload_type, body FROM outbox "
+                        "WHERE status='queued' ORDER BY rowid LIMIT 1"
                     )
-                    try:
-                        message = future.result(timeout=2.0)
-                    except Exception as e:
-                        logger.error(f"TX Worker: Failed to read outbox: {e}")
+                    row = cursor.fetchone()
+                    if row:
+                        message = {"id": row[0], "destination_npub": row[1],
+                                   "payload_type": row[2], "body": row[3]}
+                        conn.execute("UPDATE outbox SET status='sending' WHERE id=?", (row[0],))
+                        conn.commit()
+                    conn.close()
+                except Exception as e:
+                    logger.error(f"TX Worker: Failed to read outbox: {e}")
 
                 if message is None:
                     # No queued messages, wait and retry
@@ -204,12 +213,13 @@ class TXWorker:
                 iq_samples = self._modulate_frame(frame_bytes)
                 if iq_samples is None:
                     self.frames_failed += 1
-                    # Update outbox status to error
-                    if self._event_loop:
-                        asyncio.run_coroutine_threadsafe(
-                            storage.update_outbox_status(message["id"], "error", "Modulation failed"),
-                            self._event_loop,
-                        )
+                    try:
+                        conn = sqlite3.connect(DB_PATH)
+                        conn.execute("UPDATE outbox SET status='error', error_msg='Modulation failed' WHERE id=?", (message["id"],))
+                        conn.commit()
+                        conn.close()
+                    except Exception:
+                        pass
                     continue
 
                 # CSMA: check if channel is clear before transmitting
@@ -230,11 +240,13 @@ class TXWorker:
                     self.bytes_transmitted += len(frame_bytes)
 
                     # Update outbox status to sent
-                    if self._event_loop:
-                        asyncio.run_coroutine_threadsafe(
-                            storage.update_outbox_status(message["id"], "sent"),
-                            self._event_loop,
-                        )
+                    try:
+                        conn = sqlite3.connect(DB_PATH)
+                        conn.execute("UPDATE outbox SET status='sent' WHERE id=?", (message["id"],))
+                        conn.commit()
+                        conn.close()
+                    except Exception:
+                        pass
 
                     logger.info(
                         f"TX Worker: Frame {message.get('id')} queued for TX "
