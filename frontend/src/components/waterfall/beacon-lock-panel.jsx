@@ -45,16 +45,13 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
         return freq;
     };
 
-    // IF center frequency (what the waterfall actually shows)
-    const ifCenterFreq = rfToIF(centerFrequency);
-
-    // When markers are activated, set them around the IF center frequency
+    // When markers are activated, set them around the center frequency (RF space — matches waterfall display)
     const handleStartLock = () => {
         if (!socket) return;
 
-        // Markers in IF space (for waterfall rendering)
-        const lowFreq = ifCenterFreq - markerSpread;
-        const highFreq = ifCenterFreq + markerSpread;
+        // Markers in RF space (same as centerFrequency in Redux, same as waterfall display)
+        const lowFreq = centerFrequency - markerSpread;
+        const highFreq = centerFrequency + markerSpread;
 
         dispatch(setBeaconMarkers({
             active: true,
@@ -80,8 +77,8 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
     const handleMarkerSpreadChange = (_, value) => {
         setMarkerSpread(value);
         if (isRunning && socket) {
-            const lowFreq = ifCenterFreq - value;
-            const highFreq = ifCenterFreq + value;
+            const lowFreq = centerFrequency - value;
+            const highFreq = centerFrequency + value;
             dispatch(setBeaconMarkers({ lowFreq, highFreq }));
             socket.emit('data_submission', 'bitlink21:beacon_config', {
                 marker_low_hz: centerFrequency - value,
