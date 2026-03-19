@@ -99,17 +99,27 @@ const VFOMarkersContainer = ({
     const handleBeaconMouseDown = useCallback((e) => {
         if (!beaconMarkers?.active) return false;
         const freq = xToFreq(e.clientX);
-        const hitRange = sampleRate * 0.005; // 0.5% of visible range
-        if (Math.abs(freq - beaconMarkers.lowFreq) < hitRange) {
+        // Tight hit range — 1 pixel worth of frequency
+        const canvas = canvasRef.current;
+        if (!canvas) return false;
+        const rect = canvas.getBoundingClientRect();
+        const pixelFreq = sampleRate / rect.width;
+        const hitRange = pixelFreq * 8; // 8 pixels
+
+        const distToLow = Math.abs(freq - beaconMarkers.lowFreq);
+        const distToHigh = Math.abs(freq - beaconMarkers.highFreq);
+
+        // Check edges first (closest wins)
+        if (distToLow < hitRange && distToLow <= distToHigh) {
             beaconDragRef.current = 'low';
             return true;
         }
-        if (Math.abs(freq - beaconMarkers.highFreq) < hitRange) {
+        if (distToHigh < hitRange) {
             beaconDragRef.current = 'high';
             return true;
         }
-        // Drag body (between markers)
-        if (freq > beaconMarkers.lowFreq && freq < beaconMarkers.highFreq) {
+        // Drag body (between markers, not near edges)
+        if (freq > beaconMarkers.lowFreq + hitRange && freq < beaconMarkers.highFreq - hitRange) {
             beaconDragRef.current = 'body';
             return true;
         }
