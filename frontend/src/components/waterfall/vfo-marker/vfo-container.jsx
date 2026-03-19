@@ -144,27 +144,29 @@ const VFOMarkersContainer = ({
     }, [beaconMarkers, xToFreq, dispatch]);
 
     const handleBeaconMouseUp = useCallback(() => {
-        if (beaconDragRef.current && beaconMarkers?.active) {
-            // Send updated marker positions to backend
-            const {socket} = socketInstance ? {socket: socketInstance} : {socket: null};
-            // Markers are in RF space — send to backend for AFC
-            // (beacon_afc needs to convert to IF internally)
-        }
         beaconDragRef.current = null;
-    }, [beaconMarkers]);
+    }, []);
 
+    // Document-level listeners for beacon drag (always active when markers exist)
     useEffect(() => {
-        const onMouseMove = (e) => handleBeaconMouseMove(e);
-        const onMouseUp = () => handleBeaconMouseUp();
-        if (beaconDragRef.current) {
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
-            return () => {
-                document.removeEventListener('mousemove', onMouseMove);
-                document.removeEventListener('mouseup', onMouseUp);
-            };
-        }
-    }, [handleBeaconMouseMove, handleBeaconMouseUp]);
+        const onMouseMove = (e) => {
+            if (beaconDragRef.current) {
+                e.preventDefault();
+                handleBeaconMouseMove(e);
+            }
+        };
+        const onMouseUp = () => {
+            if (beaconDragRef.current) {
+                beaconDragRef.current = null;
+            }
+        };
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+        return () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+    }, [handleBeaconMouseMove]);
 
     const containerRef = useRef(null);
     const canvasRef = useRef(null);
@@ -974,13 +976,14 @@ const VFOMarkersContainer = ({
                 ref={canvasRef}
                 onClick={handleClick}
                 onMouseDown={(e) => {
-                    if (handleBeaconMouseDown(e)) return; // Beacon drag takes priority
+                    if (handleBeaconMouseDown(e)) {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        return;
+                    }
                     handleMouseDown(e);
                 }}
-                onMouseMove={(e) => {
-                    if (beaconDragRef.current) { handleBeaconMouseMove(e); return; }
-                    handleMouseMove(e);
-                }}
+                onMouseMove={handleMouseMove}
                 onMouseLeave={handleMouseLeave}
                 onDoubleClick={handleDoubleClick}
                 onTouchStart={(e) => {
