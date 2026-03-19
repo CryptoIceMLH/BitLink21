@@ -49,7 +49,7 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
     const handleStartLock = () => {
         if (!socket) return;
 
-        // Markers in RF space (same as centerFrequency in Redux, same as waterfall display)
+        // Markers in RF space for waterfall display
         const lowFreq = centerFrequency - markerSpread;
         const highFreq = centerFrequency + markerSpread;
 
@@ -60,11 +60,11 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
             lockState: 'TRACKING',
         }));
 
-        // Send RF frequency to backend for AFC
+        // Send IF frequencies to backend — worker operates in IF space
         socket.emit('data_submission', 'bitlink21:beacon_start', {
-            beacon_freq_hz: centerFrequency,
-            marker_low_hz: centerFrequency - markerSpread,
-            marker_high_hz: centerFrequency + markerSpread,
+            beacon_freq_hz: rfToIF(centerFrequency),
+            marker_low_hz: rfToIF(centerFrequency - markerSpread),
+            marker_high_hz: rfToIF(centerFrequency + markerSpread),
         });
     };
 
@@ -81,8 +81,8 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
             const highFreq = centerFrequency + value;
             dispatch(setBeaconMarkers({ lowFreq, highFreq }));
             socket.emit('data_submission', 'bitlink21:beacon_config', {
-                marker_low_hz: centerFrequency - value,
-                marker_high_hz: centerFrequency + value,
+                marker_low_hz: rfToIF(centerFrequency - value),
+                marker_high_hz: rfToIF(centerFrequency + value),
             });
         }
     };

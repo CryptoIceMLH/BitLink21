@@ -950,6 +950,19 @@ class ProcessLifecycleManager:
                                 # FFT processor stats
                                 process_info["fft_stats"] = data.get("stats", {})
 
+                        elif data_type == "constellation":
+                            # Forward SSP modem constellation points to frontend
+                            await self.sio.emit("bitlink21:constellation_data",
+                                data.get("points", []), room=sdr_id)
+
+                        elif data_type == "decoder_status" and data.get("decoder_type") == "ssp":
+                            # Forward SSP decoder status
+                            await self.sio.emit("bitlink21:beacon_status", {
+                                "frames_decoded": data.get("frames_decoded", 0),
+                                "fec_corrections": data.get("fec_corrections", 0),
+                                "errors": data.get("errors", 0),
+                            }, room=sdr_id)
+
                         elif data_type == "beacon_status":
                             # Forward beacon tracking status to all clients via Socket.IO
                             await self.sio.emit("bitlink21:beacon_status", {

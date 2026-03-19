@@ -27,6 +27,7 @@ import {
     setSelectedVFO,
 } from './vfo-slice.jsx';
 import { setBeaconMarkers } from '../waterfall-slice.jsx';
+import { useSocket } from '../../common/socket.jsx';
 import {
     canvasDrawingUtils,
     getVFOLabelIconWidth,
@@ -84,6 +85,15 @@ const VFOMarkersContainer = ({
 
     // Beacon lock markers
     const beaconMarkers = useSelector(state => state.waterfall?.beaconMarkers);
+    const {socket: beaconSocket} = useSocket();
+    const { converterDefinitions: bcnConvDefs, activeConverterId: bcnActiveConvId } = useSelector(state => state.waterfall || {});
+    const bcnActiveConv = bcnConvDefs?.find(c => c.id === bcnActiveConvId);
+    const bcnRfToIF = (freq) => {
+        if (!bcnActiveConv || bcnActiveConv.type === 'none') return freq;
+        if (bcnActiveConv.type === 'down') return freq - bcnActiveConv.rxOffset;
+        if (bcnActiveConv.type === 'up') return freq + bcnActiveConv.rxOffset;
+        return freq;
+    };
     const beaconDragRef = useRef(null); // 'low', 'high', 'body', or null
 
     // Beacon marker drag handlers
@@ -144,8 +154,15 @@ const VFOMarkersContainer = ({
     }, [beaconMarkers, xToFreq, dispatch]);
 
     const handleBeaconMouseUp = useCallback(() => {
+        if (beaconDragRef.current && beaconMarkers?.active && beaconSocket) {
+            // Send updated marker positions to backend (in IF space)
+            beaconSocket.emit('data_submission', 'bitlink21:beacon_config', {
+                marker_low_hz: bcnRfToIF(beaconMarkers.lowFreq),
+                marker_high_hz: bcnRfToIF(beaconMarkers.highFreq),
+            });
+        }
         beaconDragRef.current = null;
-    }, []);
+    }, [beaconMarkers, beaconSocket, bcnRfToIF]);
 
     // Document-level listeners for beacon drag (always active when markers exist)
     useEffect(() => {
@@ -157,7 +174,7 @@ const VFOMarkersContainer = ({
         };
         const onMouseUp = () => {
             if (beaconDragRef.current) {
-                beaconDragRef.current = null;
+                handleBeaconMouseUp();
             }
         };
         document.addEventListener('mousemove', onMouseMove);

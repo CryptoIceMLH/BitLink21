@@ -167,7 +167,7 @@ class DecoderRegistry:
             "ssp": DecoderCapabilities(
                 name="ssp",
                 decoder_class=SSPModemDecoder,
-                needs_raw_iq=False,  # Runs alongside audio demodulator (USB/LSB)
+                needs_raw_iq=True,  # Receives raw IQ from broadcaster (audio kept alive via vfo.py exception)
                 required_demodulator=None,  # Doesn't require a specific demodulator
                 demodulator_mode=None,
                 default_bandwidth=3800,  # ~3.8 kHz (QPSK 4800 mode)
