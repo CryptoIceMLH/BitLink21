@@ -26,6 +26,7 @@ import {
     setVFOProperty,
     setSelectedVFO,
 } from './vfo-slice.jsx';
+import { setBeaconMarkers } from '../waterfall-slice.jsx';
 import {
     canvasDrawingUtils,
     getVFOLabelIconWidth,
@@ -83,6 +84,77 @@ const VFOMarkersContainer = ({
 
     // Beacon lock markers
     const beaconMarkers = useSelector(state => state.waterfall?.beaconMarkers);
+    const beaconDragRef = useRef(null); // 'low', 'high', 'body', or null
+
+    // Beacon marker drag handlers
+    const xToFreq = useCallback((clientX) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return 0;
+        const rect = canvas.getBoundingClientRect();
+        const x = (clientX - rect.left) / rect.width;
+        const startF = centerFrequency - sampleRate / 2;
+        return startF + x * sampleRate;
+    }, [centerFrequency, sampleRate]);
+
+    const handleBeaconMouseDown = useCallback((e) => {
+        if (!beaconMarkers?.active) return false;
+        const freq = xToFreq(e.clientX);
+        const hitRange = sampleRate * 0.005; // 0.5% of visible range
+        if (Math.abs(freq - beaconMarkers.lowFreq) < hitRange) {
+            beaconDragRef.current = 'low';
+            return true;
+        }
+        if (Math.abs(freq - beaconMarkers.highFreq) < hitRange) {
+            beaconDragRef.current = 'high';
+            return true;
+        }
+        // Drag body (between markers)
+        if (freq > beaconMarkers.lowFreq && freq < beaconMarkers.highFreq) {
+            beaconDragRef.current = 'body';
+            return true;
+        }
+        return false;
+    }, [beaconMarkers, xToFreq, sampleRate]);
+
+    const handleBeaconMouseMove = useCallback((e) => {
+        if (!beaconDragRef.current || !beaconMarkers?.active) return;
+        const freq = xToFreq(e.clientX);
+        const { lowFreq, highFreq } = beaconMarkers;
+
+        if (beaconDragRef.current === 'low') {
+            dispatch(setBeaconMarkers({ lowFreq: Math.min(freq, highFreq - 100) }));
+        } else if (beaconDragRef.current === 'high') {
+            dispatch(setBeaconMarkers({ highFreq: Math.max(freq, lowFreq + 100) }));
+        } else if (beaconDragRef.current === 'body') {
+            const width = highFreq - lowFreq;
+            const center = (lowFreq + highFreq) / 2;
+            const delta = freq - center;
+            dispatch(setBeaconMarkers({ lowFreq: lowFreq + delta, highFreq: highFreq + delta }));
+        }
+    }, [beaconMarkers, xToFreq, dispatch]);
+
+    const handleBeaconMouseUp = useCallback(() => {
+        if (beaconDragRef.current && beaconMarkers?.active) {
+            // Send updated marker positions to backend
+            const {socket} = socketInstance ? {socket: socketInstance} : {socket: null};
+            // Markers are in RF space — send to backend for AFC
+            // (beacon_afc needs to convert to IF internally)
+        }
+        beaconDragRef.current = null;
+    }, [beaconMarkers]);
+
+    useEffect(() => {
+        const onMouseMove = (e) => handleBeaconMouseMove(e);
+        const onMouseUp = () => handleBeaconMouseUp();
+        if (beaconDragRef.current) {
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            return () => {
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+        }
+    }, [handleBeaconMouseMove, handleBeaconMouseUp]);
 
     const containerRef = useRef(null);
     const canvasRef = useRef(null);
@@ -595,8 +667,8 @@ const VFOMarkersContainer = ({
             const beaconColor = beaconMarkers.lockState === 'LOCKED' ? '#4caf50' :
                                beaconMarkers.lockState === 'TRACKING' ? '#ff9800' : '#f44336';
 
-            ctx.setLineDash([6, 4]);
-            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 4]);
+            ctx.lineWidth = 3;
             ctx.strokeStyle = beaconColor;
 
             // Left marker
@@ -891,8 +963,14 @@ const VFOMarkersContainer = ({
                 className={"vfo-markers-canvas"}
                 ref={canvasRef}
                 onClick={handleClick}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
+                onMouseDown={(e) => {
+                    if (handleBeaconMouseDown(e)) return; // Beacon drag takes priority
+                    handleMouseDown(e);
+                }}
+                onMouseMove={(e) => {
+                    if (beaconDragRef.current) { handleBeaconMouseMove(e); return; }
+                    handleMouseMove(e);
+                }}
                 onMouseLeave={handleMouseLeave}
                 onDoubleClick={handleDoubleClick}
                 onTouchStart={(e) => {
