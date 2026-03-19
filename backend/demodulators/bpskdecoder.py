@@ -87,7 +87,8 @@ except ImportError:
 # This prevents shared memory segment exhaustion
 os.environ.setdefault("GR_BUFFER_TYPE", "vmcirc_mmap_tmpfile")
 
-from gnuradio import blocks, gr  # noqa: E402
+from gnuradio import blocks, gr, digital, analog  # noqa: E402
+from gnuradio import filter as filter_mod  # noqa: E402
 from satellites.components.deframers.ax25_deframer import ax25_deframer  # noqa: E402
 from satellites.components.deframers.ccsds_rs_deframer import ccsds_rs_deframer  # noqa: E402
 from satellites.components.demodulators.bpsk_demodulator import bpsk_demodulator  # noqa: E402
@@ -354,26 +355,98 @@ class BPSKFlowgraph(gr.top_block):
                 syncword_threshold=4,  # Allow 4 bit errors in syncword (CCSDS default)
             )
 
-            # Create BPSK demodulator
-            # The FLL (Frequency Lock Loop) handles any residual frequency offset
-            # after our frequency translation, so we set f_offset=0 and let it auto-track
-            demod = bpsk_demodulator(
-                baudrate=self.baudrate,
-                samp_rate=self.sample_rate,
-                iq=True,
-                f_offset=0,  # Let FLL auto-track with 250 Hz bandwidth
-                differential=self.differential,
-                manchester=False,
-                options=options,
-            )
+            # Create demodulator based on modulation type
+            mod = self.modulation.lower() if hasattr(self, 'modulation') and self.modulation else 'bpsk'
+            sps = int(self.sample_rate / self.baudrate)  # Samples per symbol
+
+            if mod == 'bpsk':
+                # Use gr-satellites' proven BPSK demodulator (backward compatible)
+                demod = bpsk_demodulator(
+                    baudrate=self.baudrate,
+                    samp_rate=self.sample_rate,
+                    iq=True,
+                    f_offset=0,
+                    differential=self.differential,
+                    manchester=False,
+                    options=options,
+                )
+                use_custom_chain = False
+            else:
+                # Custom GNU Radio chain for QPSK/8PSK/16QAM/etc.
+                use_custom_chain = True
+
+                # Select constellation
+                import numpy as np_gr
+                if mod == 'qpsk':
+                    constellation = digital.constellation_qpsk().base()
+                    costas_order = 4
+                elif mod == '8psk':
+                    constellation = digital.constellation_8psk().base()
+                    costas_order = 8
+                elif mod == 'dqpsk':
+                    constellation = digital.constellation_dqpsk().base()
+                    costas_order = 4
+                elif mod == '16qam':
+                    constellation = digital.constellation_16qam().base()
+                    costas_order = 4
+                elif mod.startswith('psk'):
+                    # Generic PSK: psk16, psk32, psk64
+                    order = int(mod.replace('psk', ''))
+                    pts = [np_gr.exp(1j * 2 * np_gr.pi * i / order) for i in range(order)]
+                    constellation = digital.constellation_psk(pts, list(range(order)), order)
+                    costas_order = min(order, 8)
+                elif mod.startswith('qam') or mod.endswith('qam'):
+                    # Generic QAM: 32qam, 64qam, 128qam, 256qam
+                    order = int(''.join(c for c in mod if c.isdigit()))
+                    k = int(np_gr.sqrt(order))
+                    pts = [complex(2*x - k + 1, 2*y - k + 1) for x in range(k) for y in range(k)]
+                    pts = pts[:order]
+                    # Normalize power
+                    avg_power = np_gr.sqrt(np_gr.mean([abs(p)**2 for p in pts]))
+                    pts = [p / avg_power for p in pts]
+                    constellation = digital.constellation_rect(
+                        pts, list(range(order)), 4,
+                        int(np_gr.sqrt(order)), int(np_gr.sqrt(order)), 1, 1
+                    )
+                    costas_order = 4
+                else:
+                    # Fallback to BPSK
+                    constellation = digital.constellation_bpsk().base()
+                    costas_order = 2
+
+                # Build custom demod chain blocks
+                # FLL — frequency lock loop
+                fll_bw = 2 * np_gr.pi * options.fll_bw / self.sample_rate
+                custom_fll = analog.pll_freqdet_cf(fll_bw, fll_bw * 10, -fll_bw * 10)
+
+                # AGC
+                custom_agc = analog.agc_cc(1e-3, 1.0, 1.0)
+
+                # RRC matched filter
+                nfilts = 32
+                rrc_taps = filter_mod.firdes.root_raised_cosine(
+                    nfilts, nfilts * self.sample_rate / self.baudrate,
+                    1.0, options.rrc_alpha, int(11 * nfilts * sps)
+                )
+
+                # Symbol sync (polyphase clock recovery)
+                custom_clock = digital.symbol_sync_cc(
+                    digital.TED_MUELLER_AND_MULLER,
+                    sps, options.clk_bw, 1.0, options.clk_limit,
+                    1.5, 1, constellation, digital.IR_PFB_MF, nfilts, rrc_taps
+                )
+
+                # Costas loop (carrier phase recovery)
+                costas_bw = 2 * np_gr.pi * options.costas_bw / self.sample_rate
+                custom_costas = digital.costas_loop_cc(costas_bw, costas_order)
+
+                # Constellation decoder (hard decision)
+                custom_decoder = digital.constellation_decoder_cb(constellation)
 
             # Select deframer based on detected framing protocol
             if self.framing == "doka":
-                # DOKA uses CCSDS-style framing with Reed-Solomon FEC
-                # DOKA uses standard CCSDS frame parameters
-                # 223 bytes data + 32 bytes RS parity = 255 byte total frame (standard CCSDS)
                 deframer = ccsds_rs_deframer(
-                    frame_size=223,  # Standard CCSDS Reed-Solomon frame size
+                    frame_size=223,
                     precoding=None,
                     rs_en=True,
                     rs_basis="dual",
@@ -384,17 +457,16 @@ class BPSKFlowgraph(gr.top_block):
                 )
                 frame_info = "CCSDS_RS(sz=223,dual)"
             else:  # ax25 (default)
-                # Standard AX.25 with G3RUH scrambler
                 deframer = ax25_deframer(g3ruh_scrambler=True, options=options)
                 frame_info = "AX25(G3RUH)"
 
             logger.info(
                 f"Batch: {len(samples_to_process)} samp ({time_elapsed:.1f}s, {flow_rate_sps/1e3:.1f}kS/s) | "
-                f"BPSK: {self.baudrate}bd, {self.sample_rate:.0f}sps, diff={self.differential} | "
+                f"{mod.upper()}: {self.baudrate}bd, {self.sample_rate:.0f}sps, diff={self.differential} | "
                 f"Frame: {frame_info} | VFO: {self.batch_vfo_center:.0f}Hz, BW={self.batch_vfo_bandwidth:.0f}Hz"
             )
 
-            # Create message handler for this batch (pass framing and logger)
+            # Create message handler for this batch
             msg_handler = BPSKMessageHandler(
                 self.callback,
                 logger=logging.getLogger("bpskdecoder"),
@@ -402,7 +474,12 @@ class BPSKFlowgraph(gr.top_block):
             )
 
             # Build flowgraph
-            tb.connect(source, demod, deframer)
+            if use_custom_chain:
+                # Custom multi-mode chain: source → AGC → clock sync → Costas → decoder → deframer
+                tb.connect(source, custom_agc, custom_clock, custom_costas, custom_decoder, deframer)
+            else:
+                # Original BPSK chain using gr-satellites
+                tb.connect(source, demod, deframer)
             tb.msg_connect((deframer, "out"), (msg_handler, "in"))
 
             # Run the flowgraph
@@ -534,6 +611,8 @@ class BPSKDecoder(BaseDecoderProcess):
         self.baudrate = config.baudrate
         self.differential = config.differential if config.differential is not None else False
         self.framing = config.framing
+        # Multi-mode: 'bpsk' (default), 'qpsk', '8psk'
+        self.modulation = getattr(config, 'modulation', None) or 'bpsk'
         self.config_source = config.config_source
         self.packet_size = config.packet_size or packet_size
 

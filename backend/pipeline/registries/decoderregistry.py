@@ -26,7 +26,6 @@ from demodulators.gmskdecoder import GMSKDecoder
 from demodulators.loradecoder import LoRaDecoder
 from demodulators.morsedecoder import MorseDecoder
 from demodulators.sstvdecoder import SSTVDecoder
-from demodulators.sspmodem import SSPModemDecoder
 
 
 @dataclass
@@ -150,8 +149,8 @@ class DecoderRegistry:
                 demodulator_mode=None,
                 default_bandwidth=20000,  # 20 kHz typical
                 supports_transmitter_config=True,
-                restart_on_params=["baudrate", "differential", "framing", "framing_params"],
-                description="Binary Phase Shift Keying decoder",
+                restart_on_params=["baudrate", "differential", "framing", "framing_params", "modulation"],
+                description="Multi-mode PSK/QAM decoder (BPSK, QPSK, 8PSK, 16QAM, 64QAM, 256QAM, etc.)",
             ),
             "lora": DecoderCapabilities(
                 name="lora",
@@ -163,17 +162,6 @@ class DecoderRegistry:
                 supports_transmitter_config=False,
                 restart_on_params=["sf", "bw", "cr", "sync_word", "preamble_len", "fldro"],
                 description="LoRa chirp spread spectrum decoder",
-            ),
-            "ssp": DecoderCapabilities(
-                name="ssp",
-                decoder_class=SSPModemDecoder,
-                needs_raw_iq=True,  # Receives raw IQ from broadcaster (audio kept alive via vfo.py exception)
-                required_demodulator=None,  # Doesn't require a specific demodulator
-                demodulator_mode=None,
-                default_bandwidth=3800,  # ~3.8 kHz (QPSK 4800 mode)
-                supports_transmitter_config=False,
-                restart_on_params=["scheme", "baudrate", "fec"],
-                description="BitLink21 SSP protocol modem (BPSK to 256-QAM, FEC, encryption)",
             ),
         }
 

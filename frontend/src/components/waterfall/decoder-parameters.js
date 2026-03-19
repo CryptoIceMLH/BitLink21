@@ -262,7 +262,28 @@ export const GFSK_PARAMETERS = Object.entries(FSK_PARAMETERS).reduce((acc, [key,
  * BPSK (Binary Phase Shift Keying) modulates data by shifting carrier phase.
  * Supports coherent BPSK and non-coherent DBPSK (differential) modes.
  */
+export const MODULATION_OPTIONS = [
+    { value: 'bpsk', label: 'BPSK (1 bit/sym)' },
+    { value: 'qpsk', label: 'QPSK (2 bit/sym)' },
+    { value: '8psk', label: '8PSK (3 bit/sym)' },
+    { value: 'dqpsk', label: 'DQPSK (2 bit/sym, differential)' },
+    { value: '16qam', label: '16-QAM (4 bit/sym)' },
+    { value: 'psk16', label: '16-PSK (4 bit/sym)' },
+    { value: 'psk32', label: '32-PSK (5 bit/sym)' },
+    { value: 'qam32', label: '32-QAM (5 bit/sym)' },
+    { value: 'qam64', label: '64-QAM (6 bit/sym)' },
+    { value: 'qam128', label: '128-QAM (7 bit/sym)' },
+    { value: 'qam256', label: '256-QAM (8 bit/sym)' },
+];
+
 export const BPSK_PARAMETERS = {
+    bpsk_modulation: {
+        label: 'Modulation',
+        description: 'Modulation scheme — select to match the signal you want to decode',
+        type: 'select',
+        default: 'bpsk',
+        options: MODULATION_OPTIONS
+    },
     bpsk_baudrate: {
         label: 'Baud Rate',
         description: 'Symbol rate in symbols/second',
@@ -404,8 +425,7 @@ export const DECODER_SUPPORT = {
     apt: true,
     lora: false,
     morse: false,
-    afsk: false,
-    ssp: true
+    afsk: false
 };
 
 /**
@@ -479,8 +499,7 @@ export const DECODER_PARAMETERS = {
     ...GFSK_PARAMETERS,
     ...BPSK_PARAMETERS,
     ...AFSK_PARAMETERS,
-    ...SSTV_PARAMETERS,
-    ...SSP_PARAMETERS
+    ...SSTV_PARAMETERS
 };
 
 /**
@@ -555,7 +574,8 @@ export function mapParametersToBackend(decoder, parameters) {
         return {
             baudrate: parameters.bpsk_baudrate,
             framing: parameters.bpsk_framing,
-            differential: parameters.bpsk_differential
+            differential: parameters.bpsk_differential,
+            modulation: parameters.bpsk_modulation || 'bpsk',
         };
     }
 
@@ -565,17 +585,6 @@ export function mapParametersToBackend(decoder, parameters) {
             af_carrier: parameters.afsk_af_carrier,
             deviation: parameters.afsk_deviation,
             framing: parameters.afsk_framing
-        };
-    }
-
-    if (decoder === 'ssp') {
-        const speedMode = SSP_SPEED_MODES.find(m => m.id === parameters.ssp_speedmode) || SSP_SPEED_MODES[5];
-        return {
-            scheme: speedMode.scheme,
-            baudrate: speedMode.baudrate,
-            bandwidth: speedMode.bandwidth,
-            fec: parameters.ssp_fec,
-            encryption: parameters.ssp_encryption
         };
     }
 

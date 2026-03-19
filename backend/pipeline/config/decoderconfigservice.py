@@ -355,13 +355,9 @@ class DecoderConfigService:
         if "fldro" in overrides:
             config.fldro = overrides["fldro"]
 
-        # SSP modem overrides
-        if "scheme" in overrides:
-            config.scheme = overrides["scheme"]
-        if "fec" in overrides:
-            config.fec = overrides["fec"]
-        if "encryption" in overrides:
-            config.encryption = overrides["encryption"]
+        # Modulation override (BPSK/QPSK/8PSK/16QAM/etc.)
+        if "modulation" in overrides:
+            config.modulation = overrides["modulation"]
 
         # Framing-specific overrides
         if "framing_params" in overrides and isinstance(overrides["framing_params"], dict):

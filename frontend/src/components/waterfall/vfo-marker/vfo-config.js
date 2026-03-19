@@ -324,25 +324,6 @@ export const DECODERS = {
         bandwidthLabel: (bw) => `±${(bw / 2000).toFixed(1)}kHz`,
         lockedBandwidth: false, // allows user adjustment (FM carrier bandwidth)
     },
-    ssp: {
-        internalName: 'ssp',
-        displayName: 'SSP Modem',
-        description: 'BitLink21 SSP protocol modem — configurable modulation (BPSK to 256-QAM), FEC, encryption',
-        hasStatusDisplay: true,
-        hasProgressDisplay: false,
-        hasTextOutput: true,
-        hasModeDisplay: true,
-        textDisplayLength: 30,
-        textBufferLength: 500,
-        textPlaceholder: 'waiting for SSP frames',
-        defaultBandwidth: 20000,
-        bandwidthType: 'double-sided',
-        showBothEdges: true,
-        allowLeftEdgeDrag: false,
-        allowRightEdgeDrag: false,
-        bandwidthLabel: (bw) => `±${(bw / 2000).toFixed(1)}kHz`,
-        lockedBandwidth: false,
-    },
 };
 
 /**

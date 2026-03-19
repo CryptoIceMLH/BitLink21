@@ -46,13 +46,9 @@ class DecoderConfig:
     # AFSK-specific parameters
     af_carrier: Optional[int] = None  # Audio frequency carrier in Hz (1700 for APRS)
 
-    # BPSK-specific parameters
+    # BPSK/PSK/QAM parameters
     differential: Optional[bool] = None  # DBPSK mode
-
-    # SSP modem parameters (BitLink21)
-    scheme: Optional[str] = None  # Modulation scheme name (QPSK, 8-PSK, 16-QAM, etc.)
-    fec: Optional[bool] = None  # FEC RS(255,223) enabled
-    encryption: Optional[bool] = None  # NIP-04 decryption enabled
+    modulation: Optional[str] = None  # 'bpsk', 'qpsk', '8psk', 'dqpsk', '16qam', 'psk16', 'qam64', etc.
 
     # LoRa-specific parameters
     sf: Optional[int] = None  # Spreading factor (7-12)

@@ -203,8 +203,7 @@ async def update_vfo_parameters(
         if "active" in data or "mode" in data:
             # Check if decoder needs raw IQ using decoder registry
             # If switching to a raw IQ decoder, stop any existing audio demodulator
-            # EXCEPTION: SSP Modem keeps audio alive (user listens + decodes simultaneously)
-            if decoder_registry.is_raw_iq_decoder(vfo_state.decoder) and vfo_state.decoder != 'ssp':
+            if decoder_registry.is_raw_iq_decoder(vfo_state.decoder):
                 # Get SDR ID from SessionTracker
                 sdr_id = session_tracker.get_session_sdr(sid)
                 if sdr_id:
