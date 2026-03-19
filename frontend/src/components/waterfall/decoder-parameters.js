@@ -435,35 +435,28 @@ export const SATDUMP_PIPELINES = {
 /**
  * Combined parameter definitions for all decoders
  */
+// QO-100 NB speed modes (from SSB_HighSpeed_Modem reference)
+// These are matched TX/RX modes that fit within a single SSB channel
+export const SSP_SPEED_MODES = [
+    { id: 0,  scheme: 'BPSK', baudrate: 1200, bandwidth: 1500,  dataRate: 800,   label: 'BPSK 1200 (~1.5 kHz)' },
+    { id: 1,  scheme: 'BPSK', baudrate: 2400, bandwidth: 3000,  dataRate: 2000,  label: 'BPSK 2400 (~3 kHz)' },
+    { id: 2,  scheme: 'QPSK', baudrate: 3000, bandwidth: 2400,  dataRate: 2400,  label: 'QPSK 3000 (~2.4 kHz)' },
+    { id: 3,  scheme: 'QPSK', baudrate: 4000, bandwidth: 3200,  dataRate: 3200,  label: 'QPSK 4000 (~3.2 kHz)' },
+    { id: 4,  scheme: 'QPSK', baudrate: 4410, bandwidth: 3500,  dataRate: 3600,  label: 'QPSK 4410 (~3.5 kHz)' },
+    { id: 5,  scheme: 'QPSK', baudrate: 4800, bandwidth: 3800,  dataRate: 4000,  label: 'QPSK 4800 (~3.8 kHz)' },
+    { id: 6,  scheme: '8PSK', baudrate: 5500, bandwidth: 3700,  dataRate: 4400,  label: '8PSK 5500 (~3.7 kHz)' },
+    { id: 7,  scheme: '8PSK', baudrate: 6000, bandwidth: 4000,  dataRate: 4800,  label: '8PSK 6000 (~4 kHz)' },
+    { id: 8,  scheme: '8PSK', baudrate: 6600, bandwidth: 4400,  dataRate: 5200,  label: '8PSK 6600 (~4.4 kHz)' },
+    { id: 9,  scheme: '8PSK', baudrate: 7200, bandwidth: 4800,  dataRate: 6000,  label: '8PSK 7200 (~4.8 kHz)' },
+];
+
 export const SSP_PARAMETERS = {
-    ssp_scheme: {
-        label: 'Modulation Scheme',
-        description: 'PSK/QAM modulation for SSP protocol',
+    ssp_speedmode: {
+        label: 'Speed Mode',
+        description: 'QO-100 NB modem speed — sets modulation, baudrate, and bandwidth together',
         type: 'select',
-        default: 'QPSK',
-        options: [
-            { value: 'BPSK', label: 'BPSK (1 bps)' },
-            { value: 'QPSK', label: 'QPSK (2 bps)' },
-            { value: '8-PSK', label: '8-PSK (3 bps)' },
-            { value: '16-QAM', label: '16-QAM (4 bps)' },
-            { value: '32-QAM', label: '32-QAM (5 bps)' },
-            { value: '64-QAM', label: '64-QAM (6 bps)' },
-            { value: '128-QAM', label: '128-QAM (7 bps)' },
-            { value: '256-QAM', label: '256-QAM (8 bps)' },
-            { value: 'DBPSK', label: 'DBPSK (1 bps)' },
-            { value: 'DQPSK', label: 'DQPSK (2 bps)' },
-            { value: 'OOK', label: 'OOK (1 bps)' },
-            { value: 'GMSK', label: 'GMSK (1 bps)' },
-            { value: '2-FSK', label: '2-FSK (1 bps)' },
-            { value: '4-FSK', label: '4-FSK (2 bps)' },
-        ]
-    },
-    ssp_baudrate: {
-        label: 'Symbol Rate',
-        description: 'Symbols per second',
-        type: 'select',
-        default: 9600,
-        options: [300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200]
+        default: 5,
+        options: SSP_SPEED_MODES.map(m => ({ value: m.id, label: `${m.label} — ${m.dataRate} bps` }))
     },
     ssp_fec: {
         label: 'FEC (RS 255,223)',
@@ -576,9 +569,11 @@ export function mapParametersToBackend(decoder, parameters) {
     }
 
     if (decoder === 'ssp') {
+        const speedMode = SSP_SPEED_MODES.find(m => m.id === parameters.ssp_speedmode) || SSP_SPEED_MODES[5];
         return {
-            scheme: parameters.ssp_scheme,
-            baudrate: parameters.ssp_baudrate,
+            scheme: speedMode.scheme,
+            baudrate: speedMode.baudrate,
+            bandwidth: speedMode.bandwidth,
             fec: parameters.ssp_fec,
             encryption: parameters.ssp_encryption
         };

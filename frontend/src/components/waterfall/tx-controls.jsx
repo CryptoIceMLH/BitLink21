@@ -64,22 +64,26 @@ const TxControlsAccordion = ({ expanded, onAccordionChange }) => {
     const { centerFrequency, sampleRate } = useSelector(state => state.waterfall);
     const pendingCount = outbox?.pending_count || 0;
 
-    const [modemScheme, setModemScheme] = useState('QPSK');
+    const [speedModeId, setSpeedModeId] = useState(5); // Default: QPSK 4800
     const [fecEnabled, setFecEnabled] = useState(true);
-    const [schemes, setSchemes] = useState([]);
 
-    useEffect(() => {
-        if (!socket) return;
-        socket.emit('data_request', 'bitlink21:get_modem_schemes', null, (res) => {
-            if (res.success && res.data) setSchemes(res.data);
-        });
-    }, [socket]);
+    // Import QO-100 NB speed modes
+    const SSP_SPEED_MODES = [
+        { id: 0,  scheme: 'BPSK', baudrate: 1200, bandwidth: 1500,  dataRate: 800,   label: 'BPSK 1200 (~1.5 kHz)' },
+        { id: 1,  scheme: 'BPSK', baudrate: 2400, bandwidth: 3000,  dataRate: 2000,  label: 'BPSK 2400 (~3 kHz)' },
+        { id: 2,  scheme: 'QPSK', baudrate: 3000, bandwidth: 2400,  dataRate: 2400,  label: 'QPSK 3000 (~2.4 kHz)' },
+        { id: 3,  scheme: 'QPSK', baudrate: 4000, bandwidth: 3200,  dataRate: 3200,  label: 'QPSK 4000 (~3.2 kHz)' },
+        { id: 4,  scheme: 'QPSK', baudrate: 4410, bandwidth: 3500,  dataRate: 3600,  label: 'QPSK 4410 (~3.5 kHz)' },
+        { id: 5,  scheme: 'QPSK', baudrate: 4800, bandwidth: 3800,  dataRate: 4000,  label: 'QPSK 4800 (~3.8 kHz)' },
+        { id: 6,  scheme: '8PSK', baudrate: 5500, bandwidth: 3700,  dataRate: 4400,  label: '8PSK 5500 (~3.7 kHz)' },
+        { id: 7,  scheme: '8PSK', baudrate: 6000, bandwidth: 4000,  dataRate: 4800,  label: '8PSK 6000 (~4 kHz)' },
+        { id: 8,  scheme: '8PSK', baudrate: 6600, bandwidth: 4400,  dataRate: 5200,  label: '8PSK 6600 (~4.4 kHz)' },
+        { id: 9,  scheme: '8PSK', baudrate: 7200, bandwidth: 4800,  dataRate: 6000,  label: '8PSK 7200 (~4.8 kHz)' },
+    ];
 
-    const selectedScheme = schemes.find(s => s.name === modemScheme);
-    const bitsPerSymbol = selectedScheme?.bits_per_symbol || 2;
-    const symbolRate = (sampleRate || 2048000) / 4; // 4 samples per symbol
-    const fecRate = fecEnabled ? 0.875 : 1.0; // RS(255,223) rate
-    const throughput = bitsPerSymbol * symbolRate * fecRate;
+    const selectedMode = SSP_SPEED_MODES.find(m => m.id === speedModeId) || SSP_SPEED_MODES[5];
+    const fecRate = fecEnabled ? 0.875 : 1.0;
+    const throughput = selectedMode.dataRate * fecRate;
 
     const handlePttToggle = () => {
         const newState = !pttActive;
@@ -87,7 +91,9 @@ const TxControlsAccordion = ({ expanded, onAccordionChange }) => {
         if (socket) {
             const cmd = newState ? 'bitlink21:ptt_on' : 'bitlink21:ptt_off';
             socket.emit('data_submission', cmd, {
-                scheme: modemScheme,
+                scheme: selectedMode.scheme,
+                baudrate: selectedMode.baudrate,
+                bandwidth: selectedMode.bandwidth,
                 use_fec: fecEnabled,
                 sample_rate: sampleRate,
             }, (res) => {
@@ -213,23 +219,35 @@ const TxControlsAccordion = ({ expanded, onAccordionChange }) => {
 
                     <Divider />
 
-                    {/* Modem Scheme */}
+                    {/* Speed Mode — QO-100 NB matched TX/RX modes */}
                     <FormControl size="small" fullWidth>
-                        <InputLabel>Modulation</InputLabel>
+                        <InputLabel>Speed Mode</InputLabel>
                         <Select
-                            value={modemScheme}
-                            label="Modulation"
-                            onChange={e => setModemScheme(e.target.value)}
+                            value={speedModeId}
+                            label="Speed Mode"
+                            onChange={e => setSpeedModeId(e.target.value)}
                         >
-                            {schemes.length > 0 ? schemes.map(s => (
-                                <MenuItem key={s.id} value={s.name}>
-                                    {s.name} ({s.bits_per_symbol} bps)
+                            {SSP_SPEED_MODES.map(m => (
+                                <MenuItem key={m.id} value={m.id}>
+                                    {m.label} — {m.dataRate} bps
                                 </MenuItem>
-                            )) : (
-                                <MenuItem value="QPSK">QPSK (2 bps)</MenuItem>
-                            )}
+                            ))}
                         </Select>
                     </FormControl>
+
+                    {/* Mode details */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="caption" color="text.secondary">Modulation</Typography>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                            {selectedMode.scheme} @ {selectedMode.baudrate} baud
+                        </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="caption" color="text.secondary">Bandwidth</Typography>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                            ~{(selectedMode.bandwidth / 1000).toFixed(1)} kHz
+                        </Typography>
+                    </Box>
 
                     {/* FEC Toggle */}
                     <FormControlLabel
@@ -237,14 +255,12 @@ const TxControlsAccordion = ({ expanded, onAccordionChange }) => {
                         label={<Typography variant="caption">FEC RS(255,223) {fecEnabled ? 'ON' : 'OFF'}</Typography>}
                     />
 
-                    {/* Throughput Calculator */}
+                    {/* Throughput */}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="caption" color="text.secondary">Throughput</Typography>
+                        <Typography variant="caption" color="text.secondary">Data Rate</Typography>
                         <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
-                            {throughput >= 1e6
-                                ? `${(throughput / 1e6).toFixed(2)} Mbps`
-                                : throughput >= 1e3
-                                ? `${(throughput / 1e3).toFixed(1)} kbps`
+                            {throughput >= 1000
+                                ? `${(throughput / 1000).toFixed(1)} kbps`
                                 : `${throughput.toFixed(0)} bps`}
                         </Typography>
                     </Box>
