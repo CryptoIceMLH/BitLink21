@@ -24,8 +24,8 @@ from demodulators.basedecoderprocess import BaseDecoderProcess
 
 logger = logging.getLogger("ssp-modem")
 
-# Default batch processing interval
-BATCH_INTERVAL_SECONDS = 5
+# Default batch processing interval — 0.5s for near real-time constellation
+BATCH_INTERVAL_SECONDS = 0.5
 
 
 class SSPFlowgraph:
