@@ -293,12 +293,12 @@ export const DECODERS = {
         hasTextOutput: false,
         hasModeDisplay: false,
         defaultBandwidth: 30000, // 30 kHz default (suitable for 9600 baud + Doppler)
-        bandwidthType: 'double-sided', // bandwidth is divided equally on both sides of center
-        showBothEdges: true, // show both edges
-        allowLeftEdgeDrag: false, // edges not draggable (bandwidth locked)
-        allowRightEdgeDrag: false, // edges not draggable (bandwidth locked)
-        bandwidthLabel: (bw) => `±${(bw / 2000).toFixed(1)}kHz`, // show as ±15kHz
-        lockedBandwidth: true, // bandwidth is determined by baud rate, not user-adjustable
+        bandwidthType: 'double-sided',
+        showBothEdges: true,
+        allowLeftEdgeDrag: true,
+        allowRightEdgeDrag: true,
+        bandwidthLabel: (bw) => `±${(bw / 2000).toFixed(1)}kHz`,
+        lockedBandwidth: false, // user can override bandwidth
         calculateBandwidth: (transmitter) => {
             // Calculate optimal bandwidth based on transmitter baud rate
             // Formula: 3x baud rate (for BPSK spectral width + Doppler margin)
@@ -481,13 +481,14 @@ export const canDragRightEdge = (mode, decoder = 'none') => {
  * @returns {boolean} True if bandwidth is locked (not user-adjustable)
  */
 export const isLockedBandwidth = (mode, decoder) => {
-    // Check decoder config first (decoder can override lock state)
+    // If a decoder is active and explicitly sets lockedBandwidth, use that
     const decoderConfig = getDecoderConfig(decoder);
-    if (decoderConfig && decoderConfig.lockedBandwidth === true) {
-        return true;
+    if (decoderConfig && decoder !== 'none') {
+        // Decoder takes priority over demodulator for bandwidth lock
+        return decoderConfig.lockedBandwidth === true;
     }
 
-    // Check demodulator config
+    // No active decoder — check demodulator config
     const demodConfig = getDemodulatorConfig(mode);
     if (demodConfig && demodConfig.lockedBandwidth === true) {
         return true;
