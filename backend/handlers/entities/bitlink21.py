@@ -241,49 +241,78 @@ async def get_stats(
 async def beacon_start(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
-    """Start beacon AFC loop."""
+    """Start beacon tracking in PlutoSDR worker process."""
     try:
-        if data:
-            beacon_afc.configure(data)
-        beacon_afc.set_sio(sio)
-        await beacon_afc.start()
-        return {"success": True, "data": beacon_afc.get_status()}
+        # Send beacon config to PlutoSDR worker via config_queue
+        # process_manager already imported at top level
+        running = process_manager.get_running_sdrs()
+        if not running:
+            return {"success": False, "error": "No SDR running"}
+
+        sdr_id = running[0]["sdr_id"]
+        config_queue = process_manager.processes.get(sdr_id, {}).get("config_queue")
+        if not config_queue:
+            return {"success": False, "error": "SDR config queue not available"}
+
+        config_queue.put({
+            "beacon_start": True,
+            "beacon_freq": (data or {}).get("beacon_freq_hz", 0),
+            "marker_low": (data or {}).get("marker_low_hz", 0),
+            "marker_high": (data or {}).get("marker_high_hz", 0),
+        })
+        logger.info(f"Beacon start command sent to PlutoSDR worker")
+        return {"success": True, "data": {"lock_state": "TRACKING"}}
     except Exception as e:
-        logger.error(f"Failed to start beacon AFC: {e}", exc_info=True)
+        logger.error(f"Failed to start beacon: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
 
 async def beacon_stop(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
-    """Stop beacon AFC loop."""
+    """Stop beacon tracking in PlutoSDR worker process."""
     try:
-        await beacon_afc.stop()
-        return {"success": True, "data": beacon_afc.get_status()}
+        running = process_manager.get_running_sdrs()
+        if running:
+            sdr_id = running[0]["sdr_id"]
+            config_queue = process_manager.processes.get(sdr_id, {}).get("config_queue")
+            if config_queue:
+                config_queue.put({"beacon_stop": True})
+        return {"success": True, "data": {"lock_state": "UNLOCKED"}}
     except Exception as e:
-        logger.error(f"Failed to stop beacon AFC: {e}", exc_info=True)
+        logger.error(f"Failed to stop beacon: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
 
 async def beacon_config(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
-    """Configure beacon AFC parameters."""
+    """Update beacon tracking config in PlutoSDR worker."""
     if not data:
         return {"success": False, "error": "No data provided"}
     try:
-        beacon_afc.configure(data)
-        return {"success": True, "data": beacon_afc.get_status()}
+        running = process_manager.get_running_sdrs()
+        if running:
+            sdr_id = running[0]["sdr_id"]
+            config_queue = process_manager.processes.get(sdr_id, {}).get("config_queue")
+            if config_queue:
+                config_queue.put({
+                    "beacon_config": True,
+                    "marker_low": data.get("marker_low_hz"),
+                    "marker_high": data.get("marker_high_hz"),
+                    "beacon_freq": data.get("beacon_freq_hz"),
+                })
+        return {"success": True}
     except Exception as e:
-        logger.error(f"Failed to configure beacon AFC: {e}", exc_info=True)
+        logger.error(f"Failed to configure beacon: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
 
 async def get_beacon_status(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
-    """Get current beacon AFC status."""
-    return {"success": True, "data": beacon_afc.get_status()}
+    """Get current beacon status."""
+    return {"success": True, "data": {"lock_state": "UNLOCKED", "offset_hz": 0}}
 
 
 async def get_modem_schemes(

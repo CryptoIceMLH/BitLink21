@@ -266,6 +266,21 @@ def plutosdr_worker_process(
         cpu_check_interval = 0.5
 
         # ----------------------------------------------------------------
+        # Beacon tracking state (runs inside worker — no browser needed)
+        # ----------------------------------------------------------------
+        beacon_active = False
+        beacon_freq = 0.0  # Expected beacon frequency (IF)
+        beacon_marker_low = 0.0  # Search range low (IF)
+        beacon_marker_high = 0.0  # Search range high (IF)
+        beacon_xo_correction = 0
+        beacon_loop_gain = 0.5
+        beacon_lock_state = "UNLOCKED"
+        beacon_offset_hz = 0.0
+        beacon_lock_count = 0
+        beacon_last_update = 0.0
+        beacon_update_interval = 1.0  # Seconds between beacon checks
+
+        # ----------------------------------------------------------------
         # Main processing loop
         # ----------------------------------------------------------------
         while not stop_event.is_set():
@@ -419,6 +434,38 @@ def plutosdr_worker_process(
                             except Exception as e:
                                 logger.warning(f"Failed to set XO correction: {e}")
 
+                    # BitLink21 beacon lock commands
+                    if "beacon_start" in new_config:
+                        beacon_active = True
+                        beacon_freq = new_config.get("beacon_freq", center_freq)
+                        beacon_marker_low = new_config.get("marker_low", beacon_freq - 2500)
+                        beacon_marker_high = new_config.get("marker_high", beacon_freq + 2500)
+                        beacon_xo_correction = 0
+                        beacon_lock_count = 0
+                        beacon_lock_state = "TRACKING"
+                        logger.info(
+                            f"Beacon tracking started: freq={beacon_freq/1e6:.3f} MHz, "
+                            f"range=[{beacon_marker_low/1e6:.6f}, {beacon_marker_high/1e6:.6f}] MHz"
+                        )
+
+                    if "beacon_stop" in new_config:
+                        beacon_active = False
+                        beacon_lock_state = "UNLOCKED"
+                        beacon_offset_hz = 0.0
+                        logger.info("Beacon tracking stopped")
+                        data_queue.put({
+                            "type": "beacon_status",
+                            "lock_state": "UNLOCKED",
+                            "offset_hz": 0.0,
+                            "xo_correction": beacon_xo_correction,
+                        })
+
+                    if "beacon_config" in new_config:
+                        beacon_marker_low = new_config.get("marker_low", beacon_marker_low)
+                        beacon_marker_high = new_config.get("marker_high", beacon_marker_high)
+                        if "beacon_freq" in new_config:
+                            beacon_freq = new_config["beacon_freq"]
+
                     # BitLink21 test tone command
                     if "test_tone_start" in new_config:
                         try:
@@ -546,6 +593,66 @@ def plutosdr_worker_process(
                 )
                 # Brief pause before retrying to avoid tight error loops
                 time.sleep(0.1)
+
+            # --------------------------------------------------------
+            # --------------------------------------------------------
+            # Beacon tracking (runs inside worker — no browser needed)
+            # --------------------------------------------------------
+            if beacon_active and samples is not None and len(samples) > 0:
+                if current_time - beacon_last_update >= beacon_update_interval:
+                    beacon_last_update = current_time
+                    try:
+                        # Compute FFT on current IQ buffer
+                        fft_size_beacon = min(len(samples), 4096)
+                        fft_data = np.abs(np.fft.fftshift(np.fft.fft(samples[:fft_size_beacon])))
+                        fft_db = 20 * np.log10(fft_data + 1e-10)
+
+                        # Convert marker frequencies to FFT bin indices
+                        freq_resolution = sample_rate / fft_size_beacon
+                        bin_low = int((beacon_marker_low - (center_freq - sample_rate / 2)) / freq_resolution)
+                        bin_high = int((beacon_marker_high - (center_freq - sample_rate / 2)) / freq_resolution)
+                        bin_low = max(0, min(fft_size_beacon - 1, bin_low))
+                        bin_high = max(bin_low + 1, min(fft_size_beacon, bin_high))
+
+                        # Find peak in marker range
+                        search_range = fft_db[bin_low:bin_high]
+                        if len(search_range) > 0:
+                            peak_local_idx = np.argmax(search_range)
+                            peak_bin = bin_low + peak_local_idx
+                            peak_freq = (center_freq - sample_rate / 2) + peak_bin * freq_resolution
+
+                            # Offset from expected beacon position
+                            beacon_offset_hz = peak_freq - beacon_freq
+
+                            # Apply XO correction (PLL-style loop filter)
+                            beacon_xo_correction -= int(beacon_loop_gain * beacon_offset_hz)
+                            try:
+                                sdr._ctrl.attrs["xo_correction"].value = str(beacon_xo_correction)
+                            except Exception as e:
+                                logger.debug(f"Beacon XO write failed: {e}")
+
+                            # Update lock state
+                            if abs(beacon_offset_hz) < 50:
+                                beacon_lock_count = min(beacon_lock_count + 1, 10)
+                                if beacon_lock_count >= 5:
+                                    beacon_lock_state = "LOCKED"
+                            elif abs(beacon_offset_hz) < 500:
+                                beacon_lock_state = "TRACKING"
+                                beacon_lock_count = max(0, beacon_lock_count - 1)
+                            else:
+                                beacon_lock_state = "TRACKING"
+                                beacon_lock_count = 0
+
+                            # Send status to main process
+                            data_queue.put({
+                                "type": "beacon_status",
+                                "lock_state": beacon_lock_state,
+                                "offset_hz": round(beacon_offset_hz, 1),
+                                "xo_correction": beacon_xo_correction,
+                            })
+
+                    except Exception as e:
+                        logger.debug(f"Beacon tracking error: {e}")
 
             # --------------------------------------------------------
             # TX: Transmit queued IQ frames (non-blocking check)

@@ -918,28 +918,6 @@ class ProcessLifecycleManager:
                         client_id = data.get(DictKeys.CLIENT_ID)
 
                         if data_type == QueueMessageTypes.FFT_DATA:
-                            # Feed FFT data to beacon AFC for peak detection
-                            try:
-                                from bitlink21.beacon_afc import beacon_afc
-                                import numpy as np
-                                fft_raw = data[DictKeys.DATA]
-                                if isinstance(fft_raw, (bytes, bytearray)):
-                                    fft_array = np.frombuffer(fft_raw, dtype=np.float32)
-                                elif isinstance(fft_raw, np.ndarray):
-                                    fft_array = fft_raw
-                                else:
-                                    fft_array = None
-                                if fft_array is not None and len(fft_array) > 0:
-                                    sdr_config = process_info.get("sdr_config", {})
-                                    beacon_afc.update_fft(
-                                        fft_array,
-                                        sdr_config.get("center_freq", 0),
-                                        sdr_config.get("sample_rate", 1e6),
-                                        len(fft_array),
-                                    )
-                            except Exception:
-                                pass  # Don't break FFT pipeline if beacon fails
-
                             # Send FFT data to all clients connected to this SDR
                             # Include playback timing info if present (for playback mode)
                             fft_payload = {
@@ -971,6 +949,14 @@ class ProcessLifecycleManager:
                             else:
                                 # FFT processor stats
                                 process_info["fft_stats"] = data.get("stats", {})
+
+                        elif data_type == "beacon_status":
+                            # Forward beacon tracking status to all clients via Socket.IO
+                            await self.sio.emit("bitlink21:beacon_status", {
+                                "lock_state": data.get("lock_state", "UNLOCKED"),
+                                "offset_hz": data.get("offset_hz", 0),
+                                "xo_correction": data.get("xo_correction", 0),
+                            }, room=sdr_id)
 
                         elif data_type == QueueMessageTypes.STREAMING_START:
                             # Send streaming status to all clients connected to this SDR
