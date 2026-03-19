@@ -615,9 +615,9 @@ const VFOMarkersContainer = ({
                 ctx.stroke();
             }
 
-            // Shaded region between markers
+            // Shaded region between markers (very transparent so signals visible behind)
             if (lowX < actualWidth && highX > 0) {
-                ctx.fillStyle = beaconColor.replace(')', ', 0.08)').replace('rgb', 'rgba');
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
                 ctx.fillRect(Math.max(0, lowX), 0, Math.min(actualWidth, highX) - Math.max(0, lowX), height);
             }
 

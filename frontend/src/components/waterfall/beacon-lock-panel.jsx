@@ -26,7 +26,7 @@ const lockStateIcons = {
 const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
     const {socket} = useSocket();
     const dispatch = useDispatch();
-    const { beaconMarkers, centerFrequency, sampleRate } = useSelector(state => state.waterfall);
+    const { beaconMarkers, centerFrequency, sampleRate, selectedSDRId } = useSelector(state => state.waterfall);
     const { beaconLockState, beaconOffset, beaconPhaseError } = useSelector(state => state.bitlink21);
 
     const [xoCorrection, setXoCorrection] = useState(0);
@@ -35,12 +35,26 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
     const isRunning = beaconMarkers?.active || false;
     const lockState = beaconLockState || 'UNLOCKED';
 
-    // When markers are activated, set them around the current center frequency
+    // Get converter for RF→IF conversion (markers render in IF space on waterfall)
+    const { converterDefinitions, activeConverterId } = useSelector(state => state.waterfall);
+    const activeConverter = converterDefinitions?.find(c => c.id === activeConverterId);
+    const rfToIF = (freq) => {
+        if (!activeConverter || activeConverter.type === 'none') return freq;
+        if (activeConverter.type === 'down') return freq - activeConverter.rxOffset;
+        if (activeConverter.type === 'up') return freq + activeConverter.rxOffset;
+        return freq;
+    };
+
+    // IF center frequency (what the waterfall actually shows)
+    const ifCenterFreq = rfToIF(centerFrequency);
+
+    // When markers are activated, set them around the IF center frequency
     const handleStartLock = () => {
         if (!socket) return;
 
-        const lowFreq = centerFrequency - markerSpread;
-        const highFreq = centerFrequency + markerSpread;
+        // Markers in IF space (for waterfall rendering)
+        const lowFreq = ifCenterFreq - markerSpread;
+        const highFreq = ifCenterFreq + markerSpread;
 
         dispatch(setBeaconMarkers({
             active: true,
@@ -49,10 +63,11 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
             lockState: 'TRACKING',
         }));
 
+        // Send RF frequency to backend for AFC
         socket.emit('data_submission', 'bitlink21:beacon_start', {
             beacon_freq_hz: centerFrequency,
-            marker_low_hz: lowFreq,
-            marker_high_hz: highFreq,
+            marker_low_hz: centerFrequency - markerSpread,
+            marker_high_hz: centerFrequency + markerSpread,
         });
     };
 
@@ -65,21 +80,24 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
     const handleMarkerSpreadChange = (_, value) => {
         setMarkerSpread(value);
         if (isRunning && socket) {
-            const lowFreq = centerFrequency - value;
-            const highFreq = centerFrequency + value;
+            const lowFreq = ifCenterFreq - value;
+            const highFreq = ifCenterFreq + value;
             dispatch(setBeaconMarkers({ lowFreq, highFreq }));
             socket.emit('data_submission', 'bitlink21:beacon_config', {
-                marker_low_hz: lowFreq,
-                marker_high_hz: highFreq,
+                marker_low_hz: centerFrequency - value,
+                marker_high_hz: centerFrequency + value,
             });
         }
     };
 
     const handleManualXO = () => {
         if (!socket) return;
-        socket.emit('sdr_data', 'configure-sdr', {
-            xo_correction: parseInt(xoCorrection),
-        });
+        if (selectedSDRId && selectedSDRId !== 'none') {
+            socket.emit('sdr_data', 'configure-sdr', {
+                selectedSDRId,
+                xo_correction: parseInt(xoCorrection),
+            });
+        }
     };
 
     // Update lock state from backend
