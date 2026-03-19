@@ -283,7 +283,11 @@ export const DataDecoderSelector = ({
                     onTranscriptionToggle && onTranscriptionToggle(vfoIndex, false);
                 }
 
-                const updates = { decoder: newValue, mode: 'none' };
+                // SSP Modem keeps the current audio demodulator active (listen + decode)
+                // Other decoders handle their own demod, so mode goes to 'none'
+                const updates = newValue === 'ssp'
+                    ? { decoder: newValue }
+                    : { decoder: newValue, mode: 'none' };
 
                 // Set bandwidth based on decoder type
                 if (newValue === 'sstv') updates.bandwidth = 3300;
@@ -291,6 +295,11 @@ export const DataDecoderSelector = ({
                 else if (newValue === 'lora') updates.bandwidth = 500000;
                 else if (newValue === 'morse') updates.bandwidth = 2500;
                 else if (newValue === 'afsk') updates.bandwidth = 3300;
+                else if (newValue === 'ssp') {
+                    // SSP Modem — don't override bandwidth, let user control it
+                    // Default to current bandwidth or 3800 Hz (QPSK 4800 mode)
+                    if (!updates.bandwidth) updates.bandwidth = 3800;
+                }
                 else if (['gmsk', 'gfsk', 'bpsk'].includes(newValue)) {
                     const lockedTransmitter = vfo?.lockedTransmitterId
                         ? transmitters.find(tx => tx.id === vfo.lockedTransmitterId)
