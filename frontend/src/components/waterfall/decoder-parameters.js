@@ -263,30 +263,67 @@ export const GFSK_PARAMETERS = Object.entries(FSK_PARAMETERS).reduce((acc, [key,
  * Supports coherent BPSK and non-coherent DBPSK (differential) modes.
  */
 export const MODULATION_OPTIONS = [
-    // PSK family
+    // PSK (8)
     { value: 'bpsk', label: 'BPSK (1 bit/sym)' },
     { value: 'qpsk', label: 'QPSK (2 bit/sym)' },
-    { value: '8psk', label: '8PSK (3 bit/sym)' },
+    { value: '8psk', label: '8-PSK (3 bit/sym)' },
     { value: 'psk16', label: '16-PSK (4 bit/sym)' },
     { value: 'psk32', label: '32-PSK (5 bit/sym)' },
     { value: 'psk64', label: '64-PSK (6 bit/sym)' },
-    // DPSK family (differential)
-    { value: 'dqpsk', label: 'DQPSK (2 bit/sym)' },
+    { value: 'psk128', label: '128-PSK (7 bit/sym)' },
+    { value: 'psk256', label: '256-PSK (8 bit/sym)' },
+    // DPSK — differential (8)
     { value: 'dbpsk', label: 'DBPSK (1 bit/sym)' },
-    // APSK family (amplitude + phase — used by QO-100 HS Modem)
-    { value: '8apsk', label: '8-APSK (3 bit/sym)' },
-    { value: '16apsk', label: '16-APSK (4 bit/sym)' },
-    { value: '32apsk', label: '32-APSK (5 bit/sym)' },
-    // QAM family
+    { value: 'dqpsk', label: 'DQPSK (2 bit/sym)' },
+    { value: 'd8psk', label: 'D8PSK (3 bit/sym)' },
+    { value: 'd16psk', label: 'D16PSK (4 bit/sym)' },
+    { value: 'd32psk', label: 'D32PSK (5 bit/sym)' },
+    { value: 'd64psk', label: 'D64PSK (6 bit/sym)' },
+    { value: 'd128psk', label: 'D128PSK (7 bit/sym)' },
+    { value: 'd256psk', label: 'D256PSK (8 bit/sym)' },
+    // ASK (8)
+    { value: 'ask2', label: 'ASK2 / OOK (1 bit/sym)' },
+    { value: 'ask4', label: '4-ASK (2 bit/sym)' },
+    { value: 'ask8', label: '8-ASK (3 bit/sym)' },
+    { value: 'ask16', label: '16-ASK (4 bit/sym)' },
+    { value: 'ask32', label: '32-ASK (5 bit/sym)' },
+    { value: 'ask64', label: '64-ASK (6 bit/sym)' },
+    { value: 'ask128', label: '128-ASK (7 bit/sym)' },
+    { value: 'ask256', label: '256-ASK (8 bit/sym)' },
+    // QAM (5)
     { value: '16qam', label: '16-QAM (4 bit/sym)' },
     { value: 'qam32', label: '32-QAM (5 bit/sym)' },
     { value: 'qam64', label: '64-QAM (6 bit/sym)' },
     { value: 'qam128', label: '128-QAM (7 bit/sym)' },
     { value: 'qam256', label: '256-QAM (8 bit/sym)' },
-    // OOK / ASK
+    // APSK — amplitude + phase (7)
+    { value: 'apsk4', label: '4-APSK (2 bit/sym)' },
+    { value: '8apsk', label: '8-APSK (3 bit/sym)' },
+    { value: '16apsk', label: '16-APSK (4 bit/sym)' },
+    { value: '32apsk', label: '32-APSK (5 bit/sym)' },
+    { value: '64apsk', label: '64-APSK (6 bit/sym)' },
+    { value: '128apsk', label: '128-APSK (7 bit/sym)' },
+    { value: '256apsk', label: '256-APSK (8 bit/sym)' },
+    // Special (6)
     { value: 'ook', label: 'OOK (1 bit/sym)' },
-    { value: 'ask4', label: '4-ASK (2 bit/sym)' },
-];
+    { value: 'bpsk_diff', label: 'BPSK-Diff (1 bit/sym)' },
+    { value: 'sqam32', label: '32-SQAM (5 bit/sym)' },
+    { value: 'sqam128', label: '128-SQAM (7 bit/sym)' },
+    { value: 'v29', label: 'V.29 (4 bit/sym)' },
+    { value: 'pi4dqpsk', label: 'π/4-DQPSK (2 bit/sym)' },
+    // ARB — arbitrary optimized (6)
+    { value: 'arb16opt', label: 'ARB16opt (4 bit/sym)' },
+    { value: 'arb32opt', label: 'ARB32opt (5 bit/sym)' },
+    { value: 'arb64opt', label: 'ARB64opt (6 bit/sym)' },
+    { value: 'arb128opt', label: 'ARB128opt (7 bit/sym)' },
+    { value: 'arb256opt', label: 'ARB256opt (8 bit/sym)' },
+    { value: 'arb64vt', label: 'ARB64vt (6 bit/sym)' },
+    // FSK (4)
+    { value: 'gmsk', label: 'GMSK (1 bit/sym)' },
+    { value: '2fsk', label: '2-FSK (1 bit/sym)' },
+    { value: '4fsk', label: '4-FSK (2 bit/sym)' },
+    { value: '8fsk', label: '8-FSK (3 bit/sym)' },
+];  // 52 total
 
 export const BPSK_PARAMETERS = {
     bpsk_modulation: {
