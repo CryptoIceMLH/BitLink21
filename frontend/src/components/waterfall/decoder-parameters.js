@@ -263,17 +263,29 @@ export const GFSK_PARAMETERS = Object.entries(FSK_PARAMETERS).reduce((acc, [key,
  * Supports coherent BPSK and non-coherent DBPSK (differential) modes.
  */
 export const MODULATION_OPTIONS = [
+    // PSK family
     { value: 'bpsk', label: 'BPSK (1 bit/sym)' },
     { value: 'qpsk', label: 'QPSK (2 bit/sym)' },
     { value: '8psk', label: '8PSK (3 bit/sym)' },
-    { value: 'dqpsk', label: 'DQPSK (2 bit/sym, differential)' },
-    { value: '16qam', label: '16-QAM (4 bit/sym)' },
     { value: 'psk16', label: '16-PSK (4 bit/sym)' },
     { value: 'psk32', label: '32-PSK (5 bit/sym)' },
+    { value: 'psk64', label: '64-PSK (6 bit/sym)' },
+    // DPSK family (differential)
+    { value: 'dqpsk', label: 'DQPSK (2 bit/sym)' },
+    { value: 'dbpsk', label: 'DBPSK (1 bit/sym)' },
+    // APSK family (amplitude + phase — used by QO-100 HS Modem)
+    { value: '8apsk', label: '8-APSK (3 bit/sym)' },
+    { value: '16apsk', label: '16-APSK (4 bit/sym)' },
+    { value: '32apsk', label: '32-APSK (5 bit/sym)' },
+    // QAM family
+    { value: '16qam', label: '16-QAM (4 bit/sym)' },
     { value: 'qam32', label: '32-QAM (5 bit/sym)' },
     { value: 'qam64', label: '64-QAM (6 bit/sym)' },
     { value: 'qam128', label: '128-QAM (7 bit/sym)' },
     { value: 'qam256', label: '256-QAM (8 bit/sym)' },
+    // OOK / ASK
+    { value: 'ook', label: 'OOK (1 bit/sym)' },
+    { value: 'ask4', label: '4-ASK (2 bit/sym)' },
 ];
 
 export const BPSK_PARAMETERS = {

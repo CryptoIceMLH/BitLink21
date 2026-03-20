@@ -419,6 +419,8 @@ export const DataDecoderSelector = ({
  */
 export const BandwidthSelector = ({ vfoIndex, vfoActive, bandwidth, mode, decoder, onVFOPropertyChange }) => {
     const { t } = useTranslation('waterfall');
+    const [customMode, setCustomMode] = React.useState(false);
+    const [customValue, setCustomValue] = React.useState(bandwidth || 3000);
 
     const currentValue = BANDWIDTHS.hasOwnProperty(bandwidth) ? bandwidth.toString() : 'custom';
     const isLocked = isLockedBandwidth(mode, decoder);
@@ -428,12 +430,57 @@ export const BandwidthSelector = ({ vfoIndex, vfoActive, bandwidth, mode, decode
             <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>
                 {t('vfo.bandwidth')}
             </Typography>
+            {customMode ? (
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1 }}>
+                    <input
+                        type="number"
+                        value={customValue}
+                        onChange={(e) => setCustomValue(parseInt(e.target.value) || 0)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                onVFOPropertyChange(vfoIndex, { bandwidth: customValue });
+                                setCustomMode(false);
+                            }
+                        }}
+                        style={{
+                            width: '120px', padding: '6px 8px', fontSize: '0.85rem',
+                            background: 'transparent', border: '1px solid #555', borderRadius: '4px',
+                            color: 'inherit', fontFamily: 'monospace'
+                        }}
+                        min={50}
+                        max={500000}
+                        autoFocus
+                    />
+                    <span style={{ fontSize: '0.8rem', color: '#aaa' }}>Hz</span>
+                    <button
+                        onClick={() => {
+                            onVFOPropertyChange(vfoIndex, { bandwidth: customValue });
+                            setCustomMode(false);
+                        }}
+                        style={{
+                            padding: '4px 10px', fontSize: '0.8rem', cursor: 'pointer',
+                            background: '#f7931a', border: 'none', borderRadius: '4px', color: '#000'
+                        }}
+                    >Set</button>
+                    <button
+                        onClick={() => setCustomMode(false)}
+                        style={{
+                            padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer',
+                            background: 'transparent', border: '1px solid #555', borderRadius: '4px', color: '#aaa'
+                        }}
+                    >Cancel</button>
+                </Box>
+            ) : null}
             <ToggleButtonGroup
                 value={currentValue}
                 exclusive
                 disabled={!vfoActive || isLocked}
                 onChange={(event, newValue) => {
-                    if (newValue !== null && newValue !== 'custom') {
+                    if (newValue === 'custom') {
+                        setCustomValue(bandwidth || 3000);
+                        setCustomMode(true);
+                    } else if (newValue !== null) {
+                        setCustomMode(false);
                         onVFOPropertyChange(vfoIndex, { bandwidth: parseInt(newValue) });
                     }
                 }}
