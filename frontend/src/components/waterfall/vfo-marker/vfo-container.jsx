@@ -108,18 +108,29 @@ const VFOMarkersContainer = ({
 
     const handleBeaconMouseDown = useCallback((e) => {
         if (!beaconMarkers?.active) return false;
-        const freq = xToFreq(e.clientX);
-        // Tight hit range — 1 pixel worth of frequency
         const canvas = canvasRef.current;
         if (!canvas) return false;
         const rect = canvas.getBoundingClientRect();
+        const freq = xToFreq(e.clientX);
+        const mouseY = e.clientY - rect.top;
         const pixelFreq = sampleRate / rect.width;
         const hitRange = pixelFreq * 8; // 8 pixels
 
+        // Check TAB at top first (y < 25px, between markers)
+        // Tab is the primary drag target — grabs and moves the whole beacon window
+        const beaconCenter = (beaconMarkers.lowFreq + beaconMarkers.highFreq) / 2;
+        const beaconSpan = beaconMarkers.highFreq - beaconMarkers.lowFreq;
+        const tabHitRange = Math.max(pixelFreq * 40, beaconSpan / 2); // at least 40px or half the span
+        if (mouseY < 25 && Math.abs(freq - beaconCenter) < tabHitRange) {
+            beaconDragRef.current = 'body';
+            window.__beaconDragActive = true;
+            return true;
+        }
+
+        // Check marker edge lines (any Y position)
         const distToLow = Math.abs(freq - beaconMarkers.lowFreq);
         const distToHigh = Math.abs(freq - beaconMarkers.highFreq);
 
-        // Check edges first (closest wins)
         if (distToLow < hitRange && distToLow <= distToHigh) {
             beaconDragRef.current = 'low';
             window.__beaconDragActive = true;
@@ -127,12 +138,6 @@ const VFOMarkersContainer = ({
         }
         if (distToHigh < hitRange) {
             beaconDragRef.current = 'high';
-            window.__beaconDragActive = true;
-            return true;
-        }
-        // Drag body (between markers, not near edges)
-        if (freq > beaconMarkers.lowFreq + hitRange && freq < beaconMarkers.highFreq - hitRange) {
-            beaconDragRef.current = 'body';
             window.__beaconDragActive = true;
             return true;
         }
@@ -729,14 +734,40 @@ const VFOMarkersContainer = ({
                 ctx.fillRect(Math.max(0, lowX), 0, Math.min(actualWidth, highX) - Math.max(0, lowX), height);
             }
 
-            // Label
+            // Draggable tab at top (same style as VFO labels)
             ctx.setLineDash([]);
-            ctx.font = 'bold 10px Monospace';
-            ctx.fillStyle = beaconColor;
-            const label = `BEACON ${beaconMarkers.lockState} ${beaconMarkers.offsetHz ? (beaconMarkers.offsetHz > 0 ? '+' : '') + beaconMarkers.offsetHz.toFixed(0) + 'Hz' : ''}`;
-            const labelWidth = ctx.measureText(label).width;
-            const labelX = (lowX + highX) / 2 - labelWidth / 2;
-            ctx.fillText(label, Math.max(2, labelX), height - 5);
+            const centerX = (lowX + highX) / 2;
+            const label = `BCN ${beaconMarkers.lockState === 'LOCKED' ? 'LOCK' : beaconMarkers.lockState === 'TRACKING' ? 'TRK' : ''}${beaconMarkers.offsetHz ? ' ' + (beaconMarkers.offsetHz > 0 ? '+' : '') + beaconMarkers.offsetHz.toFixed(0) + 'Hz' : ''}`;
+            ctx.font = 'bold 11px Monospace';
+            const tabWidth = Math.max(ctx.measureText(label).width + 16, 60);
+            const tabHeight = 20;
+            const tabX = centerX - tabWidth / 2;
+            const tabY = 3;
+
+            // Tab background
+            ctx.fillStyle = beaconColor + 'cc';
+            ctx.beginPath();
+            ctx.roundRect(tabX, tabY, tabWidth, tabHeight, 3);
+            ctx.fill();
+
+            // Tab border
+            ctx.strokeStyle = beaconColor;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Tab text
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.fillText(label, centerX, tabY + 14);
+            ctx.textAlign = 'left';
+
+            // Drag handle dots (three dots in the tab, like a grip)
+            ctx.fillStyle = '#ffffff88';
+            for (let dot = -1; dot <= 1; dot++) {
+                ctx.beginPath();
+                ctx.arc(centerX + dot * 6, tabY + tabHeight - 4, 1.5, 0, 2 * Math.PI);
+                ctx.fill();
+            }
         }
     };
 

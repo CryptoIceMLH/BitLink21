@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
     Accordion, AccordionSummary, AccordionDetails,
@@ -10,6 +10,7 @@ import LockOpenIcon from '@mui/icons-material/LockOpen';
 import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import { useSocket } from '../common/socket.jsx';
 import { setBeaconMarkers } from './waterfall-slice.jsx';
+import FrequencyDisplay from './frequency-dial.jsx';
 
 const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
     const {socket} = useSocket();
@@ -19,8 +20,29 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
 
     const [xoCorrection, setXoCorrection] = useState(0);
     const [markerSpread, setMarkerSpread] = useState(2500);
+    const [beaconFreq, setBeaconFreq] = useState(centerFrequency || 0);
 
     const isPositioned = beaconMarkers?.active || false;
+
+    // Update beaconFreq when center frequency changes (before positioning)
+    useEffect(() => {
+        if (!isPositioned && centerFrequency) setBeaconFreq(centerFrequency);
+    }, [centerFrequency, isPositioned]);
+
+    // When beacon frequency changes via dial, move the markers
+    const handleBeaconFreqChange = useCallback((newFreq) => {
+        setBeaconFreq(newFreq);
+        if (isPositioned && socket && !beaconCorrecting) {
+            const low = newFreq - markerSpread;
+            const high = newFreq + markerSpread;
+            dispatch(setBeaconMarkers({ lowFreq: low, highFreq: high }));
+            socket.emit('data_submission', 'bitlink21:beacon_config', {
+                marker_low_hz: rfToIF(low),
+                marker_high_hz: rfToIF(high),
+                beacon_freq_hz: rfToIF(newFreq),
+            });
+        }
+    }, [isPositioned, socket, beaconCorrecting, markerSpread, dispatch, rfToIF]);
 
     // Converter for RF→IF
     const { converterDefinitions, activeConverterId } = useSelector(state => state.waterfall);
@@ -35,11 +57,11 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
     // Step 1: "Set Beacon" — show markers, start measuring (no correction)
     const handleSetBeacon = () => {
         if (!socket) return;
-        const lowFreq = centerFrequency - markerSpread;
-        const highFreq = centerFrequency + markerSpread;
+        const lowFreq = beaconFreq - markerSpread;
+        const highFreq = beaconFreq + markerSpread;
         dispatch(setBeaconMarkers({ active: true, lowFreq, highFreq, lockState: 'TRACKING' }));
         socket.emit('data_submission', 'bitlink21:beacon_set_position', {
-            beacon_freq_hz: rfToIF(centerFrequency),
+            beacon_freq_hz: rfToIF(beaconFreq),
             marker_low_hz: rfToIF(lowFreq),
             marker_high_hz: rfToIF(highFreq),
         });
@@ -122,12 +144,28 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
             <AccordionDetails>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
 
+                    {/* Beacon frequency dial — tune to beacon before or after positioning */}
+                    <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+                            Beacon Frequency
+                        </Typography>
+                        <FrequencyDisplay
+                            initialFrequency={beaconFreq / 1e6}
+                            onChange={(mhz) => handleBeaconFreqChange(mhz * 1e6)}
+                            size="small"
+                            integerDigits={5}
+                            decimalDigits={3}
+                            disabled={beaconCorrecting}
+                        />
+                    </Box>
+
                     {/* Instructions */}
                     {!isPositioned && (
                         <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                            1. Click "Set Beacon" to show markers on waterfall{'\n'}
-                            2. Drag markers to the beacon signal{'\n'}
-                            3. Click "Lock" to start drift correction
+                            1. Tune frequency above to beacon{'\n'}
+                            2. Click "Set Beacon" to show markers{'\n'}
+                            3. Drag tab or use dial to position{'\n'}
+                            4. Click "Lock" to correct drift
                         </Typography>
                     )}
 
