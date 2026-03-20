@@ -266,6 +266,20 @@ def plutosdr_worker_process(
         cpu_check_interval = 0.5
 
         # ----------------------------------------------------------------
+        # QO-100 Streaming DSP (GNU Radio flowgraph — runs in this process)
+        # ----------------------------------------------------------------
+        qo100_flowgraph = None
+        try:
+            from dsp.streaming_flowgraph import StreamingRXFlowgraph, GR_AVAILABLE
+            if GR_AVAILABLE:
+                logger.info("GNU Radio streaming DSP available in PlutoSDR worker")
+            else:
+                logger.info("GNU Radio not available — QO-100 streaming DSP disabled")
+        except ImportError:
+            GR_AVAILABLE = False
+            logger.info("DSP module not available")
+
+        # ----------------------------------------------------------------
         # Beacon tracking state (runs inside worker — no browser needed)
         # ----------------------------------------------------------------
         beacon_active = False
@@ -434,6 +448,41 @@ def plutosdr_worker_process(
                             except Exception as e:
                                 logger.warning(f"Failed to set XO correction: {e}")
 
+                    # QO-100 streaming DSP commands
+                    if "qo100_start" in new_config and GR_AVAILABLE:
+                        try:
+                            qo100_flowgraph = StreamingRXFlowgraph(
+                                sample_rate=sample_rate,
+                                center_freq=center_freq,
+                            )
+                            # Set filter/modulation from config
+                            if "qo100_filter_bw" in new_config:
+                                qo100_flowgraph.filter_bw = new_config["qo100_filter_bw"]
+                            if "qo100_modulation" in new_config:
+                                qo100_flowgraph.modulation = new_config["qo100_modulation"]
+                            if "qo100_baudrate" in new_config:
+                                qo100_flowgraph.baudrate = new_config["qo100_baudrate"]
+                            qo100_flowgraph.start()
+                            logger.info("QO-100 streaming DSP started in PlutoSDR worker")
+                        except Exception as e:
+                            logger.error(f"QO-100 DSP start failed: {e}")
+                            qo100_flowgraph = None
+
+                    if "qo100_stop" in new_config:
+                        if qo100_flowgraph:
+                            qo100_flowgraph.stop()
+                            qo100_flowgraph = None
+                            logger.info("QO-100 streaming DSP stopped")
+
+                    if "qo100_set_filter" in new_config and qo100_flowgraph:
+                        qo100_flowgraph.set_filter_bandwidth(new_config.get("bandwidth", 3600))
+
+                    if "qo100_set_modulation" in new_config and qo100_flowgraph:
+                        qo100_flowgraph.set_modulation(
+                            new_config.get("modulation", "qpsk"),
+                            new_config.get("baudrate")
+                        )
+
                     # BitLink21 beacon lock commands
                     if "beacon_start" in new_config:
                         beacon_active = True
@@ -533,6 +582,10 @@ def plutosdr_worker_process(
 
                     # Remove DC offset spike
                     samples = remove_dc_offset(samples)
+
+                    # Feed QO-100 streaming DSP (if active)
+                    if qo100_flowgraph is not None and qo100_flowgraph.running:
+                        qo100_flowgraph.push_iq(samples)
 
                     # Broadcast IQ data to consumer queues
                     if has_iq_consumers:

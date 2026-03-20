@@ -468,39 +468,23 @@ async def test_tone_stop(
 async def qo100_start(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
-    """Start QO-100 streaming DSP."""
+    """Start QO-100 streaming DSP in PlutoSDR worker process."""
     try:
-        sample_rate = (data or {}).get("sample_rate", 1000000)
-        center_freq = (data or {}).get("center_freq", 739750000)
+        running = process_manager.get_running_sdrs()
+        if not running:
+            return {"success": False, "error": "No SDR running — start streaming first"}
+        sdr_id = running[0]["sdr_id"]
+        config_queue = process_manager.processes.get(sdr_id, {}).get("config_queue")
+        if not config_queue:
+            return {"success": False, "error": "SDR config queue not available"}
 
-        # Wire callbacks to Socket.IO
-        def on_beacon(status):
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                loop.call_soon_threadsafe(
-                    lambda: asyncio.ensure_future(sio.emit("bitlink21:beacon_status", status))
-                )
-            except Exception:
-                pass
-
-        def on_constellation(points):
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                loop.call_soon_threadsafe(
-                    lambda: asyncio.ensure_future(sio.emit("bitlink21:constellation_data", points))
-                )
-            except Exception:
-                pass
-
-        qo100_manager.on_beacon_status = on_beacon
-        qo100_manager.on_constellation = on_constellation
-
-        started = qo100_manager.start(sample_rate, center_freq)
-        if started:
-            return {"success": True, "data": qo100_manager.get_status()}
-        return {"success": False, "error": "Failed to start QO-100 DSP"}
+        config_queue.put({
+            "qo100_start": True,
+            "qo100_filter_bw": (data or {}).get("filter_bw", 3600),
+            "qo100_modulation": (data or {}).get("modulation", "qpsk"),
+            "qo100_baudrate": (data or {}).get("baudrate", 4800),
+        })
+        return {"success": True, "data": {"status": "starting"}}
     except Exception as e:
         logger.error(f"QO-100 start failed: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
@@ -510,34 +494,62 @@ async def qo100_stop(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
     """Stop QO-100 streaming DSP."""
-    qo100_manager.stop()
-    return {"success": True}
+    try:
+        running = process_manager.get_running_sdrs()
+        if running:
+            sdr_id = running[0]["sdr_id"]
+            config_queue = process_manager.processes.get(sdr_id, {}).get("config_queue")
+            if config_queue:
+                config_queue.put({"qo100_stop": True})
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 async def qo100_set_filter(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
     """Set QO-100 RX filter bandwidth."""
-    bandwidth = (data or {}).get("bandwidth", 3600)
-    qo100_manager.set_filter(bandwidth)
-    return {"success": True, "data": {"bandwidth": bandwidth}}
+    try:
+        running = process_manager.get_running_sdrs()
+        if running:
+            sdr_id = running[0]["sdr_id"]
+            config_queue = process_manager.processes.get(sdr_id, {}).get("config_queue")
+            if config_queue:
+                config_queue.put({
+                    "qo100_set_filter": True,
+                    "bandwidth": (data or {}).get("bandwidth", 3600),
+                })
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 async def qo100_set_modulation(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
     """Set QO-100 modem modulation and baudrate."""
-    modulation = (data or {}).get("modulation", "qpsk")
-    baudrate = (data or {}).get("baudrate", 4800)
-    qo100_manager.set_modulation(modulation, baudrate)
-    return {"success": True, "data": {"modulation": modulation, "baudrate": baudrate}}
+    try:
+        running = process_manager.get_running_sdrs()
+        if running:
+            sdr_id = running[0]["sdr_id"]
+            config_queue = process_manager.processes.get(sdr_id, {}).get("config_queue")
+            if config_queue:
+                config_queue.put({
+                    "qo100_set_modulation": True,
+                    "modulation": (data or {}).get("modulation", "qpsk"),
+                    "baudrate": (data or {}).get("baudrate", 4800),
+                })
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 async def qo100_get_status(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
     """Get QO-100 DSP status."""
-    return {"success": True, "data": qo100_manager.get_status()}
+    return {"success": True, "data": {"running": False}}
 
 
 def register_handlers(registry):

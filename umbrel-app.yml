@@ -4,7 +4,7 @@ name: BitLink21
 tagline: Bitcoin decentralized satellite communication system
 icon: cryptoice-bitlink21/bitlink21-128.png
 category: bitcoin
-version: "2.3.0"
+version: "3.0.0"
 port: 7000
 description: >-
   BitLink21 is a Bitcoin-native decentralized communication system that transmits

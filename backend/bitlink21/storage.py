@@ -320,13 +320,13 @@ class Storage:
     async def get_messages(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
         """Get messages with pagination."""
         cursor = await self.db.execute("""
-            SELECT id, sender_npub, payload_type, body, rssi, snr, timestamp
+            SELECT id, sender_npub, payload_type, body, rssi_db, snr_db, timestamp
             FROM messages ORDER BY timestamp DESC LIMIT ? OFFSET ?
         """, (limit, offset))
         rows = await cursor.fetchall()
         return [
             {"id": r[0], "sender_npub": r[1], "payload_type": r[2], "body": r[3],
-             "rssi": r[4], "snr": r[5], "timestamp": r[6]}
+             "rssi_db": r[4], "snr_db": r[5], "timestamp": r[6]}
             for r in rows
         ]
 
