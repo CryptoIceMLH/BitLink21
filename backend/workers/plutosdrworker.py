@@ -20,6 +20,7 @@ from typing import Any, Dict
 
 import numpy as np
 import psutil
+from scipy.signal import iirfilter, sosfilt, firwin
 
 logger = logging.getLogger("plutosdr-worker")
 
@@ -63,6 +64,133 @@ def remove_dc_offset(samples: np.ndarray) -> np.ndarray:
     """Remove DC offset by subtracting the mean of I and Q components."""
     mean_val = np.mean(samples)
     return samples - mean_val
+
+
+# ----------------------------------------------------------------
+# Beacon DSP — matches QO100_Transceiver liquiddrv.cpp
+# ----------------------------------------------------------------
+BEACON_FFT_SIZE = 800           # 2 Hz/bin at 4 kS/s
+BEACON_DUAL_TONE_MIN_SEP = 380  # Hz minimum for dual-tone lock
+BEACON_PEAK_THRESHOLD = 0.5     # 50% of max (-3 dB)
+
+
+def beacon_init_filters(sample_rate):
+    """Compute beacon DSP filters once at beacon_start.
+
+    Returns (sos_iir, decim_rate, decimated_rate).
+    - Decimation: sample_rate → ~4 kS/s
+    - Elliptic IIR LP: 4th order, 900 Hz cutoff, 1dB ripple, 40dB stopband
+    """
+    decim_rate = max(1, int(sample_rate / 4000))
+    decimated_rate = sample_rate / decim_rate
+
+    # 4th order elliptic IIR LP at 900 Hz (applied after decimation)
+    nyq = decimated_rate / 2
+    cutoff = min(900, nyq * 0.9)
+    sos = iirfilter(4, cutoff, btype='low', ftype='ellip',
+                    rs=40, rp=1, fs=decimated_rate, output='sos')
+
+    return sos, decim_rate, decimated_rate
+
+
+def beacon_process(samples, sample_rate, beacon_freq, center_freq,
+                   nco_correction, sos, decim_rate, decimated_rate):
+    """QO100_Transceiver-style beacon processing.
+
+    Signal chain:
+    1. NCO downmix (beacon → baseband)
+    2. Decimate (→ ~4 kS/s)
+    3. Elliptic IIR LP (900 Hz)
+    4. 800-point FFT (2 Hz/bin)
+    5. Dual-tone peak detection (>380 Hz separation = LOCKED)
+
+    Returns dict with: offset_hz, locked, spectrum, peaks (or None if insufficient data).
+    """
+    n = len(samples)
+
+    # Step 1: NCO downmix — shift beacon region to baseband
+    nco_freq = beacon_freq - center_freq + nco_correction
+    t = np.arange(n, dtype=np.float64) / sample_rate
+    nco = np.exp(-1j * 2 * np.pi * nco_freq * t).astype(np.complex64)
+    mixed = samples * nco
+
+    # Step 2: Decimate (simple take-every-Nth with anti-alias FIR)
+    if decim_rate > 1:
+        # Anti-alias FIR filter then downsample
+        num_taps = decim_rate * 4 + 1
+        fir = firwin(num_taps, 1.0 / decim_rate)
+        filtered_pre = np.convolve(mixed, fir, mode='same')
+        decimated = filtered_pre[::decim_rate]
+    else:
+        decimated = mixed
+
+    # Step 3: Elliptic IIR LP filter
+    filtered = sosfilt(sos, decimated)
+
+    # Step 4: 800-point FFT
+    fft_len = min(BEACON_FFT_SIZE, len(filtered))
+    if fft_len < 64:
+        return None
+
+    window = np.hanning(fft_len)
+    fft_data = np.fft.fftshift(np.fft.fft(filtered[:fft_len] * window))
+    power = np.abs(fft_data) ** 2
+    power_db = 10 * np.log10(power + 1e-12)
+    freq_res = decimated_rate / fft_len  # ~2 Hz/bin at 4 kS/s, 800 bins
+
+    # Step 5: Peak detection — find all bins > 50% of max
+    max_power = np.max(power)
+    if max_power < 1e-12:
+        return {"offset_hz": None, "locked": False,
+                "spectrum": power_db.tolist(), "peaks": []}
+
+    threshold = BEACON_PEAK_THRESHOLD * max_power
+    peak_indices = np.where(power > threshold)[0]
+
+    if len(peak_indices) < 2:
+        return {"offset_hz": None, "locked": False,
+                "spectrum": power_db.tolist(), "peaks": []}
+
+    # Cluster adjacent bins into peak groups
+    clusters = []
+    cluster_start = peak_indices[0]
+    prev = peak_indices[0]
+    for idx in peak_indices[1:]:
+        if idx - prev > 3:  # Gap of >3 bins = new cluster
+            # Find max within cluster
+            lo, hi = cluster_start, prev + 1
+            best = lo + np.argmax(power[lo:hi])
+            clusters.append(best)
+            cluster_start = idx
+        prev = idx
+    lo, hi = cluster_start, prev + 1
+    clusters.append(lo + np.argmax(power[lo:hi]))
+
+    if len(clusters) < 2:
+        return {"offset_hz": None, "locked": False,
+                "spectrum": power_db.tolist(), "peaks": []}
+
+    # Take top 2 clusters by power
+    clusters_with_power = [(c, float(power[c])) for c in clusters]
+    clusters_with_power.sort(key=lambda x: -x[1])
+    top2 = sorted([clusters_with_power[0][0], clusters_with_power[1][0]])
+
+    freq_a = (top2[0] - fft_len / 2) * freq_res
+    freq_b = (top2[1] - fft_len / 2) * freq_res
+    separation = freq_b - freq_a
+
+    locked = separation > BEACON_DUAL_TONE_MIN_SEP
+
+    # Offset = midpoint of dual peaks (0 Hz = perfectly centered after downmix)
+    midpoint = (freq_a + freq_b) / 2
+    offset_hz = midpoint
+
+    return {
+        "offset_hz": round(offset_hz, 1),
+        "locked": locked,
+        "spectrum": power_db.tolist(),
+        "peaks": [round(freq_a, 1), round(freq_b, 1)],
+    }
 
 
 def _configure_pluto(sdr, config: Dict[str, Any]) -> None:
@@ -280,19 +408,23 @@ def plutosdr_worker_process(
             logger.info("DSP module not available")
 
         # ----------------------------------------------------------------
-        # Beacon tracking state (runs inside worker — no browser needed)
+        # Beacon tracking state — QO100_Transceiver algorithm
+        # NCO downmix → decimate → elliptic IIR → FFT → dual-tone detect
+        # Correction via software NCO (NOT hardware XO writes)
         # ----------------------------------------------------------------
         beacon_active = False
-        beacon_freq = 0.0  # Expected beacon frequency (IF)
-        beacon_marker_low = 0.0  # Search range low (IF)
-        beacon_marker_high = 0.0  # Search range high (IF)
-        beacon_xo_correction = 0
-        beacon_loop_gain = 0.5
+        beacon_freq = 0.0            # Expected beacon center frequency (IF Hz)
+        beacon_marker_low = 0.0      # Search range low (IF)
+        beacon_marker_high = 0.0     # Search range high (IF)
         beacon_lock_state = "UNLOCKED"
         beacon_offset_hz = 0.0
-        beacon_lock_count = 0
+        beacon_nco_correction = 0.0  # Software NCO shift (Hz) — NOT hardware XO
         beacon_last_update = 0.0
-        beacon_update_interval = 1.0  # Seconds between beacon checks
+        beacon_update_interval = 0.2  # 200ms — matches QO100_Transceiver
+        beacon_sample_buf = np.array([], dtype=np.complex64)  # Accumulator for decimation
+        beacon_sos = None            # Elliptic IIR filter (computed once at start)
+        beacon_decim_rate = 1        # Decimation factor
+        beacon_decimated_rate = 4000 # Target decimated sample rate
 
         # ----------------------------------------------------------------
         # Main processing loop
@@ -514,24 +646,30 @@ def plutosdr_worker_process(
                         beacon_freq = new_config.get("beacon_freq", center_freq)
                         beacon_marker_low = new_config.get("marker_low", beacon_freq - 2500)
                         beacon_marker_high = new_config.get("marker_high", beacon_freq + 2500)
-                        beacon_xo_correction = 0
-                        beacon_lock_count = 0
+                        beacon_nco_correction = 0.0
                         beacon_lock_state = "TRACKING"
+                        beacon_sample_buf = np.array([], dtype=np.complex64)
+                        # Initialize DSP filters for this sample rate
+                        beacon_sos, beacon_decim_rate, beacon_decimated_rate = \
+                            beacon_init_filters(sample_rate)
                         logger.info(
                             f"Beacon tracking started: freq={beacon_freq/1e6:.3f} MHz, "
-                            f"range=[{beacon_marker_low/1e6:.6f}, {beacon_marker_high/1e6:.6f}] MHz"
+                            f"decim={beacon_decim_rate}x → {beacon_decimated_rate:.0f} S/s, "
+                            f"FFT={BEACON_FFT_SIZE} bins, {beacon_decimated_rate/BEACON_FFT_SIZE:.1f} Hz/bin"
                         )
 
                     if "beacon_stop" in new_config:
                         beacon_active = False
                         beacon_lock_state = "UNLOCKED"
                         beacon_offset_hz = 0.0
+                        beacon_nco_correction = 0.0
+                        beacon_sample_buf = np.array([], dtype=np.complex64)
                         logger.info("Beacon tracking stopped")
                         data_queue.put({
                             "type": "beacon_status",
                             "lock_state": "UNLOCKED",
                             "offset_hz": 0.0,
-                            "xo_correction": beacon_xo_correction,
+                            "nco_correction": 0.0,
                         })
 
                     if "beacon_config" in new_config:
@@ -563,16 +701,6 @@ def plutosdr_worker_process(
                             logger.info("Test tone stopped")
                         except Exception as e:
                             logger.warning(f"Test tone stop failed: {e}")
-
-                    # BitLink21 beacon AFC — send FFT data for peak detection
-                    if "beacon_xo_correction" in new_config:
-                        try:
-                            sdr._ctrl.attrs["xo_correction"].value = str(
-                                int(new_config["beacon_xo_correction"])
-                            )
-                            logger.info(f"Beacon AFC XO correction: {new_config['beacon_xo_correction']} Hz")
-                        except Exception as e:
-                            logger.warning(f"Beacon XO correction failed: {e}")
 
                     old_config = new_config
 
@@ -673,75 +801,51 @@ def plutosdr_worker_process(
                 time.sleep(0.1)
 
             # --------------------------------------------------------
+            # Beacon tracking — QO100_Transceiver algorithm
+            # NCO downmix → decimate → IIR LP → FFT → dual-tone detect
             # --------------------------------------------------------
-            # Beacon tracking (runs inside worker — no browser needed)
-            # --------------------------------------------------------
-            if (beacon_active and samples is not None and len(samples) > 0
-                    and center_freq and sample_rate and beacon_marker_low is not None
-                    and beacon_marker_high is not None and beacon_freq):
-                if current_time - beacon_last_update >= beacon_update_interval:
+            if beacon_active and samples is not None and len(samples) > 0 and beacon_freq:
+                # Accumulate samples for decimation (need ~200ms worth)
+                beacon_sample_buf = np.concatenate([beacon_sample_buf, samples])
+                needed = beacon_decim_rate * BEACON_FFT_SIZE  # e.g. 250*800 = 200k samples
+
+                if (len(beacon_sample_buf) >= needed
+                        and current_time - beacon_last_update >= beacon_update_interval):
                     beacon_last_update = current_time
                     try:
-                        # Compute FFT on current IQ buffer
-                        fft_size_beacon = min(len(samples), 4096)
-                        fft_data = np.abs(np.fft.fftshift(np.fft.fft(samples[:fft_size_beacon])))
-                        fft_db = 20 * np.log10(fft_data + 1e-10)
+                        chunk = beacon_sample_buf[:needed]
+                        beacon_sample_buf = beacon_sample_buf[needed:]
 
-                        # Convert marker frequencies to FFT bin indices
-                        freq_resolution = float(sample_rate) / fft_size_beacon
-                        start_freq = float(center_freq) - float(sample_rate) / 2
-                        bin_low = int((float(beacon_marker_low) - start_freq) / freq_resolution)
-                        bin_high = int((float(beacon_marker_high) - start_freq) / freq_resolution)
-                        bin_low = max(0, min(fft_size_beacon - 1, bin_low))
-                        bin_high = max(bin_low + 1, min(fft_size_beacon, bin_high))
+                        result = beacon_process(
+                            chunk, sample_rate, beacon_freq, center_freq,
+                            beacon_nco_correction, beacon_sos,
+                            beacon_decim_rate, beacon_decimated_rate
+                        )
 
-                        # Find peak in marker range
-                        search_range = fft_db[bin_low:bin_high]
-                        if len(search_range) > 0:
-                            peak_local_idx = np.argmax(search_range)
-                            peak_bin = bin_low + peak_local_idx
-                            peak_freq = (center_freq - sample_rate / 2) + peak_bin * freq_resolution
-
-                            # Offset from expected beacon position
-                            beacon_offset_hz = peak_freq - beacon_freq
-
-                            # Apply XO correction (PLL-style loop filter)
-                            beacon_xo_correction -= int(beacon_loop_gain * beacon_offset_hz)
-                            try:
-                                sdr._ctrl.attrs["xo_correction"].value = str(beacon_xo_correction)
-                            except Exception as e:
-                                logger.debug(f"Beacon XO write failed: {e}")
-
-                            # Update lock state
-                            if abs(beacon_offset_hz) < 50:
-                                beacon_lock_count = min(beacon_lock_count + 1, 10)
-                                if beacon_lock_count >= 5:
-                                    beacon_lock_state = "LOCKED"
-                            elif abs(beacon_offset_hz) < 500:
-                                beacon_lock_state = "TRACKING"
-                                beacon_lock_count = max(0, beacon_lock_count - 1)
+                        if result is not None:
+                            if result["offset_hz"] is not None:
+                                beacon_offset_hz = result["offset_hz"]
+                                # Software NCO correction — NOT hardware XO
+                                beacon_nco_correction = -beacon_offset_hz
+                                beacon_lock_state = "LOCKED" if result["locked"] else "TRACKING"
                             else:
                                 beacon_lock_state = "TRACKING"
-                                beacon_lock_count = 0
 
-                            # Extract mini-spectrum around beacon (±5 kHz)
-                            beacon_view_bins = int(5000 / freq_resolution)
-                            beacon_center_bin = int((float(beacon_freq) - start_freq) / freq_resolution)
-                            spec_low = max(0, beacon_center_bin - beacon_view_bins)
-                            spec_high = min(fft_size_beacon, beacon_center_bin + beacon_view_bins)
-                            mini_spectrum = fft_db[spec_low:spec_high].tolist() if spec_low < spec_high else []
-
-                            # Send status + spectrum to main process
                             data_queue.put({
                                 "type": "beacon_status",
                                 "lock_state": beacon_lock_state,
                                 "offset_hz": round(beacon_offset_hz, 1),
-                                "xo_correction": beacon_xo_correction,
-                                "spectrum": mini_spectrum,
+                                "nco_correction": round(beacon_nco_correction, 1),
+                                "spectrum": result.get("spectrum", []),
+                                "peaks": result.get("peaks", []),
                             })
-
                     except Exception as e:
                         logger.debug(f"Beacon tracking error: {e}")
+
+                # Prevent buffer from growing unbounded
+                max_buf = needed * 3
+                if len(beacon_sample_buf) > max_buf:
+                    beacon_sample_buf = beacon_sample_buf[-needed:]
 
             # --------------------------------------------------------
             # TX: Transmit queued IQ frames (non-blocking check)

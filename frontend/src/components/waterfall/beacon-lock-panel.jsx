@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
     Accordion, AccordionSummary, AccordionDetails,
@@ -8,6 +8,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import LockIcon from '@mui/icons-material/Lock';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
 import TrackChangesIcon from '@mui/icons-material/TrackChanges';
+import { useTheme } from '@mui/material/styles';
 import { useSocket } from '../common/socket.jsx';
 import { setBeaconMarkers } from './waterfall-slice.jsx';
 
@@ -23,11 +24,149 @@ const lockStateIcons = {
     LOCKED: <LockIcon fontSize="small" />,
 };
 
+const SPECTRUM_HEIGHT = 80;
+
+/**
+ * Mini beacon spectrum canvas — shows the narrow-band FFT around the beacon.
+ * Data comes from Redux beaconSpectrum (populated by worker → Socket.IO).
+ * Dual-tone peaks drawn as vertical markers when locked.
+ */
+const BeaconSpectrumCanvas = () => {
+    const canvasRef = useRef(null);
+    const theme = useTheme();
+    const { beaconSpectrum, beaconPeaks, beaconLockState, beaconOffset, beaconNcoCorrection } =
+        useSelector(state => state.bitlink21);
+
+    const lockColor = beaconLockState === 'LOCKED' ? '#4caf50' :
+                      beaconLockState === 'TRACKING' ? '#ff9800' : '#f44336';
+
+    const draw = useCallback(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const w = canvas.clientWidth;
+        const h = SPECTRUM_HEIGHT;
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        ctx.scale(dpr, dpr);
+
+        // Background
+        ctx.fillStyle = '#0a0f0a';
+        ctx.fillRect(0, 0, w, h);
+
+        // Grid
+        ctx.strokeStyle = '#1a2a1a';
+        ctx.lineWidth = 0.5;
+        for (let y = 0; y < h; y += 16) {
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+        }
+        for (let x = 0; x < w; x += w / 10) {
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+        }
+
+        if (beaconSpectrum && beaconSpectrum.length > 0) {
+            const numBins = beaconSpectrum.length;
+            const binWidth = w / numBins;
+
+            // Auto-scale
+            let minDb = Infinity, maxDb = -Infinity;
+            for (const v of beaconSpectrum) {
+                if (v < minDb) minDb = v;
+                if (v > maxDb) maxDb = v;
+            }
+            const rangeDb = Math.max(maxDb - minDb, 10);
+
+            // Spectrum line
+            ctx.strokeStyle = lockColor;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            for (let i = 0; i < numBins; i++) {
+                const x = i * binWidth;
+                const normalized = (beaconSpectrum[i] - minDb) / rangeDb;
+                const y = h - 5 - normalized * (h - 10);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Dual-tone peak markers
+            if (beaconPeaks && beaconPeaks.length >= 2) {
+                // Peaks are in Hz relative to baseband. Map to canvas bins.
+                // Spectrum spans from -decimated_rate/2 to +decimated_rate/2
+                // Approximate: peaks are Hz offsets, spectrum is centered
+                const halfSpan = numBins; // bins span the full decimated bandwidth
+                for (const peakHz of beaconPeaks) {
+                    // Map Hz to bin position (assuming ~2 Hz/bin, centered at 0)
+                    const peakBin = peakHz / 2 + numBins / 2;
+                    const px = peakBin * binWidth;
+                    if (px >= 0 && px <= w) {
+                        ctx.strokeStyle = '#ffeb3b';
+                        ctx.lineWidth = 1;
+                        ctx.setLineDash([3, 3]);
+                        ctx.beginPath();
+                        ctx.moveTo(px, 0);
+                        ctx.lineTo(px, h);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
+                }
+            }
+
+            // Center marker
+            ctx.strokeStyle = '#666';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([2, 4]);
+            ctx.beginPath();
+            ctx.moveTo(w / 2, 0);
+            ctx.lineTo(w / 2, h);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        } else {
+            // No data
+            ctx.fillStyle = '#333';
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('No beacon data', w / 2, h / 2 + 3);
+        }
+
+        // Offset text overlay
+        ctx.fillStyle = '#aaa';
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(`${(beaconOffset || 0).toFixed(1)} Hz`, 3, 10);
+        ctx.textAlign = 'right';
+        ctx.fillText(`NCO: ${(beaconNcoCorrection || 0).toFixed(1)}`, w - 3, 10);
+
+        // Lock indicator border
+        ctx.strokeStyle = lockColor;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(0, 0, w, h);
+    }, [beaconSpectrum, beaconPeaks, beaconLockState, beaconOffset, beaconNcoCorrection, lockColor]);
+
+    useEffect(() => {
+        draw();
+        const interval = setInterval(draw, 200);
+        return () => clearInterval(interval);
+    }, [draw]);
+
+    return (
+        <canvas
+            ref={canvasRef}
+            style={{
+                width: '100%',
+                height: SPECTRUM_HEIGHT,
+                borderRadius: 4,
+            }}
+        />
+    );
+};
+
 const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
     const {socket} = useSocket();
     const dispatch = useDispatch();
     const { beaconMarkers, centerFrequency, sampleRate, selectedSDRId } = useSelector(state => state.waterfall);
-    const { beaconLockState, beaconOffset, beaconPhaseError } = useSelector(state => state.bitlink21);
+    const { beaconLockState, beaconOffset, beaconNcoCorrection, beaconPeaks } = useSelector(state => state.bitlink21);
 
     const [xoCorrection, setXoCorrection] = useState(0);
     const [markerSpread, setMarkerSpread] = useState(2500); // ±Hz from center
@@ -45,22 +184,11 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
         return freq;
     };
 
-    // When markers are activated, set them around the center frequency (RF space — matches waterfall display)
     const handleStartLock = () => {
         if (!socket) return;
-
-        // Markers in RF space for waterfall display
         const lowFreq = centerFrequency - markerSpread;
         const highFreq = centerFrequency + markerSpread;
-
-        dispatch(setBeaconMarkers({
-            active: true,
-            lowFreq,
-            highFreq,
-            lockState: 'TRACKING',
-        }));
-
-        // Send IF frequencies to backend — worker operates in IF space
+        dispatch(setBeaconMarkers({ active: true, lowFreq, highFreq, lockState: 'TRACKING' }));
         socket.emit('data_submission', 'bitlink21:beacon_start', {
             beacon_freq_hz: rfToIF(centerFrequency),
             marker_low_hz: rfToIF(centerFrequency - markerSpread),
@@ -125,11 +253,11 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
                 </Box>
             </AccordionSummary>
             <AccordionDetails>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                     {/* Marker spread control */}
                     <Box>
                         <Typography variant="caption" color="text.secondary">
-                            Marker Spread: ±{markerSpread} Hz ({(markerSpread * 2 / 1000).toFixed(1)} kHz window)
+                            Marker Spread: ±{markerSpread} Hz ({(markerSpread * 2 / 1000).toFixed(1)} kHz)
                         </Typography>
                         <Slider
                             value={markerSpread}
@@ -154,10 +282,12 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
                         {isRunning ? 'Stop Beacon Lock' : 'Start Beacon Lock'}
                     </Button>
 
+                    {/* Mini spectrum canvas — real FFT data from worker */}
+                    {isRunning && <BeaconSpectrumCanvas />}
+
                     {/* Status when running */}
                     {isRunning && (
                         <>
-                            <Divider />
                             <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                                 <Typography variant="caption" color="text.secondary">Offset</Typography>
                                 <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
@@ -165,14 +295,19 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
                                 </Typography>
                             </Box>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <Typography variant="caption" color="text.secondary">Phase Error</Typography>
+                                <Typography variant="caption" color="text.secondary">NCO Correction</Typography>
                                 <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                                    {(beaconPhaseError || 0).toFixed(2)}°
+                                    {(beaconNcoCorrection || 0).toFixed(1)} Hz
                                 </Typography>
                             </Box>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                                Tune to beacon → markers show on waterfall → AFC auto-corrects
-                            </Typography>
+                            {beaconPeaks && beaconPeaks.length >= 2 && (
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <Typography variant="caption" color="text.secondary">Dual Tone</Typography>
+                                    <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                                        {beaconPeaks[0].toFixed(0)} / {beaconPeaks[1].toFixed(0)} Hz
+                                    </Typography>
+                                </Box>
+                            )}
                         </>
                     )}
 
