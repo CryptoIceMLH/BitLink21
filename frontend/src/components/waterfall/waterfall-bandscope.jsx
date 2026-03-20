@@ -605,15 +605,15 @@ const WaterfallAndBandscope = forwardRef(function WaterfallAndBandscope({
                 {/* Draggable resize handle between spectrum and waterfall */}
                 <Box
                     sx={{
-                        height: '6px',
+                        height: '8px',
                         cursor: 'row-resize',
                         backgroundColor: 'transparent',
                         '&:hover': { backgroundColor: theme.palette.primary.main, opacity: 0.5 },
+                        zIndex: 500,  // Above VFO canvas (400)
                         '&:active': { backgroundColor: theme.palette.primary.main, opacity: 0.8 },
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        zIndex: 10,
                         position: 'relative',
                     }}
                     onMouseDown={(e) => {
