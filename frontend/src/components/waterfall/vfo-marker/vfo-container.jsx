@@ -201,8 +201,7 @@ const VFOMarkersContainer = ({
     const [dragMode, setDragMode] = useState(null); // 'body', 'leftEdge', or 'rightEdge'
     const lastClientXRef = useRef(0);
     const lastTouchXRef = useRef(0);
-    //const height = bandscopeHeight + waterfallHeight;
-    const height = bandscopeHeight;
+    const height = bandscopeHeight + waterfallHeight;
     const [cursor, setCursor] = useState('default');
 
     // Track the previous VFO active state to detect changes
