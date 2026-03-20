@@ -19,6 +19,7 @@ import time
 import numpy as np
 from typing import Optional, Dict, Any, Callable
 from scipy import signal as sp_signal
+from dsp.iq_bridge import IQBridge
 
 logger = logging.getLogger("bitlink21-dsp")
 
@@ -270,12 +271,10 @@ class StreamingRXFlowgraph:
         self._tb = gr.top_block("BitLink21 Streaming RX")
 
         # ========================================
-        # IQ Source (fed externally via push method)
+        # IQ Source — fed from pyadi-iio via IQ bridge
         # ========================================
-        # Use a message-based source or a ring buffer
-        # For now: use blocks.vector_source_c placeholder
-        # In production: pyadi-iio feeds samples via a thread-safe queue
-        self._iq_source = blocks.vector_source_c([], repeat=False)
+        self._iq_bridge = IQBridge()
+        self._iq_source = self._iq_bridge.create_source(buffer_size=self.sample_rate)  # 1 second buffer
 
         # ========================================
         # Channel Filter — Elliptic IIR
@@ -355,6 +354,7 @@ class StreamingRXFlowgraph:
         if self.running:
             return
         self.build_flowgraph()
+        self._iq_bridge.start()
         self._tb.start()
         self.running = True
         logger.info("Streaming RX flowgraph started")
@@ -363,6 +363,8 @@ class StreamingRXFlowgraph:
         """Stop the streaming flowgraph."""
         if not self.running:
             return
+        if self._iq_bridge:
+            self._iq_bridge.stop()
         try:
             self._tb.stop()
             self._tb.wait()
@@ -373,11 +375,9 @@ class StreamingRXFlowgraph:
 
     def push_iq(self, samples):
         """Push IQ samples from pyadi-iio into the flowgraph."""
-        if not self.running or self._iq_source is None:
+        if not self.running or self._iq_bridge is None:
             return
-        # TODO: Replace vector_source_c with a proper streaming source
-        # that accepts pushed samples (e.g., blocks.message_source or custom block)
-        pass
+        self._iq_bridge.push_samples(samples)
 
     def set_filter_bandwidth(self, bandwidth_hz):
         """Change filter bandwidth at runtime."""

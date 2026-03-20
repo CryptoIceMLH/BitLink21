@@ -9,6 +9,7 @@ from bitlink21.ber_test import ber_test
 from bitlink21.test_tone import test_tone
 from bitlink21.tx_worker import tx_worker
 from pipeline.orchestration.processmanager import process_manager
+from dsp.qo100_manager import qo100_manager
 from common.logger import logger
 
 
@@ -464,6 +465,81 @@ async def test_tone_stop(
         return {"success": False, "error": str(e)}
 
 
+async def qo100_start(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Start QO-100 streaming DSP."""
+    try:
+        sample_rate = (data or {}).get("sample_rate", 1000000)
+        center_freq = (data or {}).get("center_freq", 739750000)
+
+        # Wire callbacks to Socket.IO
+        def on_beacon(status):
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                loop.call_soon_threadsafe(
+                    lambda: asyncio.ensure_future(sio.emit("bitlink21:beacon_status", status))
+                )
+            except Exception:
+                pass
+
+        def on_constellation(points):
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                loop.call_soon_threadsafe(
+                    lambda: asyncio.ensure_future(sio.emit("bitlink21:constellation_data", points))
+                )
+            except Exception:
+                pass
+
+        qo100_manager.on_beacon_status = on_beacon
+        qo100_manager.on_constellation = on_constellation
+
+        started = qo100_manager.start(sample_rate, center_freq)
+        if started:
+            return {"success": True, "data": qo100_manager.get_status()}
+        return {"success": False, "error": "Failed to start QO-100 DSP"}
+    except Exception as e:
+        logger.error(f"QO-100 start failed: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+async def qo100_stop(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Stop QO-100 streaming DSP."""
+    qo100_manager.stop()
+    return {"success": True}
+
+
+async def qo100_set_filter(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Set QO-100 RX filter bandwidth."""
+    bandwidth = (data or {}).get("bandwidth", 3600)
+    qo100_manager.set_filter(bandwidth)
+    return {"success": True, "data": {"bandwidth": bandwidth}}
+
+
+async def qo100_set_modulation(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Set QO-100 modem modulation and baudrate."""
+    modulation = (data or {}).get("modulation", "qpsk")
+    baudrate = (data or {}).get("baudrate", 4800)
+    qo100_manager.set_modulation(modulation, baudrate)
+    return {"success": True, "data": {"modulation": modulation, "baudrate": baudrate}}
+
+
+async def qo100_get_status(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Get QO-100 DSP status."""
+    return {"success": True, "data": qo100_manager.get_status()}
+
+
 def register_handlers(registry):
     """Register BitLink21 handlers with the command registry."""
     registry.register_batch(
@@ -493,5 +569,10 @@ def register_handlers(registry):
             "bitlink21:get_tx_status": (get_tx_status, "data_request"),
             "bitlink21:test_tone_start": (test_tone_start, "data_submission"),
             "bitlink21:test_tone_stop": (test_tone_stop, "data_submission"),
+            "bitlink21:qo100_start": (qo100_start, "data_submission"),
+            "bitlink21:qo100_stop": (qo100_stop, "data_submission"),
+            "bitlink21:qo100_set_filter": (qo100_set_filter, "data_submission"),
+            "bitlink21:qo100_set_modulation": (qo100_set_modulation, "data_submission"),
+            "bitlink21:qo100_get_status": (qo100_get_status, "data_request"),
         }
     )

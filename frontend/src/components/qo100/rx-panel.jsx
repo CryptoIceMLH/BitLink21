@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
+import { useSocket } from '../common/socket.jsx';
 import {
     Box, Typography, Paper, ToggleButtonGroup, ToggleButton,
     Select, MenuItem, FormControl, InputLabel, TextField, InputAdornment
@@ -14,9 +15,26 @@ const FILTER_PRESETS = [
 ];
 
 export default function RXPanel() {
+    const {socket} = useSocket();
     const [filterBw, setFilterBw] = useState(3600);
     const [modulation, setModulation] = useState('qpsk');
     const [baudrate, setBaudrate] = useState(4800);
+
+    // Send filter change to backend
+    useEffect(() => {
+        if (socket) {
+            socket.emit('data_submission', 'bitlink21:qo100_set_filter', { bandwidth: filterBw });
+        }
+    }, [filterBw, socket]);
+
+    // Send modulation change to backend
+    useEffect(() => {
+        if (socket) {
+            socket.emit('data_submission', 'bitlink21:qo100_set_modulation', {
+                modulation, baudrate
+            });
+        }
+    }, [modulation, baudrate, socket]);
 
     return (
         <Paper sx={{ p: 1.5, flex: 1, overflow: 'auto' }}>
