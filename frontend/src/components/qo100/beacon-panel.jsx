@@ -1,7 +1,8 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { useSelector } from 'react-redux';
-import { Box, Typography, Paper, Chip } from '@mui/material';
+import { Box, Typography, Paper, Chip, Button } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
+import { useSocket } from '../common/socket.jsx';
 
 const CANVAS_WIDTH = 400;
 const CANVAS_HEIGHT = 120;
@@ -12,15 +13,36 @@ const CANVAS_HEIGHT = 120;
  * Shows a zoomed-in spectrum centered on the beacon frequency.
  * Green shaded area shows the tracking window.
  * Circular indicator shows lock quality.
+ *
+ * Data flow: PlutoSDR worker → data_queue → processlifecycle →
+ *   Socket.IO "bitlink21:beacon_status" → Redux → this component
  */
 export default function BeaconPanel() {
     const theme = useTheme();
+    const {socket} = useSocket();
     const canvasRef = useRef(null);
-    const { beaconLockState, beaconOffset, beaconPhaseError } = useSelector(state => state.bitlink21);
+    const {
+        beaconLockState, beaconOffset, beaconPhaseError,
+        beaconSpectrum, beaconXoCorrection
+    } = useSelector(state => state.bitlink21);
     const { centerFrequency } = useSelector(state => state.waterfall);
 
     const lockColor = beaconLockState === 'LOCKED' ? '#4caf50' :
                       beaconLockState === 'TRACKING' ? '#ff9800' : '#f44336';
+
+    const handleBeaconToggle = useCallback(() => {
+        if (!socket) return;
+        if (beaconLockState === 'UNLOCKED') {
+            // Start beacon tracking — use center frequency as beacon freq
+            socket.emit('data_submission', 'bitlink21:beacon_start', {
+                beacon_freq_hz: centerFrequency || 0,
+                marker_low_hz: (centerFrequency || 0) - 2500,
+                marker_high_hz: (centerFrequency || 0) + 2500,
+            });
+        } else {
+            socket.emit('data_submission', 'bitlink21:beacon_stop', {});
+        }
+    }, [socket, beaconLockState, centerFrequency]);
 
     const drawBeaconSpectrum = useCallback(() => {
         const canvas = canvasRef.current;
@@ -51,23 +73,48 @@ export default function BeaconPanel() {
             ctx.stroke();
         }
 
-        // Simulated beacon spectrum (placeholder — will be fed from GNU Radio FFT)
+        // Draw spectrum — real data from backend if available, noise floor otherwise
         ctx.strokeStyle = lockColor;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        const cx = CANVAS_WIDTH / 2;
-        for (let x = 0; x < CANVAS_WIDTH; x++) {
-            const dist = Math.abs(x - cx);
-            const noise = Math.random() * 5;
-            const signal = dist < 20 ? 80 - dist * 2 : 0;
-            const y = CANVAS_HEIGHT - 10 - noise - signal;
-            if (x === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
+
+        if (beaconSpectrum && beaconSpectrum.length > 0) {
+            // Real FFT data from PlutoSDR worker beacon tracking
+            const numBins = beaconSpectrum.length;
+            const binWidth = CANVAS_WIDTH / numBins;
+
+            // Find min/max for auto-scaling
+            let minDb = Infinity, maxDb = -Infinity;
+            for (let i = 0; i < numBins; i++) {
+                const v = beaconSpectrum[i];
+                if (v < minDb) minDb = v;
+                if (v > maxDb) maxDb = v;
+            }
+            const rangeDb = Math.max(maxDb - minDb, 10);  // At least 10 dB range
+
+            for (let i = 0; i < numBins; i++) {
+                const x = i * binWidth;
+                // Scale: top of canvas = maxDb, bottom = minDb
+                const normalized = (beaconSpectrum[i] - minDb) / rangeDb;
+                const y = CANVAS_HEIGHT - 10 - normalized * (CANVAS_HEIGHT - 20);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+        } else {
+            // No beacon data — draw noise floor
+            const cx = CANVAS_WIDTH / 2;
+            for (let x = 0; x < CANVAS_WIDTH; x++) {
+                const noise = Math.random() * 3;
+                const y = CANVAS_HEIGHT - 15 - noise;
+                if (x === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
         }
         ctx.stroke();
 
         // Tracking window (green shaded)
         const windowWidth = 60;
+        const cx = CANVAS_WIDTH / 2;
         ctx.fillStyle = `${lockColor}15`;
         ctx.fillRect(cx - windowWidth / 2, 0, windowWidth, CANVAS_HEIGHT);
 
@@ -107,12 +154,15 @@ export default function BeaconPanel() {
         ctx.textAlign = 'left';
         ctx.fillText(`Offset: ${(beaconOffset || 0).toFixed(1)} Hz`, 5, CANVAS_HEIGHT - 5);
 
+        // XO correction text
+        ctx.fillText(`XO: ${beaconXoCorrection || 0} Hz`, 5, CANVAS_HEIGHT - 18);
+
         // Frequency label
         ctx.textAlign = 'right';
         if (centerFrequency) {
             ctx.fillText(`${(centerFrequency / 1e6).toFixed(3)} MHz`, CANVAS_WIDTH - 5, CANVAS_HEIGHT - 5);
         }
-    }, [beaconLockState, beaconOffset, lockColor, centerFrequency]);
+    }, [beaconLockState, beaconOffset, beaconXoCorrection, lockColor, centerFrequency, beaconSpectrum]);
 
     useEffect(() => {
         drawBeaconSpectrum();
@@ -129,15 +179,26 @@ export default function BeaconPanel() {
                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
                     BEACON LOCK
                 </Typography>
-                <Chip
-                    label={beaconLockState || 'UNLOCKED'}
-                    size="small"
-                    sx={{
-                        backgroundColor: `${lockColor}22`,
-                        color: lockColor,
-                        fontWeight: 700, fontSize: '0.65rem',
-                    }}
-                />
+                <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                    <Button
+                        size="small"
+                        variant={beaconLockState === 'UNLOCKED' ? 'outlined' : 'contained'}
+                        onClick={handleBeaconToggle}
+                        color={beaconLockState === 'LOCKED' ? 'success' : beaconLockState === 'TRACKING' ? 'warning' : 'primary'}
+                        sx={{ minWidth: 50, fontSize: '0.6rem', py: 0.2 }}
+                    >
+                        {beaconLockState === 'UNLOCKED' ? 'Start' : 'Stop'}
+                    </Button>
+                    <Chip
+                        label={beaconLockState || 'UNLOCKED'}
+                        size="small"
+                        sx={{
+                            backgroundColor: `${lockColor}22`,
+                            color: lockColor,
+                            fontWeight: 700, fontSize: '0.65rem',
+                        }}
+                    />
+                </Box>
             </Box>
             <canvas
                 ref={canvasRef}

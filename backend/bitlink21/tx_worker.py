@@ -224,10 +224,15 @@ class TXWorker:
 
                 # CSMA: check if channel is clear before transmitting
                 if csma.enabled:
-                    channel_clear = csma.sense_channel(
-                        np.zeros(100),  # TODO: get real FFT data from beacon_afc
-                        0, 100  # placeholder bin range
-                    )
+                    from bitlink21.beacon_afc import beacon_afc
+                    mini = beacon_afc.get_mini_spectrum()
+                    if mini and mini.get("power_db"):
+                        fft_data = np.array(mini["power_db"], dtype=np.float32)
+                        # Use entire mini-spectrum range for carrier sense
+                        channel_clear = csma.sense_channel(fft_data, 0, len(fft_data))
+                    else:
+                        # No FFT data available — assume clear (beacon not running)
+                        channel_clear = True
                     if not channel_clear:
                         logger.info(f"TX Worker: CSMA — channel busy, backing off")
                         self._stop_event.wait(0.5)

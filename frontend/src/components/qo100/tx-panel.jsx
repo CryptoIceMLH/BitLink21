@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
-    Box, Typography, Paper, Button, Slider, ToggleButtonGroup, ToggleButton,
-    TextField, InputAdornment
+    Box, Typography, Paper, Button, Slider,
 } from '@mui/material';
 import { useSocket } from '../common/socket.jsx';
 import { setPttActive, setTxGain } from '../bitlink21/bitlink21-slice.jsx';
@@ -11,29 +10,46 @@ export default function TXPanel() {
     const dispatch = useDispatch();
     const {socket} = useSocket();
     const { pttActive, txGain } = useSelector(state => state.bitlink21);
-    const [txPower, setTxPower] = useState(-10);
     const [toneActive, setToneActive] = useState(false);
 
-    const handlePtt = () => {
+    const handlePtt = useCallback(() => {
         const newState = !pttActive;
         dispatch(setPttActive(newState));
         if (socket) {
             socket.emit('data_submission', newState ? 'bitlink21:ptt_on' : 'bitlink21:ptt_off', {});
         }
-    };
+    }, [socket, pttActive, dispatch]);
 
-    const handleTestTone = () => {
+    const handleGainChange = useCallback((_, value) => {
+        dispatch(setTxGain(value));
+    }, [dispatch]);
+
+    // Send TX gain to backend when it changes (debounced via useEffect)
+    useEffect(() => {
+        if (!socket) return;
+        const timer = setTimeout(() => {
+            // Send gain to PlutoSDR worker via config_queue
+            socket.emit('data_submission', 'bitlink21:set_config', {
+                key: 'tx_gain_db', value: String(txGain),
+            });
+            // Also update the running SDR if streaming
+            socket.emit('sdr_config_update', { tx_gain: txGain });
+        }, 200);
+        return () => clearTimeout(timer);
+    }, [txGain, socket]);
+
+    const handleTestTone = useCallback(() => {
         if (!socket) return;
         if (toneActive) {
             socket.emit('data_submission', 'bitlink21:test_tone_stop', {});
             setToneActive(false);
         } else {
             socket.emit('data_submission', 'bitlink21:test_tone_start', {
-                tone_freq_hz: 1000, tx_gain_db: txPower,
+                tone_freq_hz: 1000, tx_gain_db: txGain,
             });
             setToneActive(true);
         }
-    };
+    }, [socket, toneActive, txGain]);
 
     return (
         <Paper sx={{ p: 1.5, flex: 1, overflow: 'auto' }}>
@@ -57,11 +73,11 @@ export default function TXPanel() {
 
             {/* TX Power */}
             <Typography variant="caption" color="text.secondary">
-                TX Power: {txPower} dB
+                TX Power: {txGain} dB
             </Typography>
             <Slider
-                value={txPower}
-                onChange={(_, v) => setTxPower(v)}
+                value={txGain}
+                onChange={handleGainChange}
                 min={-89.75} max={0} step={0.25}
                 size="small"
                 sx={{ mb: 1 }}
@@ -85,7 +101,7 @@ export default function TXPanel() {
                     {pttActive ? 'TRANSMITTING' : 'Standby'}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                    {txPower} dB
+                    {txGain} dB
                 </Typography>
             </Box>
         </Paper>

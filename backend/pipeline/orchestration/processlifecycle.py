@@ -950,8 +950,8 @@ class ProcessLifecycleManager:
                                 # FFT processor stats
                                 process_info["fft_stats"] = data.get("stats", {})
 
-                        elif data_type == "constellation":
-                            # Forward SSP modem constellation points to frontend
+                        elif data_type in ("constellation", "constellation_data"):
+                            # Forward constellation points (from SSP modem or QO-100 DSP)
                             await self.sio.emit("bitlink21:constellation_data",
                                 data.get("points", []), room=sdr_id)
 
@@ -964,12 +964,16 @@ class ProcessLifecycleManager:
                             }, room=sdr_id)
 
                         elif data_type == "beacon_status":
-                            # Forward beacon tracking status to all clients via Socket.IO
-                            await self.sio.emit("bitlink21:beacon_status", {
+                            # Forward beacon tracking status + mini spectrum to all clients
+                            beacon_msg = {
                                 "lock_state": data.get("lock_state", "UNLOCKED"),
                                 "offset_hz": data.get("offset_hz", 0),
                                 "xo_correction": data.get("xo_correction", 0),
-                            }, room=sdr_id)
+                            }
+                            spectrum = data.get("spectrum")
+                            if spectrum:
+                                beacon_msg["spectrum"] = spectrum
+                            await self.sio.emit("bitlink21:beacon_status", beacon_msg, room=sdr_id)
 
                         elif data_type == QueueMessageTypes.STREAMING_START:
                             # Send streaming status to all clients connected to this SDR

@@ -6,7 +6,6 @@ from bitlink21.storage import storage
 from bitlink21.beacon_afc import beacon_afc
 from bitlink21.modem import get_scheme_list
 from bitlink21.ber_test import ber_test
-from bitlink21.test_tone import test_tone
 from bitlink21.tx_worker import tx_worker
 from pipeline.orchestration.processmanager import process_manager
 from dsp.qo100_manager import qo100_manager
@@ -312,8 +311,9 @@ async def beacon_config(
 async def get_beacon_status(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
-    """Get current beacon status."""
-    return {"success": True, "data": {"lock_state": "UNLOCKED", "offset_hz": 0}}
+    """Get current beacon status from beacon_afc module."""
+    status = beacon_afc.get_status()
+    return {"success": True, "data": status}
 
 
 async def get_modem_schemes(
@@ -548,8 +548,9 @@ async def qo100_set_modulation(
 async def qo100_get_status(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
-    """Get QO-100 DSP status."""
-    return {"success": True, "data": {"running": False}}
+    """Get QO-100 DSP status from the manager singleton."""
+    status = qo100_manager.get_status()
+    return {"success": True, "data": status}
 
 
 def register_handlers(registry):

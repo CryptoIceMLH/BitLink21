@@ -226,6 +226,8 @@ const bitlink21Slice = createSlice({
         beaconLockState: 'UNLOCKED',
         beaconOffset: 0,
         beaconPhaseError: 0,
+        beaconSpectrum: null,  // Array of dB values from beacon FFT
+        beaconXoCorrection: 0,
 
         // Constellation
         constellationPoints: [],
@@ -241,10 +243,12 @@ const bitlink21Slice = createSlice({
             state.txGain = action.payload;
         },
         updateBeaconStatus(state, action) {
-            const { lock_state, offset_hz, phase_error_deg } = action.payload;
+            const { lock_state, offset_hz, phase_error_deg, xo_correction, spectrum } = action.payload;
             if (lock_state !== undefined) state.beaconLockState = lock_state;
             if (offset_hz !== undefined) state.beaconOffset = offset_hz;
             if (phase_error_deg !== undefined) state.beaconPhaseError = phase_error_deg;
+            if (xo_correction !== undefined) state.beaconXoCorrection = xo_correction;
+            if (spectrum !== undefined) state.beaconSpectrum = spectrum;
         },
         updateConstellationPoints(state, action) {
             state.constellationPoints = action.payload;

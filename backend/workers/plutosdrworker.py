@@ -462,6 +462,31 @@ def plutosdr_worker_process(
                                 qo100_flowgraph.modulation = new_config["qo100_modulation"]
                             if "qo100_baudrate" in new_config:
                                 qo100_flowgraph.baudrate = new_config["qo100_baudrate"]
+
+                            # Wire callbacks to data_queue so data reaches Socket.IO
+                            def _on_constellation(points):
+                                try:
+                                    data_queue.put({
+                                        "type": "constellation_data",
+                                        "points": points,
+                                    })
+                                except Exception:
+                                    pass
+
+                            def _on_decoded(frame_bytes):
+                                try:
+                                    data_queue.put({
+                                        "type": "decoded_frame",
+                                        "data": frame_bytes.hex(),
+                                        "length": len(frame_bytes),
+                                    })
+                                except Exception:
+                                    pass
+
+                            qo100_flowgraph.on_constellation = _on_constellation
+                            qo100_flowgraph.on_decoded = _on_decoded
+                            # Audio goes to existing demod audio path (via audio_queue if needed)
+
                             qo100_flowgraph.start()
                             logger.info("QO-100 streaming DSP started in PlutoSDR worker")
                         except Exception as e:
@@ -699,12 +724,20 @@ def plutosdr_worker_process(
                                 beacon_lock_state = "TRACKING"
                                 beacon_lock_count = 0
 
-                            # Send status to main process
+                            # Extract mini-spectrum around beacon (±5 kHz)
+                            beacon_view_bins = int(5000 / freq_resolution)
+                            beacon_center_bin = int((float(beacon_freq) - start_freq) / freq_resolution)
+                            spec_low = max(0, beacon_center_bin - beacon_view_bins)
+                            spec_high = min(fft_size_beacon, beacon_center_bin + beacon_view_bins)
+                            mini_spectrum = fft_db[spec_low:spec_high].tolist() if spec_low < spec_high else []
+
+                            # Send status + spectrum to main process
                             data_queue.put({
                                 "type": "beacon_status",
                                 "lock_state": beacon_lock_state,
                                 "offset_hz": round(beacon_offset_hz, 1),
                                 "xo_correction": beacon_xo_correction,
+                                "spectrum": mini_spectrum,
                             })
 
                     except Exception as e:

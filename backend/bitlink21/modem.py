@@ -192,8 +192,10 @@ def _generate_constellation(scheme: ModScheme) -> np.ndarray:
         # M-ASK on real axis
         return np.array([(2 * i - M + 1) / (M - 1) for i in range(M)], dtype=complex)
     elif family == "FSK":
-        # FSK uses frequency deviation, not constellation — return dummy
-        return np.exp(1j * 2 * np.pi * np.arange(M) / M)
+        # FSK uses frequency deviation — map each symbol to a phase point
+        # on the unit circle for visualization purposes (the actual
+        # demodulation uses a frequency discriminator, not constellation ML)
+        return np.exp(1j * 2 * np.pi * np.arange(M) / M).astype(complex)
     else:
         # Fallback to PSK
         return np.exp(1j * 2 * np.pi * np.arange(M) / M)
@@ -346,15 +348,165 @@ class Demodulator:
 # FEC — Forward Error Correction
 # ---------------------------------------------------------------------------
 
+class ConvolutionalEncoder:
+    """
+    K=7, R=1/2 convolutional encoder (NASA Voyager / CCSDS standard).
+
+    Polynomials: G1=0o171 (0x79=121), G2=0o133 (0x5B=91)
+    Constraint length: K=7 (6 memory elements)
+    Rate: 1/2 (2 output bits per input bit)
+
+    This matches the industry standard used by QO100_Transceiver and
+    GNU Radio's cc_encoder with K=7, rate=2, polys=[79, 109].
+    """
+    POLY_G1 = 0b1111001  # 0o171 = 121
+    POLY_G2 = 0b1011011  # 0o133 = 91
+    K = 7
+    MASK = (1 << K) - 1  # 0x7F
+
+    def encode(self, data: bytes) -> bytes:
+        """Encode bytes → convolutionally encoded bytes (rate 1/2)."""
+        # Unpack input to bits
+        in_bits = []
+        for byte in data:
+            for b in range(7, -1, -1):
+                in_bits.append((byte >> b) & 1)
+
+        # Add K-1 tail bits to flush encoder
+        in_bits.extend([0] * (self.K - 1))
+
+        state = 0
+        out_bits = []
+        for bit in in_bits:
+            state = ((state << 1) | bit) & self.MASK
+            # XOR parity for each polynomial
+            g1 = bin(state & self.POLY_G1).count('1') % 2
+            g2 = bin(state & self.POLY_G2).count('1') % 2
+            out_bits.append(g1)
+            out_bits.append(g2)
+
+        # Pack output bits to bytes
+        while len(out_bits) % 8 != 0:
+            out_bits.append(0)
+        result = bytearray()
+        for i in range(0, len(out_bits), 8):
+            byte = 0
+            for b in range(8):
+                byte = (byte << 1) | out_bits[i + b]
+            result.append(byte)
+        return bytes(result)
+
+
+class ViterbiDecoder:
+    """
+    K=7, R=1/2 Viterbi decoder — hard decision.
+
+    Matches the ConvolutionalEncoder polynomials.
+    Uses path metric + traceback for maximum likelihood decoding.
+    """
+    POLY_G1 = 0b1111001
+    POLY_G2 = 0b1011011
+    K = 7
+    NUM_STATES = 1 << 6  # 2^(K-1) = 64 states
+    TRACEBACK_DEPTH = 35  # 5x constraint length
+
+    def __init__(self):
+        # Pre-compute expected outputs for each state transition
+        self._expected = {}  # (state, input_bit) → (g1, g2)
+        for state in range(self.NUM_STATES):
+            for inp in (0, 1):
+                full_state = ((state << 1) | inp) & ((1 << self.K) - 1)
+                g1 = bin(full_state & self.POLY_G1).count('1') % 2
+                g2 = bin(full_state & self.POLY_G2).count('1') % 2
+                self._expected[(state, inp)] = (g1, g2)
+
+    def decode(self, data: bytes, num_output_bytes: int = 0) -> bytes:
+        """Decode convolutionally encoded bytes back to original data."""
+        # Unpack to bits (pairs of G1, G2)
+        in_bits = []
+        for byte in data:
+            for b in range(7, -1, -1):
+                in_bits.append((byte >> b) & 1)
+
+        num_pairs = len(in_bits) // 2
+
+        # Viterbi algorithm
+        INF = 999999
+        path_metric = [INF] * self.NUM_STATES
+        path_metric[0] = 0
+        traceback = []  # traceback[step][state] = (prev_state, input_bit)
+
+        for step in range(num_pairs):
+            r1 = in_bits[step * 2]
+            r2 = in_bits[step * 2 + 1]
+
+            new_metric = [INF] * self.NUM_STATES
+            tb_step = [None] * self.NUM_STATES
+
+            for prev_state in range(self.NUM_STATES):
+                if path_metric[prev_state] >= INF:
+                    continue
+                for inp in (0, 1):
+                    next_state = ((prev_state << 1) | inp) & (self.NUM_STATES - 1)
+                    e1, e2 = self._expected[(prev_state, inp)]
+                    # Hamming distance (hard decision)
+                    branch_metric = (r1 ^ e1) + (r2 ^ e2)
+                    total = path_metric[prev_state] + branch_metric
+
+                    if total < new_metric[next_state]:
+                        new_metric[next_state] = total
+                        tb_step[next_state] = (prev_state, inp)
+
+            path_metric = new_metric
+            traceback.append(tb_step)
+
+        # Traceback from state 0 (flushed encoder ends at state 0)
+        state = 0
+        decoded_bits = []
+        for step in range(len(traceback) - 1, -1, -1):
+            if traceback[step][state] is None:
+                decoded_bits.append(0)
+                continue
+            prev_state, inp = traceback[step][state]
+            decoded_bits.append(inp)
+            state = prev_state
+
+        decoded_bits.reverse()
+
+        # Remove K-1 tail bits
+        if len(decoded_bits) >= self.K - 1:
+            decoded_bits = decoded_bits[:-(self.K - 1)]
+
+        # Pack bits to bytes
+        if num_output_bytes > 0:
+            decoded_bits = decoded_bits[:num_output_bytes * 8]
+        while len(decoded_bits) % 8 != 0:
+            decoded_bits.append(0)
+
+        result = bytearray()
+        for i in range(0, len(decoded_bits), 8):
+            byte = 0
+            for b in range(8):
+                byte = (byte << 1) | decoded_bits[i + b]
+            result.append(byte)
+        return bytes(result)
+
+
 class FECEncoder:
     """
-    Concatenated FEC encoder: RS(255,223) outer + Conv(V27, R3/4) inner.
-    Falls back to pure Python implementation when GNU Radio is not available.
+    Concatenated FEC encoder: RS(255,223) outer + Conv(K=7, R=1/2) inner.
+
+    This is the standard CCSDS/DVB-S concatenated coding scheme:
+    1. Reed-Solomon RS(255,223) — corrects up to 16 symbol errors
+    2. Convolutional K=7 R=1/2 — provides ~5 dB coding gain at BER 1e-5
+
+    Combined code rate: (223/255) * (1/2) ≈ 0.437
     """
 
     def __init__(self, use_fec: bool = True):
         self.use_fec = use_fec
         self._rs_encoder = None
+        self._conv_encoder = ConvolutionalEncoder()
         if use_fec:
             try:
                 import reedsolo
@@ -364,7 +516,7 @@ class FECEncoder:
                 logger.warning("FEC: reedsolo not available, RS encoding disabled")
 
     def encode(self, data: bytes) -> bytes:
-        """Apply FEC encoding to data."""
+        """Apply FEC encoding: RS outer → convolutional inner."""
         if not self.use_fec:
             return data
 
@@ -373,27 +525,31 @@ class FECEncoder:
         if self._rs_encoder:
             encoded = bytes(self._rs_encoder.encode(encoded))
 
-        # Inner code: Rate 3/4 repetition (simplified — real impl uses Viterbi)
-        # For now, simple 4/3 repetition code as placeholder
-        # TODO: Replace with proper convolutional coder when GNU Radio is available
+        # Inner code: Convolutional K=7 R=1/2
+        encoded = self._conv_encoder.encode(encoded)
+
         return encoded
 
     def get_rate(self) -> float:
         """Return effective code rate."""
         if not self.use_fec:
             return 1.0
-        # RS(255,223) rate = 223/255 ≈ 0.875
-        # Conv R3/4 rate = 0.75
-        # Combined ≈ 0.656
-        return 223.0 / 255.0  # RS only for now
+        rs_rate = 223.0 / 255.0 if self._rs_encoder else 1.0
+        conv_rate = 0.5  # R=1/2
+        return rs_rate * conv_rate
 
 
 class FECDecoder:
-    """Concatenated FEC decoder."""
+    """
+    Concatenated FEC decoder: Viterbi inner → RS outer.
+
+    Decode order is reverse of encode: inner first, then outer.
+    """
 
     def __init__(self, use_fec: bool = True):
         self.use_fec = use_fec
         self._rs_decoder = None
+        self._viterbi = ViterbiDecoder()
         if use_fec:
             try:
                 import reedsolo
@@ -402,18 +558,20 @@ class FECDecoder:
             except ImportError:
                 logger.warning("FEC: reedsolo not available, RS decoding disabled")
 
-    def decode(self, data: bytes) -> Tuple[bytes, int]:
+    def decode(self, data: bytes, original_length: int = 0) -> Tuple[bytes, int]:
         """
-        Apply FEC decoding.
+        Apply FEC decoding: Viterbi inner → RS outer.
         Returns (decoded_data, num_errors_corrected).
+        num_errors_corrected = -1 means uncorrectable.
         """
         if not self.use_fec:
             return data, 0
 
         errors = 0
 
-        # Inner code decode (placeholder — no conv decode yet)
-        decoded = data
+        # Inner code: Viterbi decode (conv K=7 R=1/2)
+        # Estimate original length: conv R=1/2 doubles the data, plus tail bits
+        decoded = self._viterbi.decode(data, num_output_bytes=original_length if original_length > 0 else 0)
 
         # Outer code: RS decode
         if self._rs_decoder:

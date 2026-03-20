@@ -17,7 +17,7 @@ import logging
 import threading
 import time
 import numpy as np
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, List
 from scipy import signal as sp_signal
 from dsp.iq_bridge import IQBridge
 
@@ -64,6 +64,7 @@ class BeaconTracker(gr.sync_block):
         self.lock_state = "UNLOCKED"
         self.lock_count = 0
         self.offset_hz = 0.0
+        self._fft_spectrum = None  # Last FFT spectrum for mini-spectrum display
 
     def work(self, input_items, output_items):
         """Process incoming IQ samples."""
@@ -82,7 +83,10 @@ class BeaconTracker(gr.sync_block):
         """FFT peak detection — matches QO100_Transceiver beacon lock."""
         try:
             # FFT
-            fft_data = np.abs(np.fft.fftshift(np.fft.fft(samples)))
+            fft_complex = np.fft.fftshift(np.fft.fft(samples))
+            fft_data = np.abs(fft_complex)
+            fft_db = 20 * np.log10(fft_data + 1e-10)
+            self._fft_spectrum = fft_db.tolist()
 
             # Find peak
             peak_idx = np.argmax(fft_data)
@@ -123,11 +127,16 @@ class BeaconTracker(gr.sync_block):
                 self.callback({
                     "lock_state": self.lock_state,
                     "offset_hz": round(self.offset_hz, 1),
-                    "peak_db": 20 * np.log10(peak_val + 1e-10),
+                    "peak_db": float(20 * np.log10(peak_val + 1e-10)),
+                    "spectrum": self._fft_spectrum,
                 })
 
         except Exception as e:
             logger.debug(f"Beacon FFT error: {e}")
+
+    def get_spectrum(self) -> Optional[List[float]]:
+        """Return last FFT spectrum for mini-spectrum display."""
+        return self._fft_spectrum
 
 
 class ConstellationProbe(gr.sync_block):
@@ -154,8 +163,9 @@ class ConstellationProbe(gr.sync_block):
         samples = input_items[0]
         output_items[0][:] = samples
 
-        # Collect points
-        self.points.extend(samples.tolist())
+        # Collect points (downsample: take every Nth to avoid overwhelming)
+        step = max(1, len(samples) // 20)
+        self.points.extend(samples[::step].tolist())
         if len(self.points) > self.max_points:
             self.points = self.points[-self.max_points:]
 
@@ -172,6 +182,74 @@ class ConstellationProbe(gr.sync_block):
         return len(samples)
 
 
+class AudioDrainBlock(gr.sync_block):
+    """
+    GNU Radio sink block that drains audio samples and forwards them
+    via a callback to the existing audio broadcaster queue.
+    """
+
+    def __init__(self, callback=None, chunk_size=1024):
+        gr.sync_block.__init__(
+            self, name="AudioDrain",
+            in_sig=[np.float32], out_sig=None
+        )
+        self.callback = callback
+        self.chunk_size = chunk_size
+        self.buffer = np.array([], dtype=np.float32)
+
+    def work(self, input_items, output_items):
+        """Drain audio samples and forward to callback."""
+        samples = input_items[0]
+        if self.callback is None:
+            return len(samples)
+
+        self.buffer = np.concatenate([self.buffer, samples])
+        while len(self.buffer) >= self.chunk_size:
+            chunk = self.buffer[:self.chunk_size]
+            self.buffer = self.buffer[self.chunk_size:]
+            try:
+                self.callback(chunk)
+            except Exception as e:
+                logger.debug(f"Audio callback error: {e}")
+
+        return len(samples)
+
+
+class DataDrainBlock(gr.sync_block):
+    """
+    GNU Radio sink block that collects decoded bytes and forwards
+    them to a callback for SSP frame reassembly.
+    """
+
+    def __init__(self, callback=None, frame_size=219):
+        gr.sync_block.__init__(
+            self, name="DataDrain",
+            in_sig=[np.uint8], out_sig=None
+        )
+        self.callback = callback
+        self.frame_size = frame_size
+        self.buffer = bytearray()
+
+    def work(self, input_items, output_items):
+        """Collect decoded bytes and forward complete frames."""
+        data = input_items[0]
+        if self.callback is None:
+            return len(data)
+
+        self.buffer.extend(data.tobytes())
+
+        # Forward complete frames
+        while len(self.buffer) >= self.frame_size:
+            frame = bytes(self.buffer[:self.frame_size])
+            self.buffer = self.buffer[self.frame_size:]
+            try:
+                self.callback(frame)
+            except Exception as e:
+                logger.debug(f"Data callback error: {e}")
+
+        return len(data)
+
+
 class StreamingRXFlowgraph:
     """
     Persistent streaming RX flowgraph for QO-100 operation.
@@ -181,7 +259,7 @@ class StreamingRXFlowgraph:
 
     Signal chain:
     IQ input → Channel Filter (elliptic IIR) → Polyphase Resampler →
-      ├── SSB Demodulator → Audio output
+      ├── SSB Demodulator → Audio output (→ audio broadcaster queue)
       └── Modem: AGC → Symbol Sync → Costas Loop → Constellation Decoder → Data output
     """
 
@@ -195,9 +273,9 @@ class StreamingRXFlowgraph:
         self._tb = None
         self._thread = None
 
-        # Callbacks
+        # Callbacks — set by caller before start()
         self.on_audio = None        # (float32 array) → audio samples
-        self.on_decoded = None      # (bytes) → decoded data
+        self.on_decoded = None      # (bytes) → decoded data frame
         self.on_constellation = None  # (list of {I, Q}) → constellation points
         self.on_beacon_status = None  # (dict) → beacon lock status
 
@@ -220,7 +298,12 @@ class StreamingRXFlowgraph:
         )
 
     def _design_elliptic_filter(self, bandwidth, sample_rate):
-        """Design elliptic IIR filter — matches QO100_Transceiver."""
+        """
+        Design elliptic IIR filter — matches QO100_Transceiver.
+
+        Returns (b, a) coefficient lists suitable for GNU Radio iir_filter_ccf
+        with oldstyle=False (scipy convention).
+        """
         normalized_cutoff = bandwidth / (sample_rate / 2.0)
         normalized_cutoff = min(0.9, max(0.01, normalized_cutoff))
 
@@ -234,8 +317,14 @@ class StreamingRXFlowgraph:
         return b.tolist(), a.tolist()
 
     def _get_constellation(self, modulation):
-        """Get GNU Radio constellation object for modulation type."""
+        """
+        Get GNU Radio constellation object for modulation type.
+
+        Returns (constellation_object, costas_loop_order).
+        """
         mod = modulation.lower()
+
+        # Built-in convenience constellations
         if mod == 'bpsk':
             return digital.constellation_bpsk().base(), 2
         elif mod == 'qpsk':
@@ -247,23 +336,126 @@ class StreamingRXFlowgraph:
         elif mod == '16qam':
             return digital.constellation_16qam().base(), 4
         else:
-            # Generic PSK/QAM
-            if 'psk' in mod:
+            # Generic PSK — use psk_constellation helper
+            if 'psk' in mod or 'dpsk' in mod:
                 order = int(''.join(c for c in mod if c.isdigit()) or '4')
-                pts = [np.exp(1j * 2 * np.pi * i / order) for i in range(order)]
-                return digital.constellation_psk(pts, list(range(order)), order), min(order, 8)
-            elif 'qam' in mod:
+                # Generate PSK points on unit circle
+                points = [complex(np.cos(2 * np.pi * i / order),
+                                  np.sin(2 * np.pi * i / order))
+                          for i in range(order)]
+                # constellation_calcdist: general-purpose, computes decision boundaries
+                const = digital.constellation_calcdist(
+                    points, list(range(order)), 0, 1
+                )
+                costas_order = min(order, 8)
+                return const.base(), costas_order
+
+            elif 'qam' in mod or 'sqam' in mod:
                 order = int(''.join(c for c in mod if c.isdigit()) or '16')
-                k = int(np.sqrt(order))
-                pts = [complex(2*x - k + 1, 2*y - k + 1) for x in range(k) for y in range(k)]
-                pts = pts[:order]
-                avg = np.sqrt(np.mean([abs(p)**2 for p in pts]))
-                pts = [p / avg for p in pts]
-                return digital.constellation_rect(
-                    pts, list(range(order)), 4,
-                    int(np.sqrt(order)), int(np.sqrt(order)), 1, 1
-                ), 4
+                k = int(np.ceil(np.sqrt(order)))
+                points = []
+                for x in range(k):
+                    for y in range(k):
+                        if len(points) < order:
+                            points.append(complex(2 * x - k + 1, 2 * y - k + 1))
+                # Normalize average power to 1
+                avg = np.sqrt(np.mean([abs(p)**2 for p in points]))
+                if avg > 0:
+                    points = [p / avg for p in points]
+                const = digital.constellation_calcdist(
+                    points, list(range(order)), 0, 1
+                )
+                return const.base(), 4
+
+            elif 'ask' in mod or mod == 'ook':
+                order = int(''.join(c for c in mod if c.isdigit()) or '2')
+                if order < 2:
+                    order = 2
+                # ASK: real-valued constellation on I axis
+                points = [complex((2 * i - order + 1) / max(order - 1, 1), 0)
+                          for i in range(order)]
+                const = digital.constellation_calcdist(
+                    points, list(range(order)), 0, 1
+                )
+                return const.base(), 2
+
+            elif 'apsk' in mod:
+                order = int(''.join(c for c in mod if c.isdigit()) or '16')
+                # DVB-S2 style APSK: inner ring + outer ring
+                if order <= 4:
+                    points = [complex(np.cos(2 * np.pi * i / order),
+                                      np.sin(2 * np.pi * i / order))
+                              for i in range(order)]
+                elif order <= 16:
+                    # 4+12 APSK (DVB-S2 standard)
+                    inner = 4
+                    outer = order - inner
+                    r1 = 1.0
+                    r2 = 2.5  # Standard DVB-S2 ring ratio
+                    points = []
+                    for i in range(inner):
+                        points.append(complex(
+                            r1 * np.cos(2 * np.pi * i / inner + np.pi / 4),
+                            r1 * np.sin(2 * np.pi * i / inner + np.pi / 4)))
+                    for i in range(outer):
+                        points.append(complex(
+                            r2 * np.cos(2 * np.pi * i / outer),
+                            r2 * np.sin(2 * np.pi * i / outer)))
+                else:
+                    # Higher order: 4+12+16 rings
+                    r1, r2, r3 = 1.0, 2.5, 4.3
+                    points = []
+                    for i in range(4):
+                        points.append(complex(
+                            r1 * np.cos(2 * np.pi * i / 4 + np.pi / 4),
+                            r1 * np.sin(2 * np.pi * i / 4 + np.pi / 4)))
+                    for i in range(12):
+                        points.append(complex(
+                            r2 * np.cos(2 * np.pi * i / 12),
+                            r2 * np.sin(2 * np.pi * i / 12)))
+                    remaining = order - 16
+                    if remaining < 1:
+                        remaining = 16
+                    for i in range(remaining):
+                        points.append(complex(
+                            r3 * np.cos(2 * np.pi * i / remaining),
+                            r3 * np.sin(2 * np.pi * i / remaining)))
+                    points = points[:order]
+                # Normalize
+                avg = np.sqrt(np.mean([abs(p)**2 for p in points]))
+                if avg > 0:
+                    points = [p / avg for p in points]
+                const = digital.constellation_calcdist(
+                    points, list(range(len(points))), 0, 1
+                )
+                return const.base(), 4
+
+            elif 'fsk' in mod or mod == 'gmsk':
+                # FSK/GMSK: use BPSK constellation as carrier lock reference,
+                # actual demod done by frequency discriminator (separate path)
+                return digital.constellation_bpsk().base(), 2
+
+            elif mod == 'v29':
+                # V.29 modem: 16-point constellation (ITU-T V.29)
+                points = [
+                    complex(1, 0), complex(0, 1), complex(-1, 0), complex(0, -1),
+                    complex(3, 0), complex(0, 3), complex(-3, 0), complex(0, -3),
+                    complex(1, 1), complex(-1, 1), complex(-1, -1), complex(1, -1),
+                    complex(3, 3), complex(-3, 3), complex(-3, -3), complex(3, -3),
+                ]
+                avg = np.sqrt(np.mean([abs(p)**2 for p in points]))
+                points = [p / avg for p in points]
+                const = digital.constellation_calcdist(
+                    points, list(range(16)), 0, 1
+                )
+                return const.base(), 4
+
+            elif mod == 'pi4dqpsk':
+                # π/4-DQPSK
+                return digital.constellation_dqpsk().base(), 4
+
             else:
+                # Fallback to QPSK
                 return digital.constellation_qpsk().base(), 4
 
     def build_flowgraph(self):
@@ -278,9 +470,10 @@ class StreamingRXFlowgraph:
 
         # ========================================
         # Channel Filter — Elliptic IIR
+        # oldstyle=False because we use scipy-generated taps (standard convention)
         # ========================================
         b, a = self._design_elliptic_filter(self.filter_bw, self.sample_rate)
-        self._channel_filter = gr_filter.iir_filter_ccf(b, a)
+        self._channel_filter = gr_filter.iir_filter_ccf(b, a, False)
 
         # ========================================
         # Polyphase Resampler — decimate to audio rate
@@ -294,10 +487,11 @@ class StreamingRXFlowgraph:
         self._resampler = gr_filter.pfb_arb_resampler_ccf(decimation_rate, resampler_taps, nfilts)
 
         # ========================================
-        # Audio Path — complex to real (USB demod)
+        # Audio Path — complex to real (USB demod) → callback sink
+        # Routes audio to the existing audio broadcaster queue
         # ========================================
         self._complex_to_real = blocks.complex_to_real(1)
-        self._audio_sink = blocks.vector_sink_f()  # Placeholder — replace with actual audio output
+        self._audio_sink = AudioDrainBlock(callback=self.on_audio, chunk_size=1024)
 
         # ========================================
         # Modem Path — AGC → Symbol Sync → Costas → Decoder
@@ -328,7 +522,9 @@ class StreamingRXFlowgraph:
         )
 
         self._decoder = digital.constellation_decoder_cb(constellation)
-        self._data_sink = blocks.vector_sink_b()
+
+        # Data sink — forwards decoded bytes to callback for SSP frame reassembly
+        self._data_sink = DataDrainBlock(callback=self.on_decoded, frame_size=219)
 
         # ========================================
         # Connect the flowgraph
@@ -336,10 +532,10 @@ class StreamingRXFlowgraph:
         # IQ → Filter → Resample
         self._tb.connect(self._iq_source, self._channel_filter, self._resampler)
 
-        # Audio path: Resample → Complex to Real → Audio Sink
+        # Audio path: Resample → Complex to Real → Audio Drain (→ broadcaster)
         self._tb.connect(self._resampler, self._complex_to_real, self._audio_sink)
 
-        # Modem path: Resample → AGC → Symbol Sync → Constellation Probe → Costas → Decoder → Data Sink
+        # Modem path: Resample → AGC → Symbol Sync → Constellation Probe → Costas → Decoder → Data Drain
         self._tb.connect(self._resampler, self._agc, self._symbol_sync,
                          self._constellation_probe, self._costas, self._decoder, self._data_sink)
 
@@ -380,7 +576,7 @@ class StreamingRXFlowgraph:
         self._iq_bridge.push_samples(samples)
 
     def set_filter_bandwidth(self, bandwidth_hz):
-        """Change filter bandwidth at runtime."""
+        """Change filter bandwidth at runtime (hot-swap via set_taps)."""
         self.filter_bw = bandwidth_hz
         if self.running and self._channel_filter:
             b, a = self._design_elliptic_filter(bandwidth_hz, self.sample_rate)
@@ -388,12 +584,10 @@ class StreamingRXFlowgraph:
             logger.info(f"Filter bandwidth updated: {bandwidth_hz} Hz")
 
     def set_modulation(self, modulation, baudrate=None):
-        """Change modulation scheme at runtime."""
+        """Change modulation scheme at runtime (requires flowgraph rebuild)."""
         self.modulation = modulation
         if baudrate:
             self.baudrate = baudrate
-        # Note: changing constellation in a running flowgraph requires
-        # rebuilding the modem chain. For now, stop/rebuild/start.
         if self.running:
             self.stop()
             self.start()
