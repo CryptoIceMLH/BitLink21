@@ -55,6 +55,7 @@ import MessagesPage from "./components/bitlink21/messages-page.jsx";
 import IdentityPage from "./components/bitlink21/identity-page.jsx";
 import BitcoinPage from "./components/bitlink21/bitcoin-page.jsx";
 import LightningPage from "./components/bitlink21/lightning-page.jsx";
+import QO100Layout from "./components/qo100/qo100-layout.jsx";
 
 
 const router = createBrowserRouter([
@@ -77,6 +78,10 @@ const router = createBrowserRouter([
                     {
                         path: "waterfall",
                         Component: MainLayout,
+                    },
+                    {
+                        path: "qo100",
+                        Component: QO100Layout,
                     },
                     {
                         path: "bitlink21",

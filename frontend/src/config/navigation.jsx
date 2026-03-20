@@ -271,6 +271,11 @@ export const getNavigation = () => [
         icon: <WaterfallIconWithStatus />,
     },
     {
+        segment: 'qo100',
+        title: 'QO-100',
+        icon: <RadioIcon />,
+    },
+    {
         segment: 'bitlink21/messages',
         title: i18n.t('messages', { ns: 'bitlink21', defaultValue: 'Messages' }),
         icon: <MessageIcon />,
