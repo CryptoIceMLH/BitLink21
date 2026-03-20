@@ -222,13 +222,10 @@ const bitlink21Slice = createSlice({
         txFreq: null,
         txGain: -20,
 
-        // Beacon AFC
-        beaconLockState: 'UNLOCKED',
+        // Beacon AFC — two-state: measuring (drift display) + correcting (auto-correct)
+        beaconMeasuring: false,
+        beaconCorrecting: false,
         beaconOffset: 0,
-        beaconPhaseError: 0,
-        beaconSpectrum: null,  // Array of dB values from beacon FFT
-        beaconNcoCorrection: 0,
-        beaconPeaks: [],  // Dual-tone peak frequencies [freqA, freqB]
 
         // Constellation
         constellationPoints: [],
@@ -244,13 +241,10 @@ const bitlink21Slice = createSlice({
             state.txGain = action.payload;
         },
         updateBeaconStatus(state, action) {
-            const { lock_state, offset_hz, phase_error_deg, nco_correction, spectrum, peaks } = action.payload;
-            if (lock_state !== undefined) state.beaconLockState = lock_state;
+            const { measuring, correcting, offset_hz } = action.payload;
+            if (measuring !== undefined) state.beaconMeasuring = measuring;
+            if (correcting !== undefined) state.beaconCorrecting = correcting;
             if (offset_hz !== undefined) state.beaconOffset = offset_hz;
-            if (phase_error_deg !== undefined) state.beaconPhaseError = phase_error_deg;
-            if (nco_correction !== undefined) state.beaconNcoCorrection = nco_correction;
-            if (spectrum !== undefined) state.beaconSpectrum = spectrum;
-            if (peaks !== undefined) state.beaconPeaks = peaks;
         },
         updateConstellationPoints(state, action) {
             state.constellationPoints = action.payload;

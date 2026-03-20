@@ -10,14 +10,14 @@ import LockIcon from '@mui/icons-material/Lock';
 import { fetchStats } from './bitlink21-slice.jsx';
 import { useSocket } from '../common/socket.jsx';
 
-const BeaconLockBadge = ({ state }) => {
-    const colors = { UNLOCKED: 'error', TRACKING: 'warning', LOCKED: 'success' };
-    const labels = { UNLOCKED: 'Unlocked', TRACKING: 'Tracking', LOCKED: 'Locked' };
+const BeaconLockBadge = ({ measuring, correcting }) => {
+    const color = correcting ? 'success' : measuring ? 'warning' : 'default';
+    const label = correcting ? 'Locked' : measuring ? 'Measuring' : 'Off';
     return (
         <Chip
             icon={<LockIcon />}
-            label={labels[state] || state}
-            color={colors[state] || 'default'}
+            label={label}
+            color={color}
             size="small"
             variant="outlined"
         />
@@ -39,7 +39,7 @@ const MetricCard = ({ label, value, unit, color }) => (
 export const StatsCompact = () => {
     const dispatch = useDispatch();
     const {socket} = useSocket();
-    const { stats, statsLoading, beaconLockState, beaconOffset } = useSelector(state => state.bitlink21);
+    const { stats, statsLoading, beaconMeasuring, beaconCorrecting, beaconOffset } = useSelector(state => state.bitlink21);
 
     useEffect(() => {
         if (!socket) return;
@@ -62,7 +62,7 @@ export const StatsCompact = () => {
                 />
             </Box>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                <BeaconLockBadge state={beaconLockState} />
+                <BeaconLockBadge measuring={beaconMeasuring} correcting={beaconCorrecting} />
                 {beaconOffset !== 0 && (
                     <Tooltip title="Beacon frequency offset">
                         <Chip
@@ -80,7 +80,7 @@ export const StatsCompact = () => {
 export const StatsFullPanel = () => {
     const dispatch = useDispatch();
     const {socket} = useSocket();
-    const { stats, beaconLockState, beaconOffset, beaconPhaseError, outbox } = useSelector(state => state.bitlink21);
+    const { stats, beaconMeasuring, beaconCorrecting, beaconOffset, outbox } = useSelector(state => state.bitlink21);
 
     useEffect(() => {
         if (!socket) return;
@@ -124,9 +124,8 @@ export const StatsFullPanel = () => {
                     Beacon AFC
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <BeaconLockBadge state={beaconLockState} />
-                    <MetricCard label="Offset" value={beaconOffset?.toFixed(1) || '0'} unit="Hz" />
-                    <MetricCard label="Phase Error" value={beaconPhaseError?.toFixed(2) || '0'} unit="deg" />
+                    <BeaconLockBadge measuring={beaconMeasuring} correcting={beaconCorrecting} />
+                    <MetricCard label="Drift" value={beaconOffset?.toFixed(1) || '0'} unit="Hz" />
                 </Box>
             </Box>
         </Box>

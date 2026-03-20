@@ -964,23 +964,14 @@ class ProcessLifecycleManager:
                             }, room=sdr_id)
 
                         elif data_type == "beacon_status":
-                            # Forward beacon status + spectrum + peaks to all clients
-                            # Also update the beacon_afc singleton for handler queries
+                            # Forward beacon status to all clients
                             from bitlink21.beacon_afc import beacon_afc
                             beacon_afc.update_from_worker(data)
-
-                            beacon_msg = {
-                                "lock_state": data.get("lock_state", "UNLOCKED"),
+                            await self.sio.emit("bitlink21:beacon_status", {
+                                "measuring": data.get("measuring", False),
+                                "correcting": data.get("correcting", False),
                                 "offset_hz": data.get("offset_hz", 0),
-                                "nco_correction": data.get("nco_correction", 0),
-                            }
-                            spectrum = data.get("spectrum")
-                            if spectrum:
-                                beacon_msg["spectrum"] = spectrum
-                            peaks = data.get("peaks")
-                            if peaks:
-                                beacon_msg["peaks"] = peaks
-                            await self.sio.emit("bitlink21:beacon_status", beacon_msg, room=sdr_id)
+                            }, room=sdr_id)
 
                         elif data_type == QueueMessageTypes.STREAMING_START:
                             # Send streaming status to all clients connected to this SDR

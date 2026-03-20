@@ -239,46 +239,73 @@ async def get_stats(
         return {"success": False, "error": str(e)}
 
 
-async def beacon_start(
+def _get_sdr_config_queue():
+    """Helper: get config_queue for the running SDR."""
+    running = process_manager.get_running_sdrs()
+    if not running:
+        return None
+    sdr_id = running[0]["sdr_id"]
+    return process_manager.processes.get(sdr_id, {}).get("config_queue")
+
+
+async def beacon_set_position(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
-    """Start beacon tracking in PlutoSDR worker process."""
+    """Step 1: Position beacon markers and start measuring drift (no correction)."""
     try:
-        # Send beacon config to PlutoSDR worker via config_queue
-        running = process_manager.get_running_sdrs()
-        if not running:
-            return {"success": False, "error": "No SDR running"}
-
-        sdr_id = running[0]["sdr_id"]
-        config_queue = process_manager.processes.get(sdr_id, {}).get("config_queue")
+        config_queue = _get_sdr_config_queue()
         if not config_queue:
-            return {"success": False, "error": "SDR config queue not available"}
-
+            return {"success": False, "error": "No SDR running"}
         config_queue.put({
-            "beacon_start": True,
+            "beacon_set_position": True,
             "beacon_freq": (data or {}).get("beacon_freq_hz", 0),
             "marker_low": (data or {}).get("marker_low_hz", 0),
             "marker_high": (data or {}).get("marker_high_hz", 0),
         })
-        logger.info(f"Beacon start command sent to PlutoSDR worker")
-        return {"success": True, "data": {"lock_state": "TRACKING"}}
+        return {"success": True, "data": {"measuring": True, "correcting": False}}
     except Exception as e:
-        logger.error(f"Failed to start beacon: {e}", exc_info=True)
+        logger.error(f"Failed to set beacon position: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+async def beacon_lock(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Step 2: Start correcting drift (requires position set first)."""
+    try:
+        config_queue = _get_sdr_config_queue()
+        if not config_queue:
+            return {"success": False, "error": "No SDR running"}
+        config_queue.put({"beacon_lock": True})
+        return {"success": True, "data": {"measuring": True, "correcting": True}}
+    except Exception as e:
+        logger.error(f"Failed to lock beacon: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+async def beacon_unlock(
+    sio: Any, data: Optional[Dict], logger: Any, sid: str
+) -> Dict[str, Union[bool, dict, str]]:
+    """Stop correcting but keep measuring."""
+    try:
+        config_queue = _get_sdr_config_queue()
+        if config_queue:
+            config_queue.put({"beacon_unlock": True})
+        return {"success": True, "data": {"measuring": True, "correcting": False}}
+    except Exception as e:
+        logger.error(f"Failed to unlock beacon: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
 
 async def beacon_stop(
     sio: Any, data: Optional[Dict], logger: Any, sid: str
 ) -> Dict[str, Union[bool, dict, str]]:
-    """Stop beacon tracking in PlutoSDR worker process."""
+    """Stop everything — hide markers, stop measuring."""
     try:
-        running = process_manager.get_running_sdrs()
-        if running:
-            sdr_id = running[0]["sdr_id"]
-            config_queue = process_manager.processes.get(sdr_id, {}).get("config_queue")
-            if config_queue:
-                config_queue.put({"beacon_stop": True})
-        return {"success": True, "data": {"lock_state": "UNLOCKED"}}
+        config_queue = _get_sdr_config_queue()
+        if config_queue:
+            config_queue.put({"beacon_stop": True})
+        return {"success": True, "data": {"measuring": False, "correcting": False}}
     except Exception as e:
         logger.error(f"Failed to stop beacon: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
@@ -568,7 +595,9 @@ def register_handlers(registry):
             "bitlink21:get_config": (get_config, "data_request"),
             "bitlink21:set_config": (set_config, "data_submission"),
             "bitlink21:get_stats": (get_stats, "data_request"),
-            "bitlink21:beacon_start": (beacon_start, "data_submission"),
+            "bitlink21:beacon_set_position": (beacon_set_position, "data_submission"),
+            "bitlink21:beacon_lock": (beacon_lock, "data_submission"),
+            "bitlink21:beacon_unlock": (beacon_unlock, "data_submission"),
             "bitlink21:beacon_stop": (beacon_stop, "data_submission"),
             "bitlink21:beacon_config": (beacon_config, "data_submission"),
             "bitlink21:get_beacon_status": (get_beacon_status, "data_request"),
