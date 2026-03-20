@@ -158,10 +158,14 @@ const VFOMarkersContainer = ({
 
     const handleBeaconMouseUp = useCallback(() => {
         if (beaconDragRef.current && beaconMarkers?.active && beaconSocket) {
-            // Send updated marker positions to backend (in IF space)
+            const lowIF = bcnRfToIF(beaconMarkers.lowFreq);
+            const highIF = bcnRfToIF(beaconMarkers.highFreq);
+            // Send updated marker positions AND new center frequency to backend
+            // so the NCO re-tunes to wherever the user dragged the markers
             beaconSocket.emit('data_submission', 'bitlink21:beacon_config', {
-                marker_low_hz: bcnRfToIF(beaconMarkers.lowFreq),
-                marker_high_hz: bcnRfToIF(beaconMarkers.highFreq),
+                marker_low_hz: lowIF,
+                marker_high_hz: highIF,
+                beacon_freq_hz: (lowIF + highIF) / 2,
             });
         }
         beaconDragRef.current = null;

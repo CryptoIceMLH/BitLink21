@@ -211,6 +211,7 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
             socket.emit('data_submission', 'bitlink21:beacon_config', {
                 marker_low_hz: rfToIF(centerFrequency - value),
                 marker_high_hz: rfToIF(centerFrequency + value),
+                beacon_freq_hz: rfToIF(centerFrequency),
             });
         }
     };

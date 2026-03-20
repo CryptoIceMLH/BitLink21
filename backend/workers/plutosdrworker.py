@@ -675,8 +675,15 @@ def plutosdr_worker_process(
                     if "beacon_config" in new_config:
                         beacon_marker_low = new_config.get("marker_low", beacon_marker_low)
                         beacon_marker_high = new_config.get("marker_high", beacon_marker_high)
-                        if "beacon_freq" in new_config:
-                            beacon_freq = new_config["beacon_freq"]
+                        if "beacon_freq" in new_config and new_config["beacon_freq"]:
+                            new_bcn_freq = new_config["beacon_freq"]
+                            if new_bcn_freq != beacon_freq:
+                                beacon_freq = new_bcn_freq
+                                # Reset NCO correction and sample buffer when user
+                                # repositions the beacon — don't fight the new position
+                                beacon_nco_correction = 0.0
+                                beacon_sample_buf = np.array([], dtype=np.complex64)
+                                logger.info(f"Beacon freq updated to {beacon_freq/1e6:.3f} MHz, NCO reset")
 
                     # BitLink21 test tone command
                     if "test_tone_start" in new_config:
