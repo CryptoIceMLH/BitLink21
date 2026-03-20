@@ -416,6 +416,35 @@ export const SSTV_PARAMETERS = {
  * Decoder support flags
  * Use this map to disable unsupported decoders in the UI.
  */
+export const QO100_PARAMETERS = {
+    qo100_modulation: {
+        label: 'Modulation',
+        description: 'Modulation scheme — select to match the signal',
+        type: 'select',
+        default: 'qpsk',
+        options: MODULATION_OPTIONS
+    },
+    qo100_baudrate: {
+        label: 'Baud Rate (symbols/sec)',
+        description: 'Enter any value — not limited to presets',
+        type: 'number',
+        default: 4800,
+        min: 50,
+        max: 200000,
+    },
+    qo100_framing: {
+        label: 'Framing Protocol',
+        description: 'Data framing — None for raw bytes',
+        type: 'select',
+        default: 'none',
+        options: [
+            { value: 'none', label: 'None (raw bytes)' },
+            { value: 'ax25', label: 'AX.25 (G3RUH)' },
+            { value: 'doka', label: 'CCSDS (Reed-Solomon)' },
+        ]
+    },
+};
+
 export const DECODER_SUPPORT = {
     sstv: true,
     fsk: true,
@@ -423,9 +452,10 @@ export const DECODER_SUPPORT = {
     gfsk: true,
     bpsk: true,
     apt: true,
-    lora: false,
-    morse: false,
-    afsk: false
+    lora: true,
+    morse: true,
+    afsk: true,
+    qo100: true,
 };
 
 /**
@@ -499,7 +529,8 @@ export const DECODER_PARAMETERS = {
     ...GFSK_PARAMETERS,
     ...BPSK_PARAMETERS,
     ...AFSK_PARAMETERS,
-    ...SSTV_PARAMETERS
+    ...SSTV_PARAMETERS,
+    ...QO100_PARAMETERS
 };
 
 /**
@@ -585,6 +616,14 @@ export function mapParametersToBackend(decoder, parameters) {
             af_carrier: parameters.afsk_af_carrier,
             deviation: parameters.afsk_deviation,
             framing: parameters.afsk_framing
+        };
+    }
+
+    if (decoder === 'qo100') {
+        return {
+            modulation: parameters.qo100_modulation || 'qpsk',
+            baudrate: parseInt(parameters.qo100_baudrate) || 4800,
+            framing: parameters.qo100_framing || 'none',
         };
     }
 

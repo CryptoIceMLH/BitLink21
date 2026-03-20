@@ -334,7 +334,8 @@ export const DataDecoderSelector = ({
                     { value: 'gmsk', label: t('vfo.decoders_modes.gmsk', 'GMSK') },
                     { value: 'gfsk', label: t('vfo.decoders_modes.gfsk', 'GFSK') },
                     { value: 'bpsk', label: t('vfo.decoders_modes.bpsk', 'BPSK') },
-                    { value: 'afsk', label: t('vfo.decoders_modes.afsk', 'AFSK') }
+                    { value: 'afsk', label: t('vfo.decoders_modes.afsk', 'AFSK') },
+                    { value: 'qo100', label: t('vfo.decoders_modes.qo100', 'QO-100') }
                 ].map(({ value, label }) => {
                     const supported = isDecoderSupported(value);
                     const button = (

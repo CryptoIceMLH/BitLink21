@@ -152,6 +152,17 @@ class DecoderRegistry:
                 restart_on_params=["baudrate", "differential", "framing", "framing_params", "modulation"],
                 description="Multi-mode PSK/QAM decoder (BPSK, QPSK, 8PSK, 16QAM, 64QAM, 256QAM, etc.)",
             ),
+            "qo100": DecoderCapabilities(
+                name="qo100",
+                decoder_class=BPSKDecoder,
+                needs_raw_iq=True,
+                required_demodulator=None,
+                demodulator_mode=None,
+                default_bandwidth=3000,
+                supports_transmitter_config=False,
+                restart_on_params=["modulation", "baudrate", "framing"],
+                description="QO-100 multi-mode digital modem (BPSK to 256-QAM, any baudrate)",
+            ),
             "lora": DecoderCapabilities(
                 name="lora",
                 decoder_class=LoRaDecoder,

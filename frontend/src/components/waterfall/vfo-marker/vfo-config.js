@@ -324,6 +324,22 @@ export const DECODERS = {
         bandwidthLabel: (bw) => `±${(bw / 2000).toFixed(1)}kHz`,
         lockedBandwidth: false, // allows user adjustment (FM carrier bandwidth)
     },
+    qo100: {
+        internalName: 'qo100',
+        displayName: 'QO-100',
+        description: 'Multi-mode digital modem — BPSK to 256-QAM, any baudrate, any bandwidth',
+        hasStatusDisplay: true,
+        hasProgressDisplay: false,
+        hasTextOutput: false,
+        hasModeDisplay: true,
+        defaultBandwidth: 3000,
+        bandwidthType: 'double-sided',
+        showBothEdges: true,
+        allowLeftEdgeDrag: true,
+        allowRightEdgeDrag: true,
+        bandwidthLabel: (bw) => `±${(bw / 2000).toFixed(1)}kHz`,
+        lockedBandwidth: false,
+    },
 };
 
 /**
