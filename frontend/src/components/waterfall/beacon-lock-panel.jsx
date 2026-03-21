@@ -18,7 +18,7 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
     const { beaconMeasuring, beaconCorrecting, beaconOffset } = useSelector(state => state.bitlink21);
 
     const [xoCorrection, setXoCorrection] = useState(0);
-    const [markerSpread, setMarkerSpread] = useState(2500);
+    const [markerSpread, setMarkerSpread] = useState(500);
     const [beaconFreq, setBeaconFreq] = useState(centerFrequency || 0);
 
     const isPositioned = beaconMarkers?.active || false;
@@ -185,7 +185,7 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
                             <Slider
                                 value={markerSpread}
                                 onChange={handleMarkerSpreadChange}
-                                min={500} max={10000} step={100}
+                                min={100} max={10000} step={100}
                                 size="small"
                                 valueLabelDisplay="auto"
                                 valueLabelFormat={v => `±${v} Hz`}
