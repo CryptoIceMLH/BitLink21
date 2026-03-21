@@ -84,20 +84,6 @@ const VFOMarkersContainer = ({
 
     // Beacon markers removed — beacon tracking has its own dedicated panel
 
-    // Document-level listeners for VFO drag
-    useEffect(() => {
-        const onMouseMove = (e) => {
-        };
-        const onMouseUp = () => {
-        };
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', onMouseUp);
-        return () => {
-            document.removeEventListener('mousemove', onMouseMove);
-            document.removeEventListener('mouseup', onMouseUp);
-        };
-    }, [handleBeaconMouseMove]);
-
     const containerRef = useRef(null);
     const canvasRef = useRef(null);
     // Canvas context caching for performance
