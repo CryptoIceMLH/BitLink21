@@ -676,45 +676,47 @@ def plutosdr_worker_process(
                 time.sleep(0.1)
 
             # --------------------------------------------------------
-            # Beacon tracking — simple FFT peak measurement
-            # Two states: measuring (display drift) + correcting (nudge RX)
+            # Beacon tracking — QO100_Transceiver style narrowband receiver
+            # NCO downmix → decimate → FFT at 2 Hz/bin resolution
             # --------------------------------------------------------
             if (beacon_active and samples is not None and len(samples) > 0
                     and beacon_freq and current_time - beacon_last_update >= beacon_update_interval):
                 beacon_last_update = current_time
                 try:
-                    # Simple FFT on current IQ buffer
-                    fft_size_b = min(len(samples), 4096)
-                    fft_data = np.abs(np.fft.fftshift(np.fft.fft(samples[:fft_size_b])))
-                    fft_db = 20 * np.log10(fft_data + 1e-10)
+                    n = len(samples)
 
-                    # Convert marker frequencies to FFT bin indices
-                    freq_resolution = float(sample_rate) / fft_size_b
-                    start_freq = float(center_freq) - float(sample_rate) / 2
-                    bin_low = int((float(beacon_marker_low) - start_freq) / freq_resolution)
-                    bin_high = int((float(beacon_marker_high) - start_freq) / freq_resolution)
-                    bin_low = max(0, min(fft_size_b - 1, bin_low))
-                    bin_high = max(bin_low + 1, min(fft_size_b, bin_high))
+                    # Step 1: NCO downmix — shift beacon region to baseband
+                    # beacon_freq and center_freq are both in RF space
+                    offset_from_center = beacon_freq - center_freq  # Hz offset
+                    t = np.arange(n, dtype=np.float64) / sample_rate
+                    nco = np.exp(-1j * 2 * np.pi * offset_from_center * t).astype(np.complex64)
+                    mixed = samples * nco
 
-                    # Find peak in marker range
-                    search_range = fft_db[bin_low:bin_high]
-                    if len(search_range) > 0:
-                        peak_local_idx = np.argmax(search_range)
-                        peak_bin = bin_low + peak_local_idx
-                        peak_freq = start_freq + peak_bin * freq_resolution
+                    # Step 2: Decimate to ~4 kS/s (like QO100_Transceiver's 280x)
+                    decim = max(1, int(sample_rate / 4000))
+                    decimated = mixed[::decim]  # Simple decimation (anti-alias from NCO narrowband)
+                    dec_rate = sample_rate / decim
 
-                        # Drift = peak position minus expected beacon position
-                        beacon_offset_hz = peak_freq - beacon_freq
+                    # Step 3: 800-point FFT at ~2 Hz/bin (matches QO100_Transceiver)
+                    fft_len = min(800, len(decimated))
+                    if fft_len >= 64:
+                        window = np.hanning(fft_len)
+                        fft_data = np.fft.fftshift(np.fft.fft(decimated[:fft_len] * window))
+                        power = np.abs(fft_data)
+                        power_db = 20 * np.log10(power + 1e-10)
+                        freq_res = dec_rate / fft_len  # ~2-5 Hz/bin
 
-                        # Extract mini spectrum around beacon (±5 kHz)
-                        beacon_center_bin = int((float(beacon_freq) - start_freq) / freq_resolution)
-                        view_bins = int(5000 / freq_resolution)
-                        spec_lo = max(0, beacon_center_bin - view_bins)
-                        spec_hi = min(fft_size_b, beacon_center_bin + view_bins)
-                        mini_spectrum = fft_db[spec_lo:spec_hi].tolist() if spec_lo < spec_hi else []
+                        # Step 4: Peak detection — find strongest signal near DC (baseband)
+                        peak_idx = np.argmax(power)
+                        peak_freq_offset = (peak_idx - fft_len / 2) * freq_res  # Hz from beacon center
 
-                        # Report to main process — correction applied there via VFO update
-                        # NEVER touch sdr.rx_lo here — that shifts the entire waterfall
+                        # Drift = how far the beacon peak is from center (0 Hz = perfect)
+                        beacon_offset_hz = peak_freq_offset
+
+                        # Mini spectrum for display (full narrowband FFT)
+                        mini_spectrum = power_db.tolist()
+
+                        # Report to main process
                         status_msg = {
                             "type": "beacon_status",
                             "measuring": beacon_active,

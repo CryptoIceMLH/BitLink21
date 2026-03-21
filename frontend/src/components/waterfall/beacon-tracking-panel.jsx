@@ -31,30 +31,21 @@ const BeaconTrackingPanel = () => {
     const [beaconFreq, setBeaconFreq] = useState(centerFrequency || 0);
     const [markerSpread, setMarkerSpread] = useState(500);
 
-    // Converter for RF→IF
-    const { converterDefinitions, activeConverterId } = useSelector(state => state.waterfall);
-    const activeConverter = converterDefinitions?.find(c => c.id === activeConverterId);
-    const rfToIF = useCallback((freq) => {
-        if (!activeConverter || activeConverter.type === 'none') return freq;
-        if (activeConverter.type === 'down') return freq - activeConverter.rxOffset;
-        if (activeConverter.type === 'up') return freq + activeConverter.rxOffset;
-        return freq;
-    }, [activeConverter]);
-
     // Update beaconFreq from center frequency when not yet positioned
     useEffect(() => {
         if (!beaconMeasuring && centerFrequency) setBeaconFreq(centerFrequency);
     }, [centerFrequency, beaconMeasuring]);
 
-    // Controls
+    // Controls — send frequencies in RF space (same as worker's center_freq)
+    // No RF→IF conversion — the worker FFT operates in RF space
     const handleSetBeacon = useCallback(() => {
         if (!socket) return;
         socket.emit('data_submission', 'bitlink21:beacon_set_position', {
-            beacon_freq_hz: rfToIF(beaconFreq),
-            marker_low_hz: rfToIF(beaconFreq - markerSpread),
-            marker_high_hz: rfToIF(beaconFreq + markerSpread),
+            beacon_freq_hz: beaconFreq,
+            marker_low_hz: beaconFreq - markerSpread,
+            marker_high_hz: beaconFreq + markerSpread,
         });
-    }, [socket, beaconFreq, markerSpread, rfToIF]);
+    }, [socket, beaconFreq, markerSpread]);
 
     const handleLock = useCallback(() => {
         if (!socket) return;
