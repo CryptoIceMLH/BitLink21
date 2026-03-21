@@ -151,7 +151,7 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
                         <TextField
                             size="small"
                             fullWidth
-                            value={(beaconFreq / 1e6).toFixed(3)}
+                            value={(beaconFreq / 1e6).toFixed(6)}
                             onChange={e => {
                                 const mhz = parseFloat(e.target.value);
                                 if (!isNaN(mhz)) handleBeaconFreqChange(mhz * 1e6);
@@ -161,7 +161,7 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
                             InputProps={{
                                 endAdornment: <InputAdornment position="end">MHz</InputAdornment>,
                                 sx: { fontFamily: 'monospace', fontSize: '0.9rem' },
-                                inputProps: { step: 0.001 },
+                                inputProps: { step: 0.000001 },
                             }}
                         />
                     </Box>
