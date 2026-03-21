@@ -23,12 +23,22 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
 
     const isPositioned = beaconMarkers?.active || false;
 
+    // Converter for RF→IF (must be before any callback that uses it)
+    const { converterDefinitions, activeConverterId } = useSelector(state => state.waterfall);
+    const activeConverter = converterDefinitions?.find(c => c.id === activeConverterId);
+    const rfToIF = (freq) => {
+        if (!activeConverter || activeConverter.type === 'none') return freq;
+        if (activeConverter.type === 'down') return freq - activeConverter.rxOffset;
+        if (activeConverter.type === 'up') return freq + activeConverter.rxOffset;
+        return freq;
+    };
+
     // Update beaconFreq when center frequency changes (before positioning)
     useEffect(() => {
         if (!isPositioned && centerFrequency) setBeaconFreq(centerFrequency);
     }, [centerFrequency, isPositioned]);
 
-    // When beacon frequency changes via dial, move the markers
+    // When beacon frequency changes via input, move the markers
     const handleBeaconFreqChange = useCallback((newFreq) => {
         setBeaconFreq(newFreq);
         if (isPositioned && socket && !beaconCorrecting) {
@@ -42,16 +52,6 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
             });
         }
     }, [isPositioned, socket, beaconCorrecting, markerSpread, dispatch, rfToIF]);
-
-    // Converter for RF→IF
-    const { converterDefinitions, activeConverterId } = useSelector(state => state.waterfall);
-    const activeConverter = converterDefinitions?.find(c => c.id === activeConverterId);
-    const rfToIF = (freq) => {
-        if (!activeConverter || activeConverter.type === 'none') return freq;
-        if (activeConverter.type === 'down') return freq - activeConverter.rxOffset;
-        if (activeConverter.type === 'up') return freq + activeConverter.rxOffset;
-        return freq;
-    };
 
     // Step 1: "Set Beacon" — show markers, start measuring (no correction)
     const handleSetBeacon = () => {
