@@ -974,7 +974,7 @@ class ProcessLifecycleManager:
                             if correction_hz and abs(correction_hz) > 0.5:
                                 try:
                                     vfo_mgr = VFOManager()
-                                    for sess_id in list(vfo_mgr._sessions.keys()):
+                                    for sess_id in vfo_mgr.get_sessions():
                                         for vfo_id in range(1, 5):  # VFO 1-4
                                             vfo = vfo_mgr.get_vfo_state(sess_id, vfo_id)
                                             if vfo and vfo.center_freq:
@@ -989,7 +989,7 @@ class ProcessLifecycleManager:
                                                     "frequency": new_freq,
                                                 }, room=sdr_id)
                                 except Exception as e:
-                                    logger.debug(f"Beacon VFO correction failed: {e}")
+                                    self.logger.debug(f"Beacon VFO correction failed: {e}")
 
                             # Forward status + spectrum to frontend
                             beacon_msg = {
