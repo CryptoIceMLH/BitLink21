@@ -401,7 +401,7 @@ const VFOMarkersContainer = ({
     useEffect(() => {
         renderVFOMarkersDirect();
     }, [vfoActive, vfoMarkers, actualWidth, height,
-        centerFrequency, sampleRate, selectedVFO, streamingVFOs, vfoMuted, containerWidth, currentPositionX, activeDecoders, decoderOutputs, runtimeSnapshot, beaconMarkers]);
+        centerFrequency, sampleRate, selectedVFO, streamingVFOs, vfoMuted, containerWidth, currentPositionX, activeDecoders, decoderOutputs, runtimeSnapshot]);
 
     // Rendering function with cached context
     const renderVFOMarkersDirect = () => {
