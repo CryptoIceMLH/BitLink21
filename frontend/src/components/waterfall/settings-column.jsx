@@ -93,7 +93,7 @@ import VfoAccordion from "./vfo-settings/settings-vfo.jsx";
 import RecordingAccordion from "./settings-recording.jsx";
 import PlaybackAccordion from "./settings-playback.jsx";
 import TxControlsAccordion from "./tx-controls.jsx";
-import BeaconLockAccordion from "./beacon-lock-panel.jsx";
+import BeaconLockPanel from "./beacon-lock-panel.jsx";
 import ConstellationDiagram from "./constellation-diagram.jsx";
 import RitXitControls from "./rit-xit-controls.jsx";
 import { useTranslation } from 'react-i18next';
@@ -977,7 +977,8 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                     expanded={expandedPanels.includes('tx')}
                     onAccordionChange={handleAccordionChange('tx')}
                 />
-                <BeaconLockAccordion
+                <BeaconLockPanel
+                    mode="accordion"
                     expanded={expandedPanels.includes('beacon')}
                     onAccordionChange={handleAccordionChange('beacon')}
                 />

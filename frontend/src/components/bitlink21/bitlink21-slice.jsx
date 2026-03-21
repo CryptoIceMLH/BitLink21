@@ -227,6 +227,8 @@ const bitlink21Slice = createSlice({
         beaconCorrecting: false,
         beaconOffset: 0,
         beaconSpectrum: null,  // Mini spectrum dB values from worker FFT
+        beaconSnr: 0,          // Signal-to-noise ratio of beacon peak
+        beaconFreqRes: 5,      // FFT frequency resolution (Hz/bin)
 
         // Constellation
         constellationPoints: [],
@@ -242,11 +244,13 @@ const bitlink21Slice = createSlice({
             state.txGain = action.payload;
         },
         updateBeaconStatus(state, action) {
-            const { measuring, correcting, offset_hz, spectrum } = action.payload;
+            const { measuring, correcting, offset_hz, spectrum, snr, freq_res } = action.payload;
             if (measuring !== undefined) state.beaconMeasuring = measuring;
             if (correcting !== undefined) state.beaconCorrecting = correcting;
             if (offset_hz !== undefined) state.beaconOffset = offset_hz;
             if (spectrum !== undefined) state.beaconSpectrum = spectrum;
+            if (snr !== undefined) state.beaconSnr = snr;
+            if (freq_res !== undefined) state.beaconFreqRes = freq_res;
         },
         updateConstellationPoints(state, action) {
             state.constellationPoints = action.payload;

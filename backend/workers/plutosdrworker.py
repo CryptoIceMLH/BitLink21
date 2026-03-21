@@ -293,6 +293,8 @@ def plutosdr_worker_process(
         beacon_offset_hz = 0.0       # Measured drift from beacon_freq
         beacon_last_update = 0.0
         beacon_update_interval = 1.0 # 1 second between measurements
+        beacon_filter_sos = None     # Anti-alias filter coefficients
+        beacon_filter_zi = None      # Filter state (persists across buffers)
 
         # ----------------------------------------------------------------
         # Main processing loop
@@ -686,18 +688,32 @@ def plutosdr_worker_process(
                     n = len(samples)
 
                     # Step 1: NCO downmix — shift beacon region to baseband
-                    # beacon_freq and center_freq are both in RF space
+                    # beacon_freq and center_freq are both in IF space
                     offset_from_center = beacon_freq - center_freq  # Hz offset
                     t = np.arange(n, dtype=np.float64) / sample_rate
                     nco = np.exp(-1j * 2 * np.pi * offset_from_center * t).astype(np.complex64)
                     mixed = samples * nco
 
-                    # Step 2: Decimate to ~4 kS/s (like QO100_Transceiver's 280x)
+                    # Step 2: Anti-alias LP filter before decimation
+                    # (QO100_Transceiver uses 4th-order elliptic IIR)
                     decim = max(1, int(sample_rate / 4000))
-                    decimated = mixed[::decim]  # Simple decimation (anti-alias from NCO narrowband)
+                    if beacon_filter_sos is None:
+                        from scipy.signal import iirfilter, sosfilt_zi
+                        cutoff = min(2000, sample_rate / decim / 2 * 0.9)
+                        beacon_filter_sos = iirfilter(
+                            4, cutoff, btype='low', ftype='ellip',
+                            rs=60, rp=0.1, fs=sample_rate, output='sos'
+                        )
+                        beacon_filter_zi = sosfilt_zi(beacon_filter_sos) * 0
+
+                    from scipy.signal import sosfilt
+                    filtered, beacon_filter_zi = sosfilt(
+                        beacon_filter_sos, mixed, zi=beacon_filter_zi
+                    )
+                    decimated = filtered[::decim]
                     dec_rate = sample_rate / decim
 
-                    # Step 3: 800-point FFT at ~2 Hz/bin (matches QO100_Transceiver)
+                    # Step 3: 800-point FFT at ~2-5 Hz/bin (matches QO100_Transceiver)
                     fft_len = min(800, len(decimated))
                     if fft_len >= 64:
                         window = np.hanning(fft_len)
@@ -706,14 +722,28 @@ def plutosdr_worker_process(
                         power_db = 20 * np.log10(power + 1e-10)
                         freq_res = dec_rate / fft_len  # ~2-5 Hz/bin
 
-                        # Step 4: Peak detection — find strongest signal near DC (baseband)
+                        # Step 4: SNR check — don't lock on noise
                         peak_idx = np.argmax(power)
-                        peak_freq_offset = (peak_idx - fft_len / 2) * freq_res  # Hz from beacon center
+                        noise_floor = float(np.median(power_db))
+                        peak_snr = float(power_db[peak_idx] - noise_floor)
 
-                        # Drift = how far the beacon peak is from center (0 Hz = perfect)
-                        beacon_offset_hz = peak_freq_offset
+                        if peak_snr >= 6:
+                            # -3dB bandwidth centroid for sub-bin accuracy
+                            threshold = power[peak_idx] / np.sqrt(2)
+                            left = int(peak_idx)
+                            while left > 0 and power[left] > threshold:
+                                left -= 1
+                            right = int(peak_idx)
+                            while right < fft_len - 1 and power[right] > threshold:
+                                right += 1
+                            indices = np.arange(left, right + 1)
+                            weights = power[left:right + 1]
+                            centroid_idx = float(np.average(indices, weights=weights))
+                            beacon_offset_hz = (centroid_idx - fft_len / 2) * freq_res
+                        else:
+                            beacon_offset_hz = 0.0  # No valid peak
 
-                        # Mini spectrum for display (full narrowband FFT)
+                        # Mini spectrum for display
                         mini_spectrum = power_db.tolist()
 
                         # Report to main process
@@ -722,9 +752,11 @@ def plutosdr_worker_process(
                             "measuring": beacon_active,
                             "correcting": beacon_correcting,
                             "offset_hz": round(beacon_offset_hz, 1),
+                            "snr": round(peak_snr, 1),
+                            "freq_res": round(freq_res, 2),
                             "spectrum": mini_spectrum,
                         }
-                        if beacon_correcting:
+                        if beacon_correcting and peak_snr >= 6:
                             status_msg["correction_hz"] = round(-beacon_offset_hz, 1)
                         data_queue.put(status_msg)
 

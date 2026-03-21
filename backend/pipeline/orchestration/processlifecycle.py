@@ -972,13 +972,16 @@ class ProcessLifecycleManager:
                             # This is our equivalent of QO100_Transceiver's NCO retune
                             correction_hz = data.get("correction_hz")
                             if correction_hz and abs(correction_hz) > 0.5:
+                                # Rate-limit: max ±5 Hz per update to prevent oscillation
+                                MAX_CORR = 5.0
+                                clamped = max(-MAX_CORR, min(MAX_CORR, correction_hz))
                                 try:
                                     vfo_mgr = VFOManager()
-                                    for sess_id in vfo_mgr.get_sessions():
+                                    for sess_id in vfo_mgr.get_all_session_ids():
                                         for vfo_id in range(1, 5):  # VFO 1-4
                                             vfo = vfo_mgr.get_vfo_state(sess_id, vfo_id)
                                             if vfo and vfo.center_freq:
-                                                new_freq = int(vfo.center_freq + correction_hz)
+                                                new_freq = int(vfo.center_freq + clamped)
                                                 vfo_mgr.update_vfo_state(
                                                     session_id=sess_id,
                                                     vfo_id=vfo_id,
@@ -996,6 +999,8 @@ class ProcessLifecycleManager:
                                 "measuring": data.get("measuring", False),
                                 "correcting": data.get("correcting", False),
                                 "offset_hz": data.get("offset_hz", 0),
+                                "snr": data.get("snr", 0),
+                                "freq_res": data.get("freq_res", 5),
                             }
                             spectrum = data.get("spectrum")
                             if spectrum:
