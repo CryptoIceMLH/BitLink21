@@ -968,36 +968,39 @@ class ProcessLifecycleManager:
                             from bitlink21.beacon_afc import beacon_afc
                             beacon_afc.update_from_worker(data)
 
-                            # Apply correction to active VFO frequency (server-side)
+                            # Apply correction to ALL active VFO frequencies (server-side)
                             # This is our equivalent of QO100_Transceiver's NCO retune
                             correction_hz = data.get("correction_hz")
                             if correction_hz and abs(correction_hz) > 0.5:
                                 try:
                                     vfo_mgr = VFOManager()
-                                    # Find any active session on this SDR
                                     for sess_id in list(vfo_mgr._sessions.keys()):
-                                        vfo1 = vfo_mgr.get_vfo_state(sess_id, 1)
-                                        if vfo1 and vfo1.center_freq:
-                                            new_freq = int(vfo1.center_freq + correction_hz)
-                                            vfo_mgr.update_vfo_state(
-                                                session_id=sess_id,
-                                                vfo_id=1,
-                                                center_freq=new_freq,
-                                            )
-                                            # Emit VFO update so frontend marker moves
-                                            await self.sio.emit("vfo-frequency-update", {
-                                                "vfoNumber": 1,
-                                                "frequency": new_freq,
-                                            }, room=sdr_id)
-                                            break
+                                        for vfo_id in range(1, 5):  # VFO 1-4
+                                            vfo = vfo_mgr.get_vfo_state(sess_id, vfo_id)
+                                            if vfo and vfo.center_freq:
+                                                new_freq = int(vfo.center_freq + correction_hz)
+                                                vfo_mgr.update_vfo_state(
+                                                    session_id=sess_id,
+                                                    vfo_id=vfo_id,
+                                                    center_freq=new_freq,
+                                                )
+                                                await self.sio.emit("vfo-frequency-update", {
+                                                    "vfoNumber": vfo_id,
+                                                    "frequency": new_freq,
+                                                }, room=sdr_id)
                                 except Exception as e:
                                     logger.debug(f"Beacon VFO correction failed: {e}")
 
-                            await self.sio.emit("bitlink21:beacon_status", {
+                            # Forward status + spectrum to frontend
+                            beacon_msg = {
                                 "measuring": data.get("measuring", False),
                                 "correcting": data.get("correcting", False),
                                 "offset_hz": data.get("offset_hz", 0),
-                            }, room=sdr_id)
+                            }
+                            spectrum = data.get("spectrum")
+                            if spectrum:
+                                beacon_msg["spectrum"] = spectrum
+                            await self.sio.emit("bitlink21:beacon_status", beacon_msg, room=sdr_id)
 
                         elif data_type == QueueMessageTypes.STREAMING_START:
                             # Send streaming status to all clients connected to this SDR

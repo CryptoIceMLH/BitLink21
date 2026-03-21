@@ -26,7 +26,6 @@ import {
     setVFOProperty,
     setSelectedVFO,
 } from './vfo-slice.jsx';
-import { setBeaconMarkers } from '../waterfall-slice.jsx';
 import { useSocket } from '../../common/socket.jsx';
 import {
     canvasDrawingUtils,
@@ -83,112 +82,13 @@ const VFOMarkersContainer = ({
     // Get runtime snapshot for internal VFO data
     const runtimeSnapshot = useSelector(state => state.sessions?.runtimeSnapshot?.data);
 
-    // Beacon lock markers
-    const beaconMarkers = useSelector(state => state.waterfall?.beaconMarkers);
-    const {socket: beaconSocket} = useSocket();
-    const { converterDefinitions: bcnConvDefs, activeConverterId: bcnActiveConvId } = useSelector(state => state.waterfall || {});
-    const bcnActiveConv = bcnConvDefs?.find(c => c.id === bcnActiveConvId);
-    const bcnRfToIF = (freq) => {
-        if (!bcnActiveConv || bcnActiveConv.type === 'none') return freq;
-        if (bcnActiveConv.type === 'down') return freq - bcnActiveConv.rxOffset;
-        if (bcnActiveConv.type === 'up') return freq + bcnActiveConv.rxOffset;
-        return freq;
-    };
-    const beaconDragRef = useRef(null); // 'low', 'high', 'body', or null
+    // Beacon markers removed — beacon tracking has its own dedicated panel
 
-    // Beacon marker drag handlers
-    const xToFreq = useCallback((clientX) => {
-        const canvas = canvasRef.current;
-        if (!canvas) return 0;
-        const rect = canvas.getBoundingClientRect();
-        const x = (clientX - rect.left) / rect.width;
-        const startF = centerFrequency - sampleRate / 2;
-        return startF + x * sampleRate;
-    }, [centerFrequency, sampleRate]);
-
-    const handleBeaconMouseDown = useCallback((e) => {
-        if (!beaconMarkers?.active) return false;
-        const canvas = canvasRef.current;
-        if (!canvas) return false;
-        const rect = canvas.getBoundingClientRect();
-        const freq = xToFreq(e.clientX);
-        const mouseY = e.clientY - rect.top;
-        const pixelFreq = sampleRate / rect.width;
-        const hitRange = pixelFreq * 8; // 8 pixels
-
-        // Check TAB at top first (y < 25px, between markers)
-        // Tab is the primary drag target — grabs and moves the whole beacon window
-        const beaconCenter = (beaconMarkers.lowFreq + beaconMarkers.highFreq) / 2;
-        const beaconSpan = beaconMarkers.highFreq - beaconMarkers.lowFreq;
-        const tabHitRange = Math.max(pixelFreq * 40, beaconSpan / 2); // at least 40px or half the span
-        if (mouseY < 25 && Math.abs(freq - beaconCenter) < tabHitRange) {
-            beaconDragRef.current = 'body';
-            window.__beaconDragActive = true;
-            return true;
-        }
-
-        // Check marker edge lines (any Y position)
-        const distToLow = Math.abs(freq - beaconMarkers.lowFreq);
-        const distToHigh = Math.abs(freq - beaconMarkers.highFreq);
-
-        if (distToLow < hitRange && distToLow <= distToHigh) {
-            beaconDragRef.current = 'low';
-            window.__beaconDragActive = true;
-            return true;
-        }
-        if (distToHigh < hitRange) {
-            beaconDragRef.current = 'high';
-            window.__beaconDragActive = true;
-            return true;
-        }
-        return false;
-    }, [beaconMarkers, xToFreq, sampleRate]);
-
-    const handleBeaconMouseMove = useCallback((e) => {
-        if (!beaconDragRef.current || !beaconMarkers?.active) return;
-        const freq = xToFreq(e.clientX);
-        const { lowFreq, highFreq } = beaconMarkers;
-
-        if (beaconDragRef.current === 'low') {
-            dispatch(setBeaconMarkers({ lowFreq: Math.min(freq, highFreq - 100) }));
-        } else if (beaconDragRef.current === 'high') {
-            dispatch(setBeaconMarkers({ highFreq: Math.max(freq, lowFreq + 100) }));
-        } else if (beaconDragRef.current === 'body') {
-            const width = highFreq - lowFreq;
-            const center = (lowFreq + highFreq) / 2;
-            const delta = freq - center;
-            dispatch(setBeaconMarkers({ lowFreq: lowFreq + delta, highFreq: highFreq + delta }));
-        }
-    }, [beaconMarkers, xToFreq, dispatch]);
-
-    const handleBeaconMouseUp = useCallback(() => {
-        if (beaconDragRef.current && beaconMarkers?.active && beaconSocket) {
-            const lowIF = bcnRfToIF(beaconMarkers.lowFreq);
-            const highIF = bcnRfToIF(beaconMarkers.highFreq);
-            // Send updated marker positions AND new center frequency to backend
-            // so the NCO re-tunes to wherever the user dragged the markers
-            beaconSocket.emit('data_submission', 'bitlink21:beacon_config', {
-                marker_low_hz: lowIF,
-                marker_high_hz: highIF,
-                beacon_freq_hz: (lowIF + highIF) / 2,
-            });
-        }
-        beaconDragRef.current = null;
-        window.__beaconDragActive = false;
-    }, [beaconMarkers, beaconSocket, bcnRfToIF]);
-
-    // Document-level listeners for beacon drag (always active when markers exist)
+    // Document-level listeners for VFO drag
     useEffect(() => {
         const onMouseMove = (e) => {
-            if (beaconDragRef.current) {
-                e.preventDefault();
-                handleBeaconMouseMove(e);
-            }
         };
         const onMouseUp = () => {
-            if (beaconDragRef.current) {
-                handleBeaconMouseUp();
-            }
         };
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
@@ -696,79 +596,7 @@ const VFOMarkersContainer = ({
             canvasDrawingUtils.drawVFOLabel(ctx, centerX, labelText, marker.color, lineOpacity, isSelected, isLocked, decoderInfo, morseText, isStreaming, packetOutputs, isMuted);
         });
 
-        // Draw beacon lock markers (two dashed vertical lines)
-        if (beaconMarkers?.active && beaconMarkers.lowFreq && beaconMarkers.highFreq) {
-            const startFreq = centerFrequency - sampleRate / 2;
-            const freqRange = sampleRate;
-
-            const lowX = ((beaconMarkers.lowFreq - startFreq) / freqRange) * actualWidth;
-            const highX = ((beaconMarkers.highFreq - startFreq) / freqRange) * actualWidth;
-
-            // Beacon marker color based on lock state
-            const beaconColor = beaconMarkers.lockState === 'LOCKED' ? '#4caf50' :
-                               beaconMarkers.lockState === 'TRACKING' ? '#ff9800' : '#f44336';
-
-            ctx.setLineDash([8, 4]);
-            ctx.lineWidth = 3;
-            ctx.strokeStyle = beaconColor;
-
-            // Left marker
-            if (lowX >= 0 && lowX <= actualWidth) {
-                ctx.beginPath();
-                ctx.moveTo(lowX, 0);
-                ctx.lineTo(lowX, height);
-                ctx.stroke();
-            }
-
-            // Right marker
-            if (highX >= 0 && highX <= actualWidth) {
-                ctx.beginPath();
-                ctx.moveTo(highX, 0);
-                ctx.lineTo(highX, height);
-                ctx.stroke();
-            }
-
-            // Shaded region between markers (very transparent so signals visible behind)
-            if (lowX < actualWidth && highX > 0) {
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
-                ctx.fillRect(Math.max(0, lowX), 0, Math.min(actualWidth, highX) - Math.max(0, lowX), height);
-            }
-
-            // Draggable tab at top (same style as VFO labels)
-            ctx.setLineDash([]);
-            const centerX = (lowX + highX) / 2;
-            const label = `BCN ${beaconMarkers.lockState === 'LOCKED' ? 'LOCK' : beaconMarkers.lockState === 'TRACKING' ? 'TRK' : ''}${beaconMarkers.offsetHz ? ' ' + (beaconMarkers.offsetHz > 0 ? '+' : '') + beaconMarkers.offsetHz.toFixed(0) + 'Hz' : ''}`;
-            ctx.font = 'bold 11px Monospace';
-            const tabWidth = Math.max(ctx.measureText(label).width + 16, 60);
-            const tabHeight = 20;
-            const tabX = centerX - tabWidth / 2;
-            const tabY = 3;
-
-            // Tab background
-            ctx.fillStyle = beaconColor + 'cc';
-            ctx.beginPath();
-            ctx.roundRect(tabX, tabY, tabWidth, tabHeight, 3);
-            ctx.fill();
-
-            // Tab border
-            ctx.strokeStyle = beaconColor;
-            ctx.lineWidth = 1;
-            ctx.stroke();
-
-            // Tab text
-            ctx.fillStyle = '#ffffff';
-            ctx.textAlign = 'center';
-            ctx.fillText(label, centerX, tabY + 14);
-            ctx.textAlign = 'left';
-
-            // Drag handle dots (three dots in the tab, like a grip)
-            ctx.fillStyle = '#ffffff88';
-            for (let dot = -1; dot <= 1; dot++) {
-                ctx.beginPath();
-                ctx.arc(centerX + dot * 6, tabY + tabHeight - 4, 1.5, 0, 2 * Math.PI);
-                ctx.fill();
-            }
-        }
+        // Beacon markers removed — beacon tracking has its own dedicated panel
     };
 
     // Check if mouse/touch is over a handle or edge
@@ -1031,11 +859,6 @@ const VFOMarkersContainer = ({
                 ref={canvasRef}
                 onClick={handleClick}
                 onMouseDown={(e) => {
-                    if (handleBeaconMouseDown(e)) {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        return;
-                    }
                     handleMouseDown(e);
                 }}
                 onMouseMove={handleMouseMove}

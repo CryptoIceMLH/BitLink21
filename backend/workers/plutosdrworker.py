@@ -706,6 +706,13 @@ def plutosdr_worker_process(
                         # Drift = peak position minus expected beacon position
                         beacon_offset_hz = peak_freq - beacon_freq
 
+                        # Extract mini spectrum around beacon (±5 kHz)
+                        beacon_center_bin = int((float(beacon_freq) - start_freq) / freq_resolution)
+                        view_bins = int(5000 / freq_resolution)
+                        spec_lo = max(0, beacon_center_bin - view_bins)
+                        spec_hi = min(fft_size_b, beacon_center_bin + view_bins)
+                        mini_spectrum = fft_db[spec_lo:spec_hi].tolist() if spec_lo < spec_hi else []
+
                         # Report to main process — correction applied there via VFO update
                         # NEVER touch sdr.rx_lo here — that shifts the entire waterfall
                         status_msg = {
@@ -713,6 +720,7 @@ def plutosdr_worker_process(
                             "measuring": beacon_active,
                             "correcting": beacon_correcting,
                             "offset_hz": round(beacon_offset_hz, 1),
+                            "spectrum": mini_spectrum,
                         }
                         if beacon_correcting:
                             status_msg["correction_hz"] = round(-beacon_offset_hz, 1)
