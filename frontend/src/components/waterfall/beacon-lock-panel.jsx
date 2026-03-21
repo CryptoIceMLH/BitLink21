@@ -10,7 +10,6 @@ import LockOpenIcon from '@mui/icons-material/LockOpen';
 import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import { useSocket } from '../common/socket.jsx';
 import { setBeaconMarkers } from './waterfall-slice.jsx';
-import FrequencyDisplay from './frequency-dial.jsx';
 
 const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
     const {socket} = useSocket();
@@ -144,18 +143,26 @@ const BeaconLockAccordion = ({ expanded, onAccordionChange }) => {
             <AccordionDetails>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
 
-                    {/* Beacon frequency dial — tune to beacon before or after positioning */}
+                    {/* Beacon frequency input */}
                     <Box>
                         <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
                             Beacon Frequency
                         </Typography>
-                        <FrequencyDisplay
-                            initialFrequency={beaconFreq / 1e6}
-                            onChange={(mhz) => handleBeaconFreqChange(mhz * 1e6)}
+                        <TextField
                             size="small"
-                            integerDigits={5}
-                            decimalDigits={3}
+                            fullWidth
+                            value={(beaconFreq / 1e6).toFixed(3)}
+                            onChange={e => {
+                                const mhz = parseFloat(e.target.value);
+                                if (!isNaN(mhz)) handleBeaconFreqChange(mhz * 1e6);
+                            }}
+                            type="number"
                             disabled={beaconCorrecting}
+                            InputProps={{
+                                endAdornment: <InputAdornment position="end">MHz</InputAdornment>,
+                                sx: { fontFamily: 'monospace', fontSize: '0.9rem' },
+                                inputProps: { step: 0.001 },
+                            }}
                         />
                     </Box>
 
