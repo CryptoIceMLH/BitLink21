@@ -967,6 +967,32 @@ class ProcessLifecycleManager:
                             # Forward beacon status to all clients
                             from bitlink21.beacon_afc import beacon_afc
                             beacon_afc.update_from_worker(data)
+
+                            # Apply correction to active VFO frequency (server-side)
+                            # This is our equivalent of QO100_Transceiver's NCO retune
+                            correction_hz = data.get("correction_hz")
+                            if correction_hz and abs(correction_hz) > 0.5:
+                                try:
+                                    vfo_mgr = VFOManager()
+                                    # Find any active session on this SDR
+                                    for sess_id in list(vfo_mgr._sessions.keys()):
+                                        vfo1 = vfo_mgr.get_vfo_state(sess_id, 1)
+                                        if vfo1 and vfo1.center_freq:
+                                            new_freq = int(vfo1.center_freq + correction_hz)
+                                            vfo_mgr.update_vfo_state(
+                                                session_id=sess_id,
+                                                vfo_id=1,
+                                                center_freq=new_freq,
+                                            )
+                                            # Emit VFO update so frontend marker moves
+                                            await self.sio.emit("vfo-frequency-update", {
+                                                "vfoNumber": 1,
+                                                "frequency": new_freq,
+                                            }, room=sdr_id)
+                                            break
+                                except Exception as e:
+                                    logger.debug(f"Beacon VFO correction failed: {e}")
+
                             await self.sio.emit("bitlink21:beacon_status", {
                                 "measuring": data.get("measuring", False),
                                 "correcting": data.get("correcting", False),

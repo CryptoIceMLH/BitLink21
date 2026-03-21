@@ -706,28 +706,17 @@ def plutosdr_worker_process(
                         # Drift = peak position minus expected beacon position
                         beacon_offset_hz = peak_freq - beacon_freq
 
-                        # If correcting: nudge RX center frequency to compensate
-                        if beacon_correcting and abs(beacon_offset_hz) > 1.0:
-                            correction = -beacon_offset_hz
-                            new_center = center_freq + correction
-                            try:
-                                lnb_offset = old_config.get("lnb_offset", 0)
-                                sdr.rx_lo = int(new_center - lnb_offset)
-                                center_freq = new_center
-                                logger.debug(
-                                    f"Beacon correction: {correction:.1f} Hz, "
-                                    f"new center={center_freq/1e6:.6f} MHz"
-                                )
-                            except Exception as e:
-                                logger.debug(f"Beacon correction failed: {e}")
-
-                        # Report to frontend
-                        data_queue.put({
+                        # Report to main process — correction applied there via VFO update
+                        # NEVER touch sdr.rx_lo here — that shifts the entire waterfall
+                        status_msg = {
                             "type": "beacon_status",
                             "measuring": beacon_active,
                             "correcting": beacon_correcting,
                             "offset_hz": round(beacon_offset_hz, 1),
-                        })
+                        }
+                        if beacon_correcting:
+                            status_msg["correction_hz"] = round(-beacon_offset_hz, 1)
+                        data_queue.put(status_msg)
 
                 except Exception as e:
                     logger.debug(f"Beacon tracking error: {e}")
