@@ -214,10 +214,10 @@ app.add_middleware(
 
 process_manager.set_sio(sio)
 
-# Mount static directories
+# Mount static directories (only if they exist)
 satimages_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "satimages")
-os.makedirs(satimages_dir, exist_ok=True)
-app.mount("/satimages", StaticFiles(directory=satimages_dir), name="satimages")
+if os.path.exists(satimages_dir):
+    app.mount("/satimages", StaticFiles(directory=satimages_dir), name="satimages")
 
 # Mount data directories for recordings, snapshots, decoded data (SSTV, AFSK, Morse, etc.), and audio
 # Ensure these directories exist before mounting
