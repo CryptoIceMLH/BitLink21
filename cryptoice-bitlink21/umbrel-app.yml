@@ -2,7 +2,7 @@ manifestVersion: 1.1
 id: cryptoice-bitlink21
 name: BitLink21
 tagline: Bitcoin decentralized satellite communication system
-icon: ../bitlink21-128.png
+icon: https://raw.githubusercontent.com/CryptoIceMLH/BitLink21/master/bitlink21-128.png
 category: bitcoin
 version: "3.0.0"
 port: 7000
