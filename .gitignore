@@ -19,6 +19,10 @@ venv/
 # Data (persistent volumes)
 data/
 
+# Satellite images (cached, not needed in repo)
+backend/satimages/
+frontend/public/*.png
+
 # Environment configuration (contains secrets)
 .env
 .env.local
