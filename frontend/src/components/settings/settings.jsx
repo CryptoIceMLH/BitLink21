@@ -97,8 +97,8 @@ export function SettingsTabAbout () {
 }
 
 const tabsTree = {
-    "hardware": ["rigcontrol", "rotatorcontrol", /* "camera", */ "sdrs"],
-    "satellites": ["satellites", "tlesources", "groups"],
+    // BitLink21: PlutoSDR only; rigs, rotators and the satellite database are not used
+    "hardware": ["sdrs"],
     "settings": ["preferences", "location", "maintenance", "users", "about"],
 };
 
@@ -137,17 +137,8 @@ export const SettingsTabs = React.memo(function SettingsTabs({initialMainTab, in
     switch (activeMainTab) {
         case "hardware":
             tabsList = [
-                <AntTab key="rigcontrol" value="rigcontrol" label={t('tabs.rigs')} to="/hardware/rig" component={Link} />,
-                <AntTab key="rotatorcontrol" value="rotatorcontrol" label={t('tabs.rotators')} to="/hardware/rotator" component={Link} />,
                 // <AntTab key="camera" value="camera" label={t('tabs.cameras')} to="/hardware/cameras" component={Link} />,
                 <AntTab key="sdrs" value="sdrs" label={t('tabs.sdrs')} to="/hardware/sdrs" component={Link}/>,
-            ];
-            break;
-        case "satellites":
-            tabsList = [
-                <AntTab key="tlesources" value="tlesources" label={t('tabs.tle_sources')} to="/satellites/tlesources" component={Link} />,
-                <AntTab key="satellites" value="satellites" label={t('tabs.satellite_list')} to="/satellites/satellites" component={Link} />,
-                <AntTab key="groups" value="groups" label={t('tabs.groups')} to="/satellites/groups" component={Link} />,
             ];
             break;
         case "settings":
@@ -235,8 +226,7 @@ export const SettingsTabs = React.memo(function SettingsTabs({initialMainTab, in
                  variant="fullWidth"
                  allowScrollButtonsMobile
              >
-                 <AntTab value={"hardware"} label={t('tabs.hardware')} to="/hardware/rig" component={Link}/>
-                 <AntTab value={"satellites"} label={t('tabs.satellites')} to="/satellites/satellites" component={Link}/>
+                 <AntTab value={"hardware"} label={t('tabs.hardware')} to="/hardware/sdrs" component={Link}/>
                  <AntTab value={"settings"} label={t('tabs.settings')} to="/settings/preferences" component={Link}/>
              </AntTabs>
              {tabObject}

@@ -197,7 +197,7 @@ app = FastAPI(
     lifespan=lifespan,
     title="BitLink21 API",
     description="Bitcoin decentralized communication system — satellite tracking, SDR control, HSModem satellite modem, Bitcoin/Lightning relay",
-    version="4.0.1",
+    version="4.0.2",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
@@ -335,8 +335,6 @@ async def init_db():
         ),  # For SSTV images, AFSK packets, Morse audio, etc.
         os.path.join(backend_dir, "data", "audio"),  # For audio recordings
         os.path.join(backend_dir, "data", "configs"),  # For satellite decoder configurations
-        os.path.join(backend_dir, "data", "uhd_images"),  # For UHD FPGA images
-        os.path.join(backend_dir, "data", "uhd_config"),  # For UHD configuration files
         os.path.join(backend_dir, "data", "transcriptions"),  # For transcription text files
     ]
     for directory in data_dirs:

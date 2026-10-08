@@ -4,7 +4,7 @@ name: BitLink21
 tagline: Bitcoin decentralized satellite communication system
 icon: https://raw.githubusercontent.com/CryptoIceMLH/BitLink21/master/bitlink21-128.png
 category: bitcoin
-version: "4.0.1"
+version: "4.0.2"
 port: 7000
 description: >-
   BitLink21 sends messages, Bitcoin transactions and Lightning invoices over the
@@ -23,6 +23,13 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 gallery: []
 releaseNotes: >-
+  v4.0.2: Fix QO-100 beacon lock for LNB errors beyond 16.7 kHz (it could
+  lock on a false frequency, so nothing was received). Calibration only from
+  a steady lock. Lighter UI: tracking, scheduler, rigs, rotators and
+  satellite database pages removed; PlutoSDR / Pluto+ only (no other SDR
+  drivers, no USRP image downloads). Faster, cleaner radio stop; startup fix;
+  correct version shown; uplink SSB dial shown.
+
   v4.0.1: Fix PlutoSDR not detected (Python libiio bindings matched to the
   system libiio).
 

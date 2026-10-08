@@ -36,10 +36,20 @@ class BeaconTracker:
         self.span_hz = float(span_hz)
         self.min_snr_db = min_snr_db
         self.update_interval_s = update_interval_s
+        # Squaring (PSK) doubles the offset of the carrier line, so the
+        # channel must be at least 2 * power * span wide or a beacon far from
+        # nominal aliases to a wrong frequency (a real failure: a -20.4 kHz LNB
+        # error showed up as +12.6 kHz with a 66.7 kS/s channel).
+        self.power = 2 if kind == "psk" else 1
+        passband = self.span_hz + 600
         self.channel = ChannelSelector(
-            fs_in, offset_hz, min_out_rate=2.6 * (self.span_hz + 600), passband_hz=self.span_hz + 600
+            fs_in, offset_hz,
+            min_out_rate=2.4 * (self.power * self.span_hz + 1200),
+            passband_hz=passband,
         )
         self.fs = self.channel.fs_out
+        # Never search beyond what the (squared) channel can represent
+        self.span_hz = min(self.span_hz, 0.45 * self.fs / self.power - 600)
         self._buf = deque(maxlen=int(self.fs * integration_s))
         self._since_update = 0.0
 
@@ -50,6 +60,8 @@ class BeaconTracker:
         self.locked = False
         self._residuals = deque(maxlen=3)
         self._misses = 0
+        self._stream_t = 0.0  # seconds of input seen
+        self._locked_since: Optional[float] = None
         self.spectrum: list = []
         self.spectrum_span_hz = 2000.0
         self.spectrum_centre_hz = 0.0
@@ -71,11 +83,13 @@ class BeaconTracker:
         self.raw_offset_hz = None
         self.locked = False
         self._misses = 0
+        self._locked_since = None
 
     def status(self) -> dict:
         return {
             "kind": self.kind,
             "locked": bool(self.locked),
+            "locked_s": 0.0 if self._locked_since is None else round(self._stream_t - self._locked_since, 1),
             "offset_hz": None if self.offset_hz is None else round(float(self.offset_hz), 1),
             "raw_offset_hz": None if self.raw_offset_hz is None else round(float(self.raw_offset_hz), 1),
             "rate_hz_s": round(float(self.rate_hz_s), 2),
@@ -90,6 +104,7 @@ class BeaconTracker:
         y = self.channel.process(iq)
         self._buf.extend(y)
         self._since_update += len(iq) / self.channel.fs_in
+        self._stream_t += len(iq) / self.channel.fs_in
         if self._since_update < self.update_interval_s or len(self._buf) < self._buf.maxlen // 2:
             return False
         self._since_update = 0.0
@@ -151,6 +166,7 @@ class BeaconTracker:
             self._misses += 1
             if self._misses >= 4:  # ~2 s without the beacon
                 self.locked = False
+                self._locked_since = None
                 self._residuals.clear()
             elif self.offset_hz is not None:
                 self.offset_hz += self.rate_hz_s * dt  # coast on the drift rate
@@ -179,6 +195,10 @@ class BeaconTracker:
             self.rate_hz_s += 0.15 * r / dt
             self._residuals.append(abs(r))
         self.locked = len(self._residuals) >= 3 and max(self._residuals) < 15.0
+        if self.locked and self._locked_since is None:
+            self._locked_since = self._stream_t
+        elif not self.locked:
+            self._locked_since = None
         self._update_spectrum(x)
 
     @property

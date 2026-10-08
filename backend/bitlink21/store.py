@@ -74,11 +74,13 @@ class Store:
             return
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
         os.makedirs(self.files_dir, exist_ok=True)
-        self.db = await aiosqlite.connect(self.db_path)
-        self.db.row_factory = aiosqlite.Row
-        await self.db.execute("PRAGMA journal_mode=WAL")
-        await self.db.executescript(_SCHEMA)
-        await self.db.commit()
+        db = await aiosqlite.connect(self.db_path)
+        db.row_factory = aiosqlite.Row
+        await db.execute("PRAGMA journal_mode=WAL")
+        await db.executescript(_SCHEMA)
+        await db.commit()
+        # Publish the connection only once the schema exists
+        self.db = db
         logger.info(f"BitLink21 store opened at {self.db_path}")
 
     async def close(self) -> None:

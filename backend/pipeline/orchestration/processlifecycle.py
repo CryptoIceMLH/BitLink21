@@ -28,11 +28,27 @@ from handlers.entities.filebrowser import emit_file_browser_state
 from pipeline.streaming.iqbroadcaster import IQBroadcaster
 from vfos.state import VFOManager
 from workers.plutosdrworker import plutosdr_worker_process
-from workers.rtlsdrworker import rtlsdr_worker_process
 from workers.sigmfplaybackworker import sigmf_playback_worker_process
-from workers.soapysdrlocalworker import soapysdr_local_worker_process
-from workers.soapysdrremoteworker import soapysdr_remote_worker_process
-from workers.uhdworker import uhd_worker_process
+
+# BitLink21 images ship the PlutoSDR stack only. The other SDR workers need
+# libraries (librtlsdr, SoapySDR, UHD) that may not be installed, so they are
+# optional: a missing library just means that SDR type is unavailable.
+try:
+    from workers.rtlsdrworker import rtlsdr_worker_process
+except Exception:  # noqa: BLE001 - any import failure disables the driver
+    rtlsdr_worker_process = None
+try:
+    from workers.soapysdrlocalworker import soapysdr_local_worker_process
+except Exception:  # noqa: BLE001
+    soapysdr_local_worker_process = None
+try:
+    from workers.soapysdrremoteworker import soapysdr_remote_worker_process
+except Exception:  # noqa: BLE001
+    soapysdr_remote_worker_process = None
+try:
+    from workers.uhdworker import uhd_worker_process
+except Exception:  # noqa: BLE001
+    uhd_worker_process = None
 
 # Add setproctitle import for process naming
 try:
@@ -409,7 +425,10 @@ class ProcessLifecycleManager:
             ).to_dict()
 
             if not worker_process:
-                raise Exception(f"Worker process {worker_process} for SDR id: {sdr_id} not found")
+                raise Exception(
+                    f"SDR type '{sdr_device['type']}' is not supported in this build "
+                    "(BitLink21 supports the PlutoSDR / Pluto+ only)"
+                )
 
             # Create a named worker function
             named_worker = _create_named_worker_process(worker_process, process_name)

@@ -17,15 +17,11 @@
  *
  */
 
-import PublicIcon from '@mui/icons-material/Public';
-import GpsFixedIcon from '@mui/icons-material/GpsFixed';
 import EngineeringIcon from '@mui/icons-material/Engineering';
 import AddHomeIcon from '@mui/icons-material/AddHome';
-import {SatelliteIcon, Satellite03Icon, PreferenceVerticalIcon} from "hugeicons-react";
-import RadioIcon from '@mui/icons-material/Radio';
+import {PreferenceVerticalIcon} from "hugeicons-react";
 import InfoIcon from '@mui/icons-material/Info';
 import MicrowaveIcon from '@mui/icons-material/Microwave';
-import GroupWorkIcon from '@mui/icons-material/GroupWork';
 import WavesIcon from '@mui/icons-material/Waves';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import FolderIcon from '@mui/icons-material/Folder';
@@ -36,8 +32,6 @@ import { TleIcon } from '../components/common/custom-icons.jsx';
 import { Box, CircularProgress } from '@mui/material';
 import SyncIcon from '@mui/icons-material/Sync';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import FiberNewIcon from '@mui/icons-material/FiberNew';
-import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import EventNoteIcon from '@mui/icons-material/EventNote';
 import { useSelector } from 'react-redux';
@@ -265,17 +259,7 @@ export const getNavigation = () => [
     },
     {
         kind: 'header',
-        title: i18n.t('tracking', { ns: 'navigation' }),
-    },
-    {
-        segment: 'overview',
-        title: i18n.t('birds_eye_view', { ns: 'navigation' }),
-        icon: <PublicIcon/>,
-    },
-    {
-        segment: 'track',
-        title: i18n.t('tracking_console', { ns: 'navigation' }),
-        icon: <GpsFixedIcon/>,
+        title: 'Radio',
     },
     {
         segment: 'waterfall',
@@ -287,26 +271,10 @@ export const getNavigation = () => [
         title: 'File Browser',
         icon: <FileBrowserIconWithStatus />,
     },
-    {
-        segment: 'scheduler',
-        title: 'Scheduled Observations',
-        icon: <SchedulerIconWithStatus />,
-        dynamicTooltip: true, // Flag to indicate this item needs dynamic tooltip
-    },
     {kind: 'divider'},
     {
         kind: 'header',
         title: i18n.t('hardware', { ns: 'navigation' }),
-    },
-    {
-        segment: 'hardware/rig',
-        title: i18n.t('rigs', { ns: 'navigation' }),
-        icon: <RadioIcon/>,
-    },
-    {
-        segment: 'hardware/rotator',
-        title: i18n.t('rotators', { ns: 'navigation' }),
-        icon: <SatelliteIcon/>,
     },
     // {
     //     segment: 'hardware/cameras',
@@ -317,26 +285,6 @@ export const getNavigation = () => [
         segment: 'hardware/sdrs',
         title: i18n.t('sdrs', { ns: 'navigation' }),
         icon: <MicrowaveIcon/>,
-    },
-    {kind: 'divider'},
-    {
-        kind: 'header',
-        title: i18n.t('satellites', { ns: 'navigation' }),
-    },
-    {
-        segment: 'satellites/tlesources',
-        title: i18n.t('tle_sources', { ns: 'navigation' }),
-        icon: <TleIconWithStatus />,
-    },
-    {
-        segment: 'satellites/satellites',
-        title: i18n.t('satellites', { ns: 'navigation' }),
-        icon: <Satellite03Icon/>,
-    },
-    {
-        segment: 'satellites/groups',
-        title: i18n.t('groups', { ns: 'navigation' }),
-        icon: <GroupWorkIcon/>,
     },
     {kind: 'divider'},
     {

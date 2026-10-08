@@ -15,6 +15,7 @@ Socket.IO events emitted (to all clients):
     bitlink21:station_state   station started / stopped / error
 """
 
+import asyncio
 import base64
 import json
 import logging
@@ -72,6 +73,7 @@ class BitLink21Service:
         self.station_sdr_id: Optional[str] = None
         self.last_status: Optional[Dict[str, Any]] = None
         self._ready = False
+        self._init_lock: Optional[asyncio.Lock] = None
 
     # ------------------------------------------------------------ setup
 
@@ -80,17 +82,24 @@ class BitLink21Service:
             self.sio = sio
         if self._ready:
             return
-        await store.open()
-        saved = await store.get_settings()
-        merged = _default_settings()
-        for key, value in saved.items():
-            if isinstance(merged.get(key), dict) and isinstance(value, dict):
-                merged[key].update(value)
-            else:
-                merged[key] = value
-        self.settings = merged
-        self._build_router()
-        self._ready = True
+        # Several browser requests arrive at once on page load; only one may
+        # initialise (otherwise one reads the DB before its tables exist).
+        if self._init_lock is None:
+            self._init_lock = asyncio.Lock()
+        async with self._init_lock:
+            if self._ready:
+                return
+            await store.open()
+            saved = await store.get_settings()
+            merged = _default_settings()
+            for key, value in saved.items():
+                if isinstance(merged.get(key), dict) and isinstance(value, dict):
+                    merged[key].update(value)
+                else:
+                    merged[key] = value
+            self.settings = merged
+            self._build_router()
+            self._ready = True
 
     def _build_router(self) -> None:
         loader = PluginLoader()
@@ -242,6 +251,8 @@ class BitLink21Service:
         beacon = status.get("beacon") or {}
         if not beacon.get("locked"):
             raise RuntimeError("The beacon is not locked; nothing to calibrate from.")
+        if (beacon.get("locked_s") or 0) < 10:
+            raise RuntimeError("Wait until the beacon has been locked steadily for 10 s before calibrating.")
         profile = dict(self.settings["profile"])
         profile["rx_correction_hz"] = round(profile.get("rx_correction_hz", 0.0) + status["correction_hz"], 1)
         return await self.update_settings({"profile": profile})

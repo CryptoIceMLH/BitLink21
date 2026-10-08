@@ -156,8 +156,10 @@ export default function LinkAdvanced({
                     <Row label="Receive error (LNB + SDR)" value={formatHz(status?.correction_hz)} />
                     <Row label="Drift" value={beacon ? `${beacon.rate_hz_s} Hz/s` : null} />
                     <Row label="Beacon SNR" value={beacon?.snr_db !== null && beacon?.snr_db !== undefined ? `${beacon.snr_db} dB` : null} />
-                    <Button size="small" variant="outlined" disabled={!beacon?.locked || busy} onClick={onCalibrate}>
-                        Save current error as RX calibration
+                    <Button size="small" variant="outlined" disabled={!beacon?.locked || (beacon?.locked_s || 0) < 10 || busy} onClick={onCalibrate}>
+                        {beacon?.locked && (beacon?.locked_s || 0) < 10
+                            ? `Hold steady… (${Math.ceil(10 - (beacon.locked_s || 0))} s)`
+                            : 'Save current error as RX calibration'}
                     </Button>
                 </Section>
 
@@ -188,7 +190,8 @@ export default function LinkAdvanced({
                 <Section title="Frequency plan">
                     <Row label="SDR centre (IF)" value={plan ? `${formatMHz(plan.rx_center_if_hz, 4)} MHz` : null} />
                     <Row label="Beacon / channel offset" value={plan ? `${formatHz(plan.beacon_offset_hz)} / ${formatHz(plan.rx_channel_offset_hz)}` : null} />
-                    <Row label="Uplink" value={plan?.tx_channel_rf_hz ? `${formatMHz(plan.tx_channel_rf_hz, 5)} MHz` : null} />
+                    <Row label="Uplink SSB dial" value={plan?.tx_channel_rf_hz ? `${formatMHz(plan.tx_channel_rf_hz - 1500, 5)} MHz` : null} />
+                    <Row label="Uplink (signal centre)" value={plan?.tx_channel_rf_hz ? `${formatMHz(plan.tx_channel_rf_hz, 5)} MHz` : null} />
                     <Row label="TX LO" value={plan?.tx_lo_hz ? `${formatMHz(plan.tx_lo_hz, 4)} MHz` : null} />
                     {(plan?.warnings || []).map((w) => <Alert key={w} severity="warning" variant="outlined">{w}</Alert>)}
                 </Section>

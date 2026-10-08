@@ -78,8 +78,8 @@ class BitLink21Runner:
 
     def stop(self) -> None:
         self._stop.set()
-        self._rx_thread.join(timeout=2)
-        self._tx_thread.join(timeout=2)
+        self._rx_thread.join(timeout=1.5)
+        self._tx_thread.join(timeout=1.5)
 
     def feed(self, samples: np.ndarray) -> None:
         try:
@@ -772,5 +772,15 @@ def plutosdr_worker_process(
                 "timestamp": time.time(),
             }
         )
+
+        # The main process may already have stopped reading the queue; do not
+        # block process exit waiting for buffered status messages to flush
+        # (that hang ended in a SIGKILL after every stop).
+        for q in (data_queue, iq_queue_fft, iq_queue_demod):
+            try:
+                if q is not None:
+                    q.cancel_join_thread()
+            except Exception:
+                pass
 
         logger.info("PlutoSDR worker process terminated")

@@ -88,7 +88,7 @@ if os.environ.get("ALEMBIC_CONTEXT"):
         secret_key="YOUR_RANDOM_SECRET_KEY",
         track_interval_ms=2000,
         enable_soapy_discovery=False,
-        runonce_soapy_discovery=True,
+        runonce_soapy_discovery=False,
     )
 else:
     _raw_args = parser.parse_args()

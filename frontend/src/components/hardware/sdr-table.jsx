@@ -432,12 +432,8 @@ export default function SDRsPage() {
                         dispatch(setSelectedSdrDevice('')); // Reset selected SDR when type changes
                     }}
                 >
-                    <MenuItem key="rtlsdrusb" value="rtlsdrusb">{t('sdr.rtlsdr_usb', 'RTL-SDR USB')}</MenuItem>
-                    <MenuItem key="rtlsdrtcp" value="rtlsdrtcp">{t('sdr.rtlsdr_tcp', 'RTL-SDR TCP')}</MenuItem>
-                    <MenuItem value="soapysdrremote">{t('sdr.soapysdr_remote')}</MenuItem>
-                    <MenuItem value="soapysdrlocal">{t('sdr.soapysdr_usb')}</MenuItem>
-                    <MenuItem value="uhd">{t('sdr.uhd')}</MenuItem>
-                    <MenuItem value="plutosdr">{t('sdr.plutosdr', 'PlutoSDR (Network)')}</MenuItem>
+                    {/* BitLink21 supports the PlutoSDR / Pluto+ family only */}
+                    <MenuItem value="plutosdr">{t('sdr.plutosdr', 'PlutoSDR / Pluto+ (Network)')}</MenuItem>
                 </Select>
             </FormControl>
         ];

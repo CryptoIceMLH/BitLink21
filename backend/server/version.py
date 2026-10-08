@@ -405,6 +405,13 @@ def write_version_info_during_build(version_info_override=None):
     """
     version_info = get_version_info()
 
+    # The build's BUILD_VERSION always wins over a version-info.json left
+    # behind by an earlier build layer (a stale file showed 4.0.0 in 4.0.1).
+    if os.environ.get("BUILD_VERSION"):
+        version_info["version"] = os.environ["BUILD_VERSION"]
+        if os.environ.get("BUILD_DATE"):
+            version_info["buildDate"] = os.environ["BUILD_DATE"]
+
     # Apply overrides if provided
     if version_info_override:
         version_info.update(version_info_override)

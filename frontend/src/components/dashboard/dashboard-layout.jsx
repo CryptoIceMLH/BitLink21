@@ -69,10 +69,7 @@ import WakeLockStatus from "./wake-lock-icon.jsx";
 import ConnectionStatus from "./connection-popover.jsx";
 import Tooltip from "@mui/material/Tooltip";
 import { AudioProvider, useAudio } from "./audio-provider.jsx";
-import HardwareSettingsPopover from "./hardware-popover.jsx";
-import LocationWarningPopover from "./location-popover.jsx";
 import ConnectionOverlay from "./reconnecting-overlay.jsx";
-import SatelliteInfoPopover from "./target-popover.jsx";
 import VersionInfo from "./version-info.jsx";
 import VersionUpdateOverlay from "./version-update-overlay.jsx";
 import UpdateIndicator from "./update-indicator.jsx";
@@ -130,70 +127,13 @@ const CustomAppBar = styled(AppBar, {
     zIndex: theme.zIndex.drawer + 1,
 }));
 
-function DashboardEditor() {
-    const theme = useTheme();
-    const dispatch = useDispatch();
-    const { t } = useTranslation('dashboard');
-    const {isEditing} = useSelector(state => state.dashboard);
-
-    const handleEditClick = () => {
-        dispatch(setIsEditing(true));
-        OverviewModeSetEditing(true);
-        TargetModeSetEditing(true);
-        WaterfallModeSetEditing(true);
-    };
-
-    const handleSaveClick = () => {
-        dispatch(setIsEditing(false));
-        OverviewModeSetEditing(false);
-        TargetModeSetEditing(false);
-        WaterfallModeSetEditing(false);
-    };
-
-    const handleCancelClick = () => {
-        // Revert changes and exit edit mode
-        setIsEditing(false);
-    };
-
-    return (
-        <>
-            {isEditing ? (
-                <Stack direction="row" spacing={2}>
-                    <Tooltip title={t('layout.done_editing')}>
-                        <IconButton size="small" onClick={handleSaveClick} sx={{
-                            width: 40,
-                        }}>
-                            <CheckIcon color="success"/>
-                        </IconButton>
-                    </Tooltip>
-                </Stack>
-            ) : (
-                <Tooltip title={t('layout.edit_layout')}>
-                    <IconButton size="small" onClick={handleEditClick} sx={{
-                        width: 40,
-                    }}>
-                        <BorderColorIcon sx={{
-                            color: theme.palette.mode === 'dark'
-                                ? theme.palette.primary.main
-                                : theme.palette.common.white
-                        }}/>
-                    </IconButton>
-                </Tooltip>
-            )}
-        </>
-    );
-}
 
 function ToolbarActions() {
     return (
         <Stack direction="row" sx={{padding: "6px 0px 0px 0px"}}>
             <ConnectionStatus />
-            <LocationWarningPopover />
-            <SatelliteInfoPopover />
-            <HardwareSettingsPopover />
             <BackgroundTasksPopover />
             <WakeLockStatus />
-            <DashboardEditor />
             <TimeDisplay />
             <ThemeSwitcher />
         </Stack>

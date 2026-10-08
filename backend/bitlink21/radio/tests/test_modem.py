@@ -76,6 +76,25 @@ def test_beacon_tracker_follows_drifting_psk_beacon():
     assert abs(bt.offset_hz - err[-1]) < 5.0
 
 
+@pytest.mark.parametrize("err", [-20400.0, -24000.0, 22000.0])
+def test_beacon_tracker_no_alias_across_full_span(err):
+    """Regression: with a 66.7 kS/s channel a -20.4 kHz LNB error aliased to
+    +12.6 kHz after squaring (live failure on QO-100, 2026-10-08)."""
+    fs = 1e6
+    dur = 6
+    n = int(fs * dur)
+    rng = np.random.default_rng(7)
+    bits = rng.integers(0, 2, int(400 * dur) + 1) * 2 - 1
+    bb = signal.lfilter(signal.firwin(301, 400, fs=fs), 1, np.repeat(bits, int(fs / 400))[:n])
+    x = bb * np.exp(2j * np.pi * (-106e3 + err) * np.arange(n) / fs)
+    x = x + 0.3 * (rng.standard_normal(n) + 1j * rng.standard_normal(n))
+    bt = BeaconTracker(fs, -106e3, kind="psk", span_hz=25000)
+    for i in range(0, n, 65536):
+        bt.process(x[i: i + 65536].astype(np.complex64))
+    assert bt.locked
+    assert abs(bt.offset_hz - err) < 20.0, bt.offset_hz
+
+
 def test_station_end_to_end_with_beacon_lock():
     fs = 1e6
     prof = SatelliteProfile(rx_mode=4, sample_rate_hz=fs, rx_dial_rf_hz=10489.6e6)

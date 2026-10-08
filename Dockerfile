@@ -73,29 +73,14 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 # Copy backend requirements
 COPY backend/requirements.txt .
 
-# Install numpy 2.3.1 so that UHD picks it up on compile
+# Install numpy 2.3.1 system-wide (the GNU Radio build uses it)
 RUN pip install --break-system-packages --ignore-installed numpy==2.3.1
 
-# Compile UHD from source with Python API
-WORKDIR /src
-RUN git clone https://github.com/EttusResearch/uhd.git && \
-    cd uhd && \
-    git checkout v4.9.0.0 && \
-    cd host && \
-    mkdir build && \
-    cd build && \
-    cmake -DENABLE_PYTHON_API=ON .. && \
-    make -j$(nproc) && \
-    sudo make install -j$(nproc) && \
-    sudo ldconfig
+# Pluto-only build: UHD/USRP support removed.
 
 RUN python3 -m venv /app/venv
 ENV VIRTUAL_ENV=/app/venv
 ENV PATH="/app/venv/bin:$PATH"
-
-# Copy UHD Python bindings to virtual environment
-RUN cp -r /usr/local/lib/python3.12/site-packages/uhd* /app/venv/lib/python3.12/site-packages/ || true
-RUN cp -r /usr/local/lib/python3.12/site-packages/usrp* /app/venv/lib/python3.12/site-packages/ || true
 
 WORKDIR /app
 
@@ -108,125 +93,7 @@ import pkg_resources
 print(pkg_resources.__file__)
 PY
 
-# compile SoapySDR
-WORKDIR /src
-RUN git clone --depth=1 https://github.com/pothosware/SoapySDR.git && \
-    cd SoapySDR && \
-    mkdir build && \
-    cd build && \
-    cmake .. && \
-    make -j$(nproc) && \
-    sudo make install -j$(nproc) && \
-    sudo ldconfig
-
-# compile SoapySDRRemote
-WORKDIR /src
-RUN git clone --depth=1 https://github.com/pothosware/SoapyRemote.git && \
-    cd SoapyRemote && \
-    mkdir build && \
-    cd build && \
-    cmake .. && \
-    make -j$(nproc) && \
-    sudo make install -j$(nproc) && \
-    sudo ldconfig
-
-# compile SoapySDR-RTLSDR
-WORKDIR /src
-RUN git clone --depth=1 https://github.com/pothosware/SoapyRTLSDR.git && \
-    cd SoapyRTLSDR && \
-    mkdir build && \
-    cd build && \
-    cmake .. && \
-    make -j$(nproc) && \
-    sudo make install -j$(nproc) && \
-    sudo ldconfig
-
-# compile SoapySDR-Airspy
-WORKDIR /src
-RUN git clone --depth=1 https://github.com/pothosware/SoapyAirspy.git && \
-    cd SoapyAirspy && \
-    mkdir build && \
-    cd build && \
-    cmake .. && \
-    make -j$(nproc) && \
-    sudo make install -j$(nproc) && \
-    sudo ldconfig
-
-# compile SoapySDR-UHD
-WORKDIR /src
-RUN git clone --depth=1 https://github.com/pothosware/SoapyUHD.git && \
-    cd SoapyUHD && \
-    mkdir build && \
-    cd build && \
-    cmake .. && \
-    make -j$(nproc) && \
-    sudo make install -j$(nproc) && \
-    sudo ldconfig
-
-# compile SoapySDR-hackrf
-WORKDIR /src
-RUN git clone --depth=1 https://github.com/pothosware/SoapyHackRF.git && \
-    cd SoapyHackRF && \
-    mkdir build && \
-    cd build && \
-    cmake .. && \
-    make -j$(nproc) && \
-    sudo make install -j$(nproc) && \
-    sudo ldconfig
-
-# compile HydraSDR (rfone_host) and SoapyHydraSDR
-WORKDIR /src
-RUN git clone --depth=1 https://github.com/hydrasdr/rfone_host.git && \
-    cd rfone_host && \
-    mkdir build && \
-    cd build && \
-    cmake .. && \
-    make -j$(nproc) && \
-    sudo make install -j$(nproc) && \
-    sudo ldconfig
-
-WORKDIR /src
-RUN git clone --depth=1 https://github.com/hydrasdr/SoapyHydraSDR.git && \
-    cd SoapyHydraSDR && \
-    mkdir build && \
-    cd build && \
-    cmake .. && \
-    make -j$(nproc) && \
-    sudo make install -j$(nproc) && \
-    sudo ldconfig
-
-# Install SDRplay API (prerequisite for SoapySDRPlay3)
-WORKDIR /src
-RUN apt-get update && apt-get install -y libusb-1.0-0 libudev1 && rm -rf /var/lib/apt/lists/*
-# SDRplay removed its legacy .run installer; use the pinned v3.15 API archive
-# (same fix as upstream Ground Station). The checksum fails the build if the
-# archive ever changes.
-ARG SDRPLAY_API_ARCHIVE_COMMIT=4d83f831669d4b1c8c2cdde4d84c3f358e281828
-ARG SDRPLAY_API_ARCHIVE_SHA256=0b97e26a69d56a033adbe2a42c49bc02cb9e534db3b5dc5609556cef8d6dae2c
-RUN wget -q -O /tmp/sdrplay-api-v3.15.tar.gz         "https://codeload.github.com/srcejon/sdrplayapi/tar.gz/${SDRPLAY_API_ARCHIVE_COMMIT}" &&     echo "${SDRPLAY_API_ARCHIVE_SHA256}  /tmp/sdrplay-api-v3.15.tar.gz" | sha256sum -c - &&     mkdir -p /tmp/sdrplay-api &&     tar -xzf /tmp/sdrplay-api-v3.15.tar.gz -C /tmp/sdrplay-api --strip-components=1 &&     ARCH=$(uname -m) &&     if [ "$ARCH" = "x86_64" ]; then SDRPLAY_ARCH="amd64";     elif [ "$ARCH" = "aarch64" ]; then SDRPLAY_ARCH="arm64";     else echo "Unsupported SDRplay architecture: $ARCH" >&2; exit 1; fi &&     install -m 644 "/tmp/sdrplay-api/$SDRPLAY_ARCH/libsdrplay_api.so.3.15" /usr/local/lib/ &&     ln -sf libsdrplay_api.so.3.15 /usr/local/lib/libsdrplay_api.so.3 &&     ln -sf libsdrplay_api.so.3 /usr/local/lib/libsdrplay_api.so &&     install -m 644 /tmp/sdrplay-api/inc/* /usr/local/include/ &&     install -D -m 755 "/tmp/sdrplay-api/$SDRPLAY_ARCH/sdrplay_apiService"         /opt/sdrplay_api/sdrplay_apiService &&     rm -rf /tmp/sdrplay-api /tmp/sdrplay-api-v3.15.tar.gz &&     ldconfig
-
-# compile SoapySDRPlay3
-WORKDIR /src
-RUN git clone --depth=1 https://github.com/pothosware/SoapySDRPlay3.git && \
-    cd SoapySDRPlay3 && \
-    mkdir build && \
-    cd build && \
-    cmake .. && \
-    make -j$(nproc) && \
-    sudo make install -j$(nproc) && \
-    sudo ldconfig
-
-# compile LimeSuite
-WORKDIR /src
-RUN git clone --depth=1 --branch=stable https://github.com/myriadrf/LimeSuite.git && \
-    cd LimeSuite && \
-    sed -i '1i\#include <cstdint>' src/lms7002m_mcu/MCU_File.cpp && \
-    mkdir builddir && \
-    cd builddir && \
-    cmake ../ && \
-    make -j$(nproc) && \
-    sudo make install -j$(nproc) && \
-    sudo ldconfig
+# Pluto-only build: SoapySDR + RTL-SDR/Airspy/UHD/HackRF/HydraSDR/SDRplay modules and LimeSuite are not built.
 
 # compile Hamlib
 # WORKDIR /src
@@ -409,15 +276,9 @@ RUN git clone --depth=1 https://github.com/SatDump/SatDump.git && \
 
 # Configure library paths and copy Python bindings
 RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/local.conf && \
-    ldconfig && \
-    cp /usr/local/lib/python3.12/site-packages/*SoapySDR* /app/venv/lib/python3.12/site-packages/
+    ldconfig
     # mkdir -p "/app/venv/lib/python3.12/site-packages/Hamlib/" && \
     # cp /usr/local/lib/python3.12/site-packages/*Hamlib* /app/venv/lib/python3.12/site-packages/Hamlib && \
-
-# Download and place the USRP B210 FPGA binary for LibreSDR device
-RUN mkdir -p /usr/local/share/uhd/images
-RUN wget -O /usr/local/share/uhd/images/libresdr_b210.bin \
-    https://github.com/Rashed97/docker_open5gs/raw/refs/heads/exp_5g_ims_pyhss/srsran/usrp_b220_fpga.bin
 
 # Install pyadi-iio for PlutoSDR TX+RX support (uses libiio already installed above)
 # Pin: pylibiio 1.x (pulled by pyadi-iio>=0.0.21) requires libiio 1.x, but
@@ -474,14 +335,12 @@ ENV GS_ENVIRONMENT=${GS_ENVIRONMENT}
 RUN cd /app/backend && python -c "import os; from server.version import write_version_info_during_build; write_version_info_during_build({'gitCommit': os.environ.get('GIT_COMMIT', 'unknown')})"
 
 # Configure backend to serve static files
-# Create a volume for persistent data (database, recordings, snapshots, UHD images)
+# Create a volume for persistent data (database, recordings, snapshots, received files)
 VOLUME /app/backend/data
 
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV STATIC_FILES_DIR=/app/frontend/dist
-ENV UHD_IMAGES_DIR=/app/backend/data/uhd_images
-ENV UHD_CONFIG_DIR=/app/backend/data/uhd_config
 # Configure GNU Radio to use mmap-based buffers to prevent shared memory exhaustion
 ENV GR_BUFFER_TYPE=vmcirc_mmap_tmpfile
 
@@ -495,5 +354,5 @@ RUN sed -i 's/#enable-reflector=no/enable-reflector=yes/' /etc/avahi/avahi-daemo
 
 WORKDIR backend/
 
-# Command to run the application with UHD images downloader and conditional FPGA loading
+# Start the application
 CMD ["/app/startup.sh"]

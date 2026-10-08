@@ -32,7 +32,7 @@ DEFAULT_APP_CONFIG: Dict[str, Any] = {
     "secret_key": "YOUR_RANDOM_SECRET_KEY",
     "track_interval_ms": 2000,
     "enable_soapy_discovery": False,
-    "runonce_soapy_discovery": True,
+    "runonce_soapy_discovery": False,  # Pluto-only build
 }
 
 
