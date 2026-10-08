@@ -420,7 +420,9 @@ RUN wget -O /usr/local/share/uhd/images/libresdr_b210.bin \
     https://github.com/Rashed97/docker_open5gs/raw/refs/heads/exp_5g_ims_pyhss/srsran/usrp_b220_fpga.bin
 
 # Install pyadi-iio for PlutoSDR TX+RX support (uses libiio already installed above)
-RUN pip install pyadi-iio>=0.0.16
+# Pin: pylibiio 1.x (pulled by pyadi-iio>=0.0.21) requires libiio 1.x, but
+# Ubuntu ships libiio 0.25 -> import adi fails. Keep bindings matched to 0.25.
+RUN pip install "pyadi-iio==0.0.19" "pylibiio==0.25"
 
 # Install BitLink21 extras (QR codes for Lightning invoices)
 RUN pip install qrcode>=7.4.2
