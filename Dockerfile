@@ -198,23 +198,12 @@ RUN git clone --depth=1 https://github.com/hydrasdr/SoapyHydraSDR.git && \
 # Install SDRplay API (prerequisite for SoapySDRPlay3)
 WORKDIR /src
 RUN apt-get update && apt-get install -y libusb-1.0-0 libudev1 && rm -rf /var/lib/apt/lists/*
-RUN wget https://www.sdrplay.com/software/SDRplay_RSP_API-Linux-3.15.2.run && \
-    chmod +x SDRplay_RSP_API-Linux-3.15.2.run && \
-    ./SDRplay_RSP_API-Linux-3.15.2.run --tar -xvf && \
-    ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then SDRPLAY_ARCH="amd64"; \
-    elif [ "$ARCH" = "aarch64" ]; then SDRPLAY_ARCH="arm64"; \
-    else SDRPLAY_ARCH="$ARCH"; fi && \
-    echo "Detected architecture: $ARCH, using SDRplay folder: $SDRPLAY_ARCH" && \
-    cp $SDRPLAY_ARCH/libsdrplay_api.so.3.15 /usr/local/lib/ && \
-    cd /usr/local/lib && \
-    ln -s libsdrplay_api.so.3.15 libsdrplay_api.so.3 && \
-    ln -s libsdrplay_api.so.3 libsdrplay_api.so && \
-    cp -r /src/inc/* /usr/local/include/ && \
-    mkdir -p /opt/sdrplay_api && \
-    cp /src/$SDRPLAY_ARCH/sdrplay_apiService /opt/sdrplay_api/ && \
-    chmod +x /opt/sdrplay_api/sdrplay_apiService && \
-    ldconfig
+# SDRplay removed its legacy .run installer; use the pinned v3.15 API archive
+# (same fix as upstream Ground Station). The checksum fails the build if the
+# archive ever changes.
+ARG SDRPLAY_API_ARCHIVE_COMMIT=4d83f831669d4b1c8c2cdde4d84c3f358e281828
+ARG SDRPLAY_API_ARCHIVE_SHA256=0b97e26a69d56a033adbe2a42c49bc02cb9e534db3b5dc5609556cef8d6dae2c
+RUN wget -q -O /tmp/sdrplay-api-v3.15.tar.gz         "https://codeload.github.com/srcejon/sdrplayapi/tar.gz/${SDRPLAY_API_ARCHIVE_COMMIT}" &&     echo "${SDRPLAY_API_ARCHIVE_SHA256}  /tmp/sdrplay-api-v3.15.tar.gz" | sha256sum -c - &&     mkdir -p /tmp/sdrplay-api &&     tar -xzf /tmp/sdrplay-api-v3.15.tar.gz -C /tmp/sdrplay-api --strip-components=1 &&     ARCH=$(uname -m) &&     if [ "$ARCH" = "x86_64" ]; then SDRPLAY_ARCH="amd64";     elif [ "$ARCH" = "aarch64" ]; then SDRPLAY_ARCH="arm64";     else echo "Unsupported SDRplay architecture: $ARCH" >&2; exit 1; fi &&     install -m 644 "/tmp/sdrplay-api/$SDRPLAY_ARCH/libsdrplay_api.so.3.15" /usr/local/lib/ &&     ln -sf libsdrplay_api.so.3.15 /usr/local/lib/libsdrplay_api.so.3 &&     ln -sf libsdrplay_api.so.3 /usr/local/lib/libsdrplay_api.so &&     install -m 644 /tmp/sdrplay-api/inc/* /usr/local/include/ &&     install -D -m 755 "/tmp/sdrplay-api/$SDRPLAY_ARCH/sdrplay_apiService"         /opt/sdrplay_api/sdrplay_apiService &&     rm -rf /tmp/sdrplay-api /tmp/sdrplay-api-v3.15.tar.gz &&     ldconfig
 
 # compile SoapySDRPlay3
 WORKDIR /src
