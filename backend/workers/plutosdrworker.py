@@ -66,6 +66,16 @@ class BitLink21Runner:
         self._rx_thread.start()
         self._tx_thread.start()
 
+    def update_tx(self, profile_dict: Dict[str, Any]) -> None:
+        """Apply new uplink settings (e.g. an echo-measured TX correction)
+        without restarting the receiver."""
+        from bitlink21.radio.profile import SatelliteProfile, make_plan
+
+        profile = SatelliteProfile.from_dict(profile_dict)
+        plan = make_plan(profile)
+        self.profile, self.plan = profile, plan
+        self.station.profile, self.station.plan = profile, plan
+
     def stop(self) -> None:
         self._stop.set()
         self._rx_thread.join(timeout=2)
@@ -122,8 +132,8 @@ class BitLink21Runner:
         row = request.get("msg_row")
         self._emit({"type": "bitlink21_tx_status", "msg_row": row, "status": "sending"})
         try:
-            if self.plan.tx_lo_hz is None:
-                raise RuntimeError("TX disabled in profile (no uplink frequency)")
+            if not self.plan.tx_allowed or self.plan.tx_lo_hz is None:
+                raise RuntimeError(f"TX blocked: {self.plan.tx_block_reason or 'no uplink frequency'}")
             content = base64.b64decode(request["content_b64"])
             burst = self.station.build_tx_burst(request["name"], content)
             n_chunks = -(-len(burst) // TX_CHUNK)
@@ -571,6 +581,10 @@ def plutosdr_worker_process(
                                 logger.warning(f"Failed to set XO correction: {e}")
 
                     # BitLink21 station commands
+                    if "bitlink21_tx_update" in new_config and bitlink21 is not None:
+                        bitlink21.update_tx(new_config["bitlink21_tx_update"])
+                        logger.info(f"BitLink21 TX plan updated: {bitlink21.plan.tx_channel_rf_hz}")
+
                     if "bitlink21_stop" in new_config and bitlink21 is not None:
                         bitlink21.stop()
                         bitlink21 = None

@@ -19,6 +19,7 @@ import base64
 import json
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional
 
 from bitlink21.payload_router import InboundPayload, PayloadRouter
@@ -43,7 +44,10 @@ def _default_settings() -> Dict[str, Any]:
         "encryption": ENCRYPTION_CLEAR,
         "passphrase": "",
         "profile": PRESETS["qo100-nb"].to_dict(),
-        "auto_start": False,
+        "auto_start": True,
+        "pluto_host": (os.environ.get("PLUTO_URI") or "ip:192.168.1.200").replace("ip:", ""),
+        # Correct our uplink frequency automatically from our own echoes
+        "auto_tx_correction": True,
         # Master TX switch. Off by default: nothing is transmitted until the
         # operator deliberately enables it (amp, uplink frequency, licence).
         "tx_enabled": False,
@@ -169,10 +173,52 @@ class BitLink21Service:
                         "tx_queue": info.get("tx_queue")}
         return None
 
+    async def _start_pluto(self) -> Dict[str, Any]:
+        """Start the PlutoSDR ourselves (no waterfall page needed).
+
+        Uses the Pluto configured under Hardware > SDRs, or registers one
+        from the configured host if there is none yet.
+        """
+        import crud
+        from db import AsyncSessionLocal
+        from pipeline.orchestration.processmanager import process_manager
+
+        host = self.settings.get("pluto_host") or "192.168.1.200"
+        async with AsyncSessionLocal() as db:
+            res = await crud.hardware.fetch_sdrs(db)
+            plutos = [s for s in (res.get("data") or []) if s.get("type") == "plutosdr"]
+            device = next((s for s in plutos if s.get("host") == host), plutos[0] if plutos else None)
+            if device is None:
+                res = await crud.hardware.add_sdr(db, {
+                    "name": "PlutoSDR", "type": "plutosdr", "host": host,
+                    "frequency_min": 70, "frequency_max": 6000,
+                })
+                if not res.get("success"):
+                    raise RuntimeError(f"Could not register the PlutoSDR: {res.get('error')}")
+                device = res["data"]
+                logger.info(f"Registered PlutoSDR at {host}")
+
+        profile = SatelliteProfile.from_dict(self.settings["profile"])
+        plan = make_plan(profile)
+        sdr_config = {
+            "sdr_id": device["id"],
+            "center_freq": plan.rx_center_if_hz,
+            "sample_rate": profile.sample_rate_hz,
+            "gain": profile.rx_gain_db,
+            "fft_size": 8192,
+            "fft_window": "hanning",
+            "fft_averaging": 4,
+        }
+        await process_manager.start_sdr_process(device, sdr_config, "internal:bitlink21")
+        pluto = self._find_pluto()
+        if pluto is None:
+            raise RuntimeError(f"The PlutoSDR at {host} did not start. Is it powered and reachable?")
+        return pluto
+
     async def start_station(self) -> Dict[str, Any]:
         pluto = self._find_pluto()
         if pluto is None or pluto["config_queue"] is None:
-            raise RuntimeError("No PlutoSDR is streaming. Start the PlutoSDR on the waterfall page first.")
+            pluto = await self._start_pluto()
         profile = SatelliteProfile.from_dict(self.settings["profile"])
         plan = make_plan(profile)
         pluto["config_queue"].put({"bitlink21_start": profile.to_dict()})
@@ -200,21 +246,19 @@ class BitLink21Service:
         return await self.update_settings({"profile": profile})
 
     async def on_sdr_started(self, sdr_id: str, device: Dict[str, Any]) -> None:
+        # A Pluto started from the classic waterfall stays under the classic
+        # page's control; the Link page starts the station when it is opened
+        # (settings["auto_start"]).
         await self.ensure_ready()
-        if device.get("type") == "plutosdr" and self.settings.get("auto_start"):
-            try:
-                await self.start_station()
-            except Exception as e:
-                logger.warning(f"BitLink21 auto-start failed: {e}")
 
     # ------------------------------------------------------------ sending
 
     async def send_message(self, payload_type: int, body: bytes, encrypt: Optional[bool] = None) -> Dict[str, Any]:
         if not self.settings.get("tx_enabled"):
             raise RuntimeError("Transmit is switched off. Enable TX in the station settings first.")
-        profile = SatelliteProfile.from_dict(self.settings["profile"])
-        if not profile.tx_dial_rf_hz:
-            raise RuntimeError("TX is disabled: set an uplink frequency in the station profile first.")
+        plan = make_plan(SatelliteProfile.from_dict(self.settings["profile"]))
+        if not plan.tx_allowed:
+            raise RuntimeError(f"Can't transmit on this channel: {plan.tx_block_reason}.")
         if not self.settings["callsign"]:
             raise RuntimeError("Set your callsign first (stations must identify on amateur bands).")
         validate_payload(payload_type, body)
@@ -273,6 +317,12 @@ class BitLink21Service:
             await self._emit("bitlink21:file", info)
             return
 
+        # Our own transmission heard back through the satellite?
+        own = await store.find_message("tx", data[7:15].hex())
+        if own is not None:
+            await self._on_echo(own)
+            return
+
         passphrase = self.settings["passphrase"] or None
         try:
             msg = envelope.decode(data, passphrase)
@@ -299,6 +349,29 @@ class BitLink21Service:
             return  # duplicate (repeated transmission)
         await self._emit_message(row_id)
         await self._relay(row_id, msg)
+
+    async def _on_echo(self, own: Dict[str, Any]) -> None:
+        """Our message came back through the satellite: delivery confirmed.
+
+        The downlink is beacon-corrected, so the modem's measured offset of
+        our own signal is our uplink frequency error.
+        """
+        if own.get("echo_at"):
+            return  # repeats of the same transmission
+        modem = (self.last_status or {}).get("modem") or {}
+        offset = modem.get("offset_hz")
+        await store.update_message(own["id"], status="confirmed", echo_at=time.time(), echo_offset_hz=offset)
+        await self._emit_message(own["id"])
+        if offset is not None and self.settings.get("auto_tx_correction") and abs(offset) > 20:
+            profile = dict(self.settings["profile"])
+            profile["tx_correction_hz"] = round(profile.get("tx_correction_hz", 0.0) - offset, 1)
+            logger.info(f"Echo showed uplink {offset:+.0f} Hz off; TX correction now {profile['tx_correction_hz']} Hz")
+            self.settings["profile"] = profile
+            await store.set_settings({"profile": profile})
+            await self._emit("bitlink21:settings", self.public_settings())
+            pluto = self._find_pluto()
+            if pluto and self.station_sdr_id:
+                pluto["config_queue"].put({"bitlink21_tx_update": profile})
 
     async def _relay(self, row_id: int, msg: envelope.Message) -> None:
         """Hand the payload to the matching plugin (Bitcoin relay is opt-in)."""

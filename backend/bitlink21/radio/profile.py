@@ -35,13 +35,26 @@ class SatelliteProfile:
     translation_hz: float = 8089.500e6
     uplink_lo_hz: float = 0.0  # upconverter LO, 0 = SDR transmits on RF directly
     uplink_band_hz: List[float] = field(default_factory=lambda: [2400.000e6, 2400.500e6])
-    tx_dial_rf_hz: Optional[float] = None  # uplink dial; None = TX disabled
+    # "Link" mode: transmit on the same channel we listen to (uplink derived
+    # from the transponder translation, same speed mode). Our own signal then
+    # comes back through the satellite, which confirms delivery and measures
+    # our uplink frequency error.
+    tx_follow_rx: bool = True
+    tx_dial_rf_hz: Optional[float] = None  # uplink dial when tx_follow_rx is off
     tx_mode: int = 4
     tx_gain_db: float = -30.0
-    tx_correction_hz: float = 0.0  # manual uplink frequency correction
+    tx_correction_hz: float = 0.0  # uplink frequency correction (auto from echoes)
+    # Downlink segments we must never land a transmission on (QO-100 NB
+    # bandplan: CW beacon, PSK beacon, multimedia + upper beacon).
+    downlink_band_hz: List[float] = field(default_factory=lambda: [10489.500e6, 10490.000e6])
+    tx_forbidden_dl_hz: List[List[float]] = field(default_factory=lambda: [
+        [10489.4975e6, 10489.5050e6],
+        [10489.7450e6, 10489.7550e6],
+        [10489.9850e6, 10490.0050e6],
+    ])
     # SDR
     sample_rate_hz: float = 1.0e6
-    rx_gain_db: float = 50.0
+    rx_gain_db: float = 30.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -69,6 +82,10 @@ class FrequencyPlan:
     rx_channel_rf_hz: float
     tx_channel_rf_hz: Optional[float]
     warnings: List[str]
+    tx_dial_rf_hz: Optional[float] = None  # effective uplink dial
+    tx_mode: Optional[int] = None  # effective TX speed mode
+    tx_allowed: bool = False
+    tx_block_reason: Optional[str] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -105,23 +122,46 @@ def make_plan(p: SatelliteProfile) -> FrequencyPlan:
     if abs(rx_off) > usable:
         warnings.append("Data channel is outside the usable SDR bandwidth")
 
+    # Uplink: follow the RX channel through the transponder, or use the
+    # explicitly configured uplink dial.
+    tx_mode_idx = p.rx_mode if p.tx_follow_rx else p.tx_mode
+    tx_dial = (p.rx_dial_rf_hz - p.translation_hz) if p.tx_follow_rx else p.tx_dial_rf_hz
+    tx_block = None
     tx_lo = tx_off = tx_rf = None
-    if p.tx_dial_rf_hz:
-        tx_rf = p.tx_dial_rf_hz + AUDIO_CARRIER_HZ + p.tx_correction_hz
+    if not tx_dial:
+        tx_block = "No uplink frequency set"
+    else:
+        mode = get_mode(tx_mode_idx)
+        half_bw = mode.symbol_rate * (1 + RRC_ROLLOFF) / 2
+        # Where our signal will appear on the downlink
+        dl_centre = tx_dial + AUDIO_CARRIER_HZ + p.translation_hz
+        dl_lo, dl_hi = dl_centre - half_bw, dl_centre + half_bw
+        band_dl_lo, band_dl_hi = p.downlink_band_hz
+        if dl_lo < band_dl_lo or dl_hi > band_dl_hi:
+            tx_block = "Channel is outside the transponder"
+        for seg_lo, seg_hi in p.tx_forbidden_dl_hz:
+            if dl_lo < seg_hi and dl_hi > seg_lo:
+                tx_block = (
+                    f"Channel overlaps a beacon segment ({seg_lo / 1e6:.4f}-{seg_hi / 1e6:.4f} MHz); "
+                    "pick a free channel"
+                )
+
+        tx_rf = tx_dial + AUDIO_CARRIER_HZ + p.tx_correction_hz
         tx_if = tx_rf - p.uplink_lo_hz if p.uplink_lo_hz else tx_rf
         band_lo, band_hi = p.uplink_band_hz
         if not band_lo <= tx_rf <= band_hi:
-            warnings.append("TX frequency is outside the uplink band")
-        mode = get_mode(p.tx_mode)
-        half_bw = mode.symbol_rate * (1 + RRC_ROLLOFF) / 2
-        # Put the TX LO (and its leakage / image) below the uplink band so
-        # nothing but our signal lands on the transponder.
-        band_lo_if = band_lo - p.uplink_lo_hz if p.uplink_lo_hz else band_lo
-        tx_lo = min(band_lo_if - 50e3, tx_if - 100e3)
-        if tx_if - tx_lo + half_bw > usable:
-            tx_lo = tx_if - usable + half_bw
+            tx_block = tx_block or "TX frequency is outside the uplink band"
+        # Put the TX LO (and its leakage / IQ image) just outside the uplink
+        # band, on whichever side is closer, so nothing but our signal lands
+        # on the transponder.
+        shift = p.uplink_lo_hz if p.uplink_lo_hz else 0.0
+        below = band_lo - shift - 50e3
+        above = band_hi - shift + 50e3
+        tx_lo = below if abs(tx_if - below) <= abs(above - tx_if) else above
+        if abs(tx_if - tx_lo) + half_bw > usable:
+            tx_lo = tx_if - 100e3
             warnings.append(
-                "TX LO could not be placed below the uplink band at this sample rate; "
+                "TX LO could not be placed outside the uplink band at this sample rate; "
                 "LO leakage may appear on the transponder. Increase the sample rate."
             )
         tx_off = tx_if - tx_lo
@@ -136,4 +176,8 @@ def make_plan(p: SatelliteProfile) -> FrequencyPlan:
         rx_channel_rf_hz=rx_rf,
         tx_channel_rf_hz=tx_rf,
         warnings=warnings,
+        tx_dial_rf_hz=tx_dial,
+        tx_mode=tx_mode_idx,
+        tx_allowed=tx_block is None,
+        tx_block_reason=tx_block,
     )

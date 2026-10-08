@@ -45,15 +45,14 @@ def _drain(q, timeout=10.0, until=None):
 
 
 def test_runner_rx_emits_status_and_tx_streams_burst():
-    profile = SatelliteProfile(sample_rate_hz=240e3, rx_dial_rf_hz=10489.6e6, tx_dial_rf_hz=2400.25e6,
-                               tx_mode=9, tx_gain_db=-20.0)
+    profile = SatelliteProfile(sample_rate_hz=1e6, rx_dial_rf_hz=10489.6e6, rx_mode=9, tx_gain_db=-20.0)
     sdr, data_q, tx_q = FakeSdr(), queue.Queue(), queue.Queue()
     runner = BitLink21Runner(sdr, profile.to_dict(), data_q, tx_q)
     runner.start()
     try:
         rng = np.random.default_rng(0)
         for _ in range(12):
-            runner.feed((0.01 * (rng.standard_normal(24000) + 1j * rng.standard_normal(24000))).astype(np.complex64))
+            runner.feed((0.01 * (rng.standard_normal(100000) + 1j * rng.standard_normal(100000))).astype(np.complex64))
         status = _drain(data_q, until=lambda e: e["type"] == "bitlink21_status")
         assert any(e["type"] == "bitlink21_status" for e in status)
 
@@ -72,7 +71,7 @@ def test_runner_rx_emits_status_and_tx_streams_burst():
 
 
 def test_runner_tx_failure_still_attenuates():
-    profile = SatelliteProfile(sample_rate_hz=240e3, tx_dial_rf_hz=None)  # TX disabled in profile
+    profile = SatelliteProfile(sample_rate_hz=240e3)  # default channel = beacon segment: TX blocked
     sdr, data_q, tx_q = FakeSdr(), queue.Queue(), queue.Queue()
     runner = BitLink21Runner(sdr, profile.to_dict(), data_q, tx_q)
     runner.start()

@@ -98,9 +98,9 @@ class Station:
 
     def build_tx_burst(self, name: str, content: bytes, frame_type: int = framing.TYPE_BINARY_FILE) -> np.ndarray:
         """Modulate a file into IQ for the SDR TX buffer (TX LO from the plan)."""
-        if self.plan.tx_channel_offset_hz is None:
-            raise RuntimeError("TX is disabled: no uplink frequency set in the profile")
-        mode = get_mode(self.profile.tx_mode)
+        if not self.plan.tx_allowed or self.plan.tx_channel_offset_hz is None:
+            raise RuntimeError(f"TX blocked: {self.plan.tx_block_reason or 'no uplink frequency'}")
+        mode = get_mode(self.plan.tx_mode)
         blocks = filetransfer.build_file_frames(name, content, frame_type)
         lead = int(mode.symbol_rate * 1.5)  # 1.5 s training for receivers
         return modulate_blocks(blocks, mode, self.fs, self.plan.tx_channel_offset_hz, lead_in_symbols=lead)

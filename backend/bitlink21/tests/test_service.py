@@ -101,11 +101,11 @@ def test_tx_is_refused_until_enabled_then_queued(svc):
         svc.station_sdr_id = "pluto-1"
         with pytest.raises(RuntimeError, match="Transmit is switched off"):
             await svc.send_message(envelope.TYPE_TEXT, b"hi")
-        await svc.update_settings({
-            "tx_enabled": True,
-            "callsign": "dl1abc",
-            "profile": {"tx_dial_rf_hz": 2400.2e6},
-        })
+        await svc.update_settings({"tx_enabled": True, "callsign": "dl1abc"})
+        # Default channel is the multimedia beacon: TX must be refused there
+        with pytest.raises(RuntimeError, match="beacon segment"):
+            await svc.send_message(envelope.TYPE_TEXT, b"hi")
+        await svc.update_settings({"profile": {"rx_dial_rf_hz": 10489.600e6}})
         return await svc.send_message(envelope.TYPE_TEXT, b"hi")
 
     row = asyncio.run(run())
@@ -114,6 +114,32 @@ def test_tx_is_refused_until_enabled_then_queued(svc):
     assert req["msg_row"] == row["id"]
     content = base64.b64decode(req["content_b64"])
     assert envelope.decode(content).body == b"hi"
+
+
+def test_own_message_heard_back_is_confirmed_and_corrects_tx(svc):
+    async def run():
+        await svc.ensure_ready()
+        svc.station_sdr_id = "pluto-1"
+        await svc.update_settings({"tx_enabled": True, "callsign": "dl1abc",
+                                   "profile": {"rx_dial_rf_hz": 10489.600e6}})
+        sent = await svc.send_message(envelope.TYPE_TEXT, b"ping")
+        req = svc.fake_pluto["tx_queue"].get_nowait()
+        content = base64.b64decode(req["content_b64"])
+        # The station hears its own signal 120 Hz high on the (beacon-corrected) downlink
+        svc.last_status = {"modem": {"offset_hz": 120.0}}
+        await svc.handle_worker_event("pluto-1", _file_event(content, req["name"]))
+        return sent, await svc.list_messages()
+
+    sent, msgs = asyncio.run(run())
+    assert len(msgs) == 1  # no duplicate rx copy of our own message
+    assert msgs[0]["id"] == sent["id"] and msgs[0]["status"] == "confirmed"
+    assert msgs[0]["echo_offset_hz"] == 120.0
+    assert svc.settings["profile"]["tx_correction_hz"] == -120.0
+    commands = []
+    while not svc.fake_pluto["config_queue"].empty():
+        commands.append(svc.fake_pluto["config_queue"].get_nowait())
+    updates = [c["bitlink21_tx_update"] for c in commands if "bitlink21_tx_update" in c]
+    assert updates and updates[-1]["tx_correction_hz"] == -120.0
 
 
 def test_lightning_invoice_validation():

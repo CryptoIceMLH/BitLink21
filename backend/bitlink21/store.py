@@ -35,7 +35,9 @@ CREATE TABLE IF NOT EXISTS messages (
     error TEXT,
     relay_status TEXT,                  -- plugin result status
     relay_result TEXT,                  -- plugin result JSON
-    raw BLOB                            -- envelope as sent/received
+    raw BLOB,                           -- envelope as sent/received
+    echo_at REAL,                       -- tx: our own message heard back via the satellite
+    echo_offset_hz REAL                 -- tx: measured uplink error at that time
 );
 CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_dir_msgid ON messages(direction, msg_id);
@@ -129,6 +131,13 @@ class Store:
             "SELECT * FROM messages ORDER BY created_at DESC LIMIT ? OFFSET ?", (limit, offset)
         )
         return [self._message_dict(r) for r in await cur.fetchall()]
+
+    async def find_message(self, direction: str, msg_id: str) -> Optional[Dict[str, Any]]:
+        cur = await self.db.execute(
+            "SELECT * FROM messages WHERE direction = ? AND msg_id = ?", (direction, msg_id)
+        )
+        row = await cur.fetchone()
+        return dict(row) if row else None
 
     async def locked_messages(self) -> List[Dict[str, Any]]:
         cur = await self.db.execute("SELECT * FROM messages WHERE locked = 1")
