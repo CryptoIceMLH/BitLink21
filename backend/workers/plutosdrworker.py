@@ -14,14 +14,145 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 
+import base64
 import logging
+import queue
+import threading
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import numpy as np
 import psutil
 
 logger = logging.getLogger("plutosdr-worker")
+
+# TX attenuation used whenever we are not actively sending a burst, so the
+# AD9361's LO leakage never reaches the uplink.
+TX_IDLE_GAIN_DB = -89.75
+TX_CHUNK = 1 << 16  # samples per TX DMA buffer
+
+
+class BitLink21Runner:
+    """Runs the BitLink21 radio Station next to the RX loop.
+
+    RX: the main loop hands every IQ buffer to ``feed()``; a worker thread
+    runs the Station (beacon lock + HSModem receiver) so a slow DSP cycle can
+    never stall ``sdr.rx()``. If the thread falls behind, the oldest buffers
+    are dropped and counted.
+
+    TX: requests arrive on the process tx_queue; a second thread modulates
+    the burst and streams it out in fixed-size buffers, keeping the TX
+    attenuated at all other times.
+    """
+
+    def __init__(self, sdr, profile_dict: Dict[str, Any], data_queue, tx_queue):
+        from bitlink21.radio.profile import SatelliteProfile, make_plan
+        from bitlink21.radio.station import Station
+
+        self.sdr = sdr
+        self.data_queue = data_queue
+        self.tx_queue = tx_queue
+        self.profile = SatelliteProfile.from_dict(profile_dict)
+        self.plan = make_plan(self.profile)
+        self.fs = float(self.profile.sample_rate_hz)
+        self.station = Station(self.profile, self.fs)
+        self._rx_q: "queue.Queue[np.ndarray]" = queue.Queue(maxsize=12)
+        self._stop = threading.Event()
+        self.dropped = 0
+        self._rx_thread = threading.Thread(target=self._rx_loop, name="bitlink21-rx", daemon=True)
+        self._tx_thread = threading.Thread(target=self._tx_loop, name="bitlink21-tx", daemon=True)
+
+    def start(self) -> None:
+        self._rx_thread.start()
+        self._tx_thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._rx_thread.join(timeout=2)
+        self._tx_thread.join(timeout=2)
+
+    def feed(self, samples: np.ndarray) -> None:
+        try:
+            self._rx_q.put_nowait(samples)
+        except queue.Full:
+            try:
+                self._rx_q.get_nowait()
+            except queue.Empty:
+                pass
+            self.dropped += 1
+            self._rx_q.put_nowait(samples)
+
+    def _emit(self, event: Dict[str, Any]) -> None:
+        try:
+            self.data_queue.put(event)
+        except Exception as e:
+            logger.debug(f"BitLink21 event dropped: {e}")
+
+    def _rx_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                samples = self._rx_q.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            try:
+                for event in self.station.process(samples):
+                    if event["type"] == "bitlink21_status":
+                        event["rx_dropped_buffers"] = self.dropped
+                    self._emit(event)
+            except Exception as e:
+                logger.exception(f"BitLink21 station error: {e}")
+                self._emit({"type": "bitlink21_station_error", "error": str(e)})
+                return
+
+    def _tx_loop(self) -> None:
+        if self.tx_queue is None:
+            return
+        while not self._stop.is_set():
+            try:
+                request = self.tx_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            except Exception:
+                continue
+            if not isinstance(request, dict) or "content_b64" not in request:
+                continue
+            self._transmit(request)
+
+    def _transmit(self, request: Dict[str, Any]) -> None:
+        row = request.get("msg_row")
+        self._emit({"type": "bitlink21_tx_status", "msg_row": row, "status": "sending"})
+        try:
+            if self.plan.tx_lo_hz is None:
+                raise RuntimeError("TX disabled in profile (no uplink frequency)")
+            content = base64.b64decode(request["content_b64"])
+            burst = self.station.build_tx_burst(request["name"], content)
+            n_chunks = -(-len(burst) // TX_CHUNK)
+            padded = np.zeros(n_chunks * TX_CHUNK, dtype=np.complex64)
+            padded[: len(burst)] = burst
+            padded *= 2 ** 14  # AD9361 DAC full scale is 2^15; leave headroom
+
+            sdr = self.sdr
+            sdr.tx_lo = int(self.plan.tx_lo_hz)
+            sdr.tx_cyclic_buffer = False
+            sdr.tx_hardwaregain_chan0 = float(self.profile.tx_gain_db)
+            started = time.time()
+            for i in range(n_chunks):
+                if self._stop.is_set():
+                    raise RuntimeError("station stopped during TX")
+                sdr.tx(padded[i * TX_CHUNK: (i + 1) * TX_CHUNK])
+            # Let the last DMA buffer drain before attenuating
+            time.sleep(max(0.0, len(padded) / self.fs - (time.time() - started)) + 0.1)
+            self._emit({"type": "bitlink21_tx_status", "msg_row": row, "status": "sent",
+                        "duration_s": round(len(burst) / self.fs, 2)})
+        except Exception as e:
+            logger.exception(f"BitLink21 TX failed: {e}")
+            self._emit({"type": "bitlink21_tx_status", "msg_row": row, "status": "failed", "error": str(e)})
+        finally:
+            try:
+                self.sdr.tx_hardwaregain_chan0 = TX_IDLE_GAIN_DB
+                self.sdr.tx_destroy_buffer()
+            except Exception:
+                pass
 
 # Target blocks per second for constant rate streaming (matches SoapySDR worker)
 TARGET_BLOCKS_PER_SEC = 15
@@ -170,9 +301,10 @@ def plutosdr_worker_process(
         stop_event: multiprocessing.Event to signal the process to stop
         iq_queue_fft: Queue for streaming raw IQ samples to FFT processor (waterfall)
         iq_queue_demod: Queue for streaming raw IQ samples to demodulators
-        tx_queue: Queue for outbound TX IQ sample buffers (SSP frames)
+        tx_queue: Queue of BitLink21 TX requests (consumed by BitLink21Runner)
     """
     sdr = None
+    bitlink21: Optional[BitLink21Runner] = None
     sdr_id = None
     client_id = None
     config = {}
@@ -267,34 +399,6 @@ def plutosdr_worker_process(
         last_cpu_check = time.time()
         cpu_check_interval = 0.5
 
-        # ----------------------------------------------------------------
-        # QO-100 Streaming DSP (GNU Radio flowgraph — runs in this process)
-        # ----------------------------------------------------------------
-        qo100_flowgraph = None
-        try:
-            from dsp.streaming_flowgraph import StreamingRXFlowgraph, GR_AVAILABLE
-            if GR_AVAILABLE:
-                logger.info("GNU Radio streaming DSP available in PlutoSDR worker")
-            else:
-                logger.info("GNU Radio not available — QO-100 streaming DSP disabled")
-        except ImportError:
-            GR_AVAILABLE = False
-            logger.info("DSP module not available")
-
-        # ----------------------------------------------------------------
-        # Beacon tracking — simple two-state: measuring + correcting
-        # Matches QO100_Transceiver UX: position markers, then lock
-        # ----------------------------------------------------------------
-        beacon_active = False        # Markers visible, measuring drift
-        beacon_correcting = False    # Actively correcting RX frequency
-        beacon_freq = 0.0            # User-set beacon center frequency (IF Hz)
-        beacon_marker_low = 0.0      # Search range low (IF)
-        beacon_marker_high = 0.0     # Search range high (IF)
-        beacon_offset_hz = 0.0       # Measured drift from beacon_freq
-        beacon_last_update = 0.0
-        beacon_update_interval = 1.0 # 1 second between measurements
-        beacon_filter_sos = None     # Anti-alias filter coefficients
-        beacon_filter_zi = None      # Filter state (persists across buffers)
 
         # ----------------------------------------------------------------
         # Main processing loop
@@ -332,6 +436,22 @@ def plutosdr_worker_process(
             try:
                 if not config_queue.empty():
                     new_config = config_queue.get_nowait()
+
+                    # The BitLink21 station owns the tuning while it runs; a
+                    # retune from the waterfall would invalidate its plan.
+                    if bitlink21 is not None and "bitlink21_start" not in new_config:
+                        retuned = (
+                            ("sample_rate" in new_config and int(new_config["sample_rate"]) != int(sample_rate))
+                            or ("center_freq" in new_config
+                                and int(new_config["center_freq"] - new_config.get("lnb_offset", 0)) != int(center_freq))
+                        )
+                        if retuned:
+                            bitlink21.stop()
+                            bitlink21 = None
+                            data_queue.put({
+                                "type": "bitlink21_station_error",
+                                "error": "The SDR was retuned from the waterfall, so the station stopped.",
+                            })
 
                     if "sample_rate" in new_config:
                         if sample_rate != new_config["sample_rate"]:
@@ -450,134 +570,48 @@ def plutosdr_worker_process(
                             except Exception as e:
                                 logger.warning(f"Failed to set XO correction: {e}")
 
-                    # QO-100 streaming DSP commands
-                    if "qo100_start" in new_config and GR_AVAILABLE:
+                    # BitLink21 station commands
+                    if "bitlink21_stop" in new_config and bitlink21 is not None:
+                        bitlink21.stop()
+                        bitlink21 = None
+                        logger.info("BitLink21 station stopped")
+
+                    if "bitlink21_start" in new_config:
+                        if bitlink21 is not None:
+                            bitlink21.stop()
+                            bitlink21 = None
                         try:
-                            qo100_flowgraph = StreamingRXFlowgraph(
-                                sample_rate=sample_rate,
-                                center_freq=center_freq,
+                            from bitlink21.radio.profile import SatelliteProfile, make_plan
+
+                            profile = SatelliteProfile.from_dict(new_config["bitlink21_start"])
+                            plan = make_plan(profile)
+                            # The station owns the tuning while it runs
+                            sdr.sample_rate = int(profile.sample_rate_hz)
+                            sample_rate = sdr.sample_rate
+                            sdr.rx_rf_bandwidth = int(profile.sample_rate_hz)
+                            lnb_offset = 0
+                            center_freq = plan.rx_center_if_hz
+                            sdr.rx_lo = int(center_freq)
+                            sdr.gain_control_mode_chan0 = "manual"
+                            sdr.rx_hardwaregain_chan0 = float(profile.rx_gain_db)
+                            sdr.tx_hardwaregain_chan0 = TX_IDLE_GAIN_DB
+                            num_samples = calculate_samples_per_scan(sample_rate, fft_size)
+                            bitlink21 = BitLink21Runner(sdr, profile.to_dict(), data_queue, tx_queue)
+                            bitlink21.start()
+                            data_queue.put({
+                                "type": "bitlink21_retuned",
+                                "center_freq": center_freq,
+                                "sample_rate": sample_rate,
+                                "plan": plan.to_dict(),
+                            })
+                            logger.info(
+                                f"BitLink21 station started: RX LO {center_freq / 1e6:.6f} MHz, "
+                                f"{sample_rate / 1e6:.3f} MS/s, warnings={plan.warnings}"
                             )
-                            # Set filter/modulation from config
-                            if "qo100_filter_bw" in new_config:
-                                qo100_flowgraph.filter_bw = new_config["qo100_filter_bw"]
-                            if "qo100_modulation" in new_config:
-                                qo100_flowgraph.modulation = new_config["qo100_modulation"]
-                            if "qo100_baudrate" in new_config:
-                                qo100_flowgraph.baudrate = new_config["qo100_baudrate"]
-
-                            # Wire callbacks to data_queue so data reaches Socket.IO
-                            def _on_constellation(points):
-                                try:
-                                    data_queue.put({
-                                        "type": "constellation_data",
-                                        "points": points,
-                                    })
-                                except Exception:
-                                    pass
-
-                            def _on_decoded(frame_bytes):
-                                try:
-                                    data_queue.put({
-                                        "type": "decoded_frame",
-                                        "data": frame_bytes.hex(),
-                                        "length": len(frame_bytes),
-                                    })
-                                except Exception:
-                                    pass
-
-                            qo100_flowgraph.on_constellation = _on_constellation
-                            qo100_flowgraph.on_decoded = _on_decoded
-                            # Audio goes to existing demod audio path (via audio_queue if needed)
-
-                            qo100_flowgraph.start()
-                            logger.info("QO-100 streaming DSP started in PlutoSDR worker")
                         except Exception as e:
-                            logger.error(f"QO-100 DSP start failed: {e}")
-                            qo100_flowgraph = None
-
-                    if "qo100_stop" in new_config:
-                        if qo100_flowgraph:
-                            qo100_flowgraph.stop()
-                            qo100_flowgraph = None
-                            logger.info("QO-100 streaming DSP stopped")
-
-                    if "qo100_set_filter" in new_config and qo100_flowgraph:
-                        qo100_flowgraph.set_filter_bandwidth(new_config.get("bandwidth", 3600))
-
-                    if "qo100_set_modulation" in new_config and qo100_flowgraph:
-                        qo100_flowgraph.set_modulation(
-                            new_config.get("modulation", "qpsk"),
-                            new_config.get("baudrate")
-                        )
-
-                    # BitLink21 beacon commands (two-step: position then lock)
-                    if "beacon_set_position" in new_config:
-                        # Step 1: Show markers, start measuring drift (no correction)
-                        beacon_active = True
-                        beacon_correcting = False
-                        beacon_freq = new_config.get("beacon_freq", center_freq)
-                        beacon_marker_low = new_config.get("marker_low", beacon_freq - 2500)
-                        beacon_marker_high = new_config.get("marker_high", beacon_freq + 2500)
-                        beacon_offset_hz = 0.0
-                        logger.info(
-                            f"Beacon positioned: freq={beacon_freq/1e6:.3f} MHz, "
-                            f"range=[{beacon_marker_low/1e6:.6f}, {beacon_marker_high/1e6:.6f}] MHz"
-                        )
-
-                    if "beacon_lock" in new_config:
-                        # Step 2: Start correcting (requires beacon_active)
-                        if beacon_active:
-                            beacon_correcting = True
-                            logger.info("Beacon lock engaged — correcting drift")
-
-                    if "beacon_unlock" in new_config:
-                        # Stop correcting but keep measuring
-                        beacon_correcting = False
-                        logger.info("Beacon unlocked — still measuring")
-
-                    if "beacon_stop" in new_config:
-                        beacon_active = False
-                        beacon_correcting = False
-                        beacon_offset_hz = 0.0
-                        logger.info("Beacon stopped")
-                        data_queue.put({
-                            "type": "beacon_status",
-                            "measuring": False,
-                            "correcting": False,
-                            "offset_hz": 0.0,
-                        })
-
-                    if "beacon_config" in new_config:
-                        beacon_marker_low = new_config.get("marker_low", beacon_marker_low)
-                        beacon_marker_high = new_config.get("marker_high", beacon_marker_high)
-                        if "beacon_freq" in new_config and new_config["beacon_freq"]:
-                            beacon_freq = new_config["beacon_freq"]
-                            beacon_offset_hz = 0.0
-                            logger.info(f"Beacon freq repositioned to {beacon_freq/1e6:.3f} MHz")
-
-                    # BitLink21 test tone command
-                    if "test_tone_start" in new_config:
-                        try:
-                            tone_freq = new_config.get("tone_freq_hz", 1000)
-                            tone_gain = new_config.get("tone_gain_db", -20)
-                            num_tone_samples = int(sample_rate * 0.1)  # 100ms of samples
-                            t = np.arange(num_tone_samples) / sample_rate
-                            tone_iq = np.exp(1j * 2 * np.pi * tone_freq * t)
-                            tone_iq = tone_iq * (2**14 - 1) * 0.8
-                            sdr.tx_hardwaregain_chan0 = tone_gain
-                            sdr.tx_cyclic_buffer = True
-                            sdr.tx(tone_iq.astype(np.complex64))
-                            logger.info(f"Test tone started: {tone_freq} Hz, gain={tone_gain} dB")
-                        except Exception as e:
-                            logger.error(f"Test tone failed: {e}")
-
-                    if "test_tone_stop" in new_config:
-                        try:
-                            sdr.tx_destroy_buffer()
-                            sdr.tx_cyclic_buffer = False
-                            logger.info("Test tone stopped")
-                        except Exception as e:
-                            logger.warning(f"Test tone stop failed: {e}")
+                            logger.exception(f"BitLink21 station start failed: {e}")
+                            bitlink21 = None
+                            data_queue.put({"type": "bitlink21_station_error", "error": str(e)})
 
                     old_config = new_config
 
@@ -613,9 +647,9 @@ def plutosdr_worker_process(
                     # Remove DC offset spike
                     samples = remove_dc_offset(samples)
 
-                    # Feed QO-100 streaming DSP (if active)
-                    if qo100_flowgraph is not None and qo100_flowgraph.running:
-                        qo100_flowgraph.push_iq(samples)
+                    # Feed the BitLink21 station (its own thread does the DSP)
+                    if bitlink21 is not None:
+                        bitlink21.feed(samples)
 
                     # Broadcast IQ data to consumer queues
                     if has_iq_consumers:
@@ -677,134 +711,6 @@ def plutosdr_worker_process(
                 # Brief pause before retrying to avoid tight error loops
                 time.sleep(0.1)
 
-            # --------------------------------------------------------
-            # Beacon tracking — QO100_Transceiver style narrowband receiver
-            # NCO downmix → decimate → FFT at 2 Hz/bin resolution
-            # --------------------------------------------------------
-            if (beacon_active and samples is not None and len(samples) > 0
-                    and beacon_freq and current_time - beacon_last_update >= beacon_update_interval):
-                beacon_last_update = current_time
-                try:
-                    n = len(samples)
-
-                    # Step 1: NCO downmix — shift beacon region to baseband
-                    # beacon_freq and center_freq are both in IF space
-                    offset_from_center = beacon_freq - center_freq  # Hz offset
-                    t = np.arange(n, dtype=np.float64) / sample_rate
-                    nco = np.exp(-1j * 2 * np.pi * offset_from_center * t).astype(np.complex64)
-                    mixed = samples * nco
-
-                    # Step 2: Anti-alias LP filter before decimation
-                    # (QO100_Transceiver uses 4th-order elliptic IIR)
-                    decim = max(1, int(sample_rate / 4000))
-                    if beacon_filter_sos is None:
-                        from scipy.signal import iirfilter, sosfilt_zi
-                        cutoff = min(2000, sample_rate / decim / 2 * 0.9)
-                        beacon_filter_sos = iirfilter(
-                            4, cutoff, btype='low', ftype='ellip',
-                            rs=60, rp=0.1, fs=sample_rate, output='sos'
-                        )
-                        beacon_filter_zi = sosfilt_zi(beacon_filter_sos) * 0
-
-                    from scipy.signal import sosfilt
-                    filtered, beacon_filter_zi = sosfilt(
-                        beacon_filter_sos, mixed, zi=beacon_filter_zi
-                    )
-                    decimated = filtered[::decim]
-                    dec_rate = sample_rate / decim
-
-                    # Step 3: 800-point FFT at ~2-5 Hz/bin (matches QO100_Transceiver)
-                    fft_len = min(800, len(decimated))
-                    if fft_len >= 64:
-                        window = np.hanning(fft_len)
-                        fft_data = np.fft.fftshift(np.fft.fft(decimated[:fft_len] * window))
-                        power = np.abs(fft_data)
-                        power_db = 20 * np.log10(power + 1e-10)
-                        freq_res = dec_rate / fft_len  # ~2-5 Hz/bin
-
-                        # Step 4: SNR check — don't lock on noise
-                        peak_idx = np.argmax(power)
-                        noise_floor = float(np.median(power_db))
-                        peak_snr = float(power_db[peak_idx] - noise_floor)
-
-                        if peak_snr >= 6:
-                            # -3dB bandwidth centroid for sub-bin accuracy
-                            threshold = power[peak_idx] / np.sqrt(2)
-                            left = int(peak_idx)
-                            while left > 0 and power[left] > threshold:
-                                left -= 1
-                            right = int(peak_idx)
-                            while right < fft_len - 1 and power[right] > threshold:
-                                right += 1
-                            indices = np.arange(left, right + 1)
-                            weights = power[left:right + 1]
-                            centroid_idx = float(np.average(indices, weights=weights))
-                            beacon_offset_hz = (centroid_idx - fft_len / 2) * freq_res
-                        else:
-                            beacon_offset_hz = 0.0  # No valid peak
-
-                        # Mini spectrum for display
-                        mini_spectrum = power_db.tolist()
-
-                        # Report to main process
-                        status_msg = {
-                            "type": "beacon_status",
-                            "measuring": beacon_active,
-                            "correcting": beacon_correcting,
-                            "offset_hz": round(beacon_offset_hz, 1),
-                            "snr": round(peak_snr, 1),
-                            "freq_res": round(freq_res, 2),
-                            "spectrum": mini_spectrum,
-                        }
-                        if beacon_correcting and peak_snr >= 6:
-                            status_msg["correction_hz"] = round(-beacon_offset_hz, 1)
-                        data_queue.put(status_msg)
-
-                except Exception as e:
-                    logger.debug(f"Beacon tracking error: {e}")
-
-            # --------------------------------------------------------
-            # TX: Transmit queued IQ frames (non-blocking check)
-            # --------------------------------------------------------
-            if tx_queue is not None:
-                try:
-                    if not tx_queue.empty():
-                        tx_data = tx_queue.get_nowait()
-
-                        if tx_data is not None:
-                            # tx_data should be a numpy complex64 array (modulated SSP frame)
-                            if isinstance(tx_data, dict):
-                                tx_samples = tx_data.get("samples")
-                            else:
-                                tx_samples = tx_data
-
-                            if tx_samples is not None and len(tx_samples) > 0:
-                                if not isinstance(tx_samples, np.ndarray):
-                                    tx_samples = np.array(tx_samples, dtype=np.complex64)
-                                elif tx_samples.dtype != np.complex64:
-                                    tx_samples = tx_samples.astype(np.complex64)
-
-                                # Burst transmit -- sdr.tx() handles the DMA transfer
-                                sdr.tx(tx_samples)
-                                stats["tx_frames_sent"] += 1
-                                logger.debug(
-                                    f"TX burst: {len(tx_samples)} samples transmitted"
-                                )
-
-                except Exception as e:
-                    logger.error(f"Error transmitting samples: {e}")
-                    stats["tx_errors"] += 1
-                    stats["errors"] += 1
-
-                    data_queue.put(
-                        {
-                            "type": "error",
-                            "client_id": client_id,
-                            "message": f"TX error: {e}",
-                            "timestamp": time.time(),
-                        }
-                    )
-
     except Exception as e:
         error_msg = f"Fatal error in PlutoSDR worker process: {e}"
         logger.error(error_msg)
@@ -822,6 +728,9 @@ def plutosdr_worker_process(
     finally:
         # Allow main process time to read queued messages
         time.sleep(0.5)
+
+        if bitlink21 is not None:
+            bitlink21.stop()
 
         # Clean up PlutoSDR resources
         logger.info(f"Cleaning up PlutoSDR resources for SDR {sdr_id}...")

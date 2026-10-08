@@ -1,0 +1,86 @@
+"""PlutoSDR worker integration of the BitLink21 station, with a fake SDR."""
+
+import base64
+import queue
+import time
+
+import numpy as np
+import pytest
+
+pytest.importorskip("psutil")
+from workers.plutosdrworker import TX_CHUNK, TX_IDLE_GAIN_DB, BitLink21Runner  # noqa: E402
+
+from bitlink21.radio import envelope  # noqa: E402
+from bitlink21.radio.profile import SatelliteProfile  # noqa: E402
+
+
+class FakeSdr:
+    def __init__(self):
+        self.tx_lo = 0
+        self.tx_cyclic_buffer = True
+        self.tx_hardwaregain_chan0 = -10.0
+        self.tx_buffers = []
+        self.gain_during_tx = []
+
+    def tx(self, data):
+        self.tx_buffers.append(len(data))
+        self.gain_during_tx.append(self.tx_hardwaregain_chan0)
+        assert np.max(np.abs(data)) <= 2 ** 15
+
+    def tx_destroy_buffer(self):
+        pass
+
+
+def _drain(q, timeout=10.0, until=None):
+    events, end = [], time.time() + timeout
+    while time.time() < end:
+        try:
+            ev = q.get(timeout=0.2)
+        except queue.Empty:
+            continue
+        events.append(ev)
+        if until and until(ev):
+            break
+    return events
+
+
+def test_runner_rx_emits_status_and_tx_streams_burst():
+    profile = SatelliteProfile(sample_rate_hz=240e3, rx_dial_rf_hz=10489.6e6, tx_dial_rf_hz=2400.25e6,
+                               tx_mode=9, tx_gain_db=-20.0)
+    sdr, data_q, tx_q = FakeSdr(), queue.Queue(), queue.Queue()
+    runner = BitLink21Runner(sdr, profile.to_dict(), data_q, tx_q)
+    runner.start()
+    try:
+        rng = np.random.default_rng(0)
+        for _ in range(12):
+            runner.feed((0.01 * (rng.standard_normal(24000) + 1j * rng.standard_normal(24000))).astype(np.complex64))
+        status = _drain(data_q, until=lambda e: e["type"] == "bitlink21_status")
+        assert any(e["type"] == "bitlink21_status" for e in status)
+
+        name, content = envelope.encode(envelope.TYPE_TEXT, b"test", callsign="N0CALL")
+        tx_q.put({"msg_row": 7, "name": name, "content_b64": base64.b64encode(content).decode()})
+        events = _drain(data_q, timeout=30, until=lambda e: e.get("type") == "bitlink21_tx_status"
+                        and e.get("status") in ("sent", "failed"))
+        final = [e for e in events if e.get("type") == "bitlink21_tx_status"][-1]
+        assert final["status"] == "sent", final
+        assert set(sdr.tx_buffers) == {TX_CHUNK}
+        assert set(sdr.gain_during_tx) == {-20.0}
+        assert sdr.tx_hardwaregain_chan0 == TX_IDLE_GAIN_DB  # attenuated again after the burst
+        assert sdr.tx_lo == int(runner.plan.tx_lo_hz)
+    finally:
+        runner.stop()
+
+
+def test_runner_tx_failure_still_attenuates():
+    profile = SatelliteProfile(sample_rate_hz=240e3, tx_dial_rf_hz=None)  # TX disabled in profile
+    sdr, data_q, tx_q = FakeSdr(), queue.Queue(), queue.Queue()
+    runner = BitLink21Runner(sdr, profile.to_dict(), data_q, tx_q)
+    runner.start()
+    try:
+        tx_q.put({"msg_row": 1, "name": "x.txt", "content_b64": base64.b64encode(b"x").decode()})
+        events = _drain(data_q, until=lambda e: e.get("status") == "failed")
+        assert events[-1]["status"] == "failed"
+        assert sdr.tx_buffers == []
+        assert sdr.tx_hardwaregain_chan0 == TX_IDLE_GAIN_DB
+    finally:
+        runner.stop()

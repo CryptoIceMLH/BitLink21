@@ -196,7 +196,7 @@ async def emit_scheduled_observations_changed():
 app = FastAPI(
     lifespan=lifespan,
     title="BitLink21 API",
-    description="Bitcoin decentralized communication system — satellite tracking, SDR control, SSP protocol, NIP-04 encryption, Bitcoin/Lightning relay",
+    description="Bitcoin decentralized communication system — satellite tracking, SDR control, HSModem satellite modem, Bitcoin/Lightning relay",
     version="3.0.2",
     docs_url="/api/docs",
     redoc_url="/api/redoc",

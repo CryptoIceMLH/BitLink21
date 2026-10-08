@@ -1,25 +1,45 @@
 """
-Payload Router — Route inbound SSP payloads to plugins
+Payload Router — Route inbound BitLink21 message payloads to plugins
 
 Responsibilities:
-1. Detect payload_type from SSP frame
+1. Take the payload type from the received message envelope
 2. Dispatch to appropriate plugin handler
 3. Handle plugin errors without crashing core
 4. Log all transactions
 """
 
 import logging
-from typing import Dict, Any, Optional
+from dataclasses import dataclass
+from typing import Dict, Any
 from datetime import datetime
 
-from bitlink21.ssp_frame import SSPFrame, PayloadType
 from bitlink21.plugins import PluginLoader
+from bitlink21.radio import envelope
 
 logger = logging.getLogger(__name__)
 
 
+class PayloadType:
+    TEXT = envelope.TYPE_TEXT
+    BITCOIN_TX = envelope.TYPE_BITCOIN_TX
+    LIGHTNING = envelope.TYPE_LIGHTNING_INVOICE
+    BINARY = envelope.TYPE_BINARY
+
+
+@dataclass
+class InboundPayload:
+    """What the router needs from a received message."""
+    payload_type: int
+    payload: bytes
+    msg_id: str
+
+    @property
+    def payload_len(self) -> int:
+        return len(self.payload)
+
+
 class PayloadRouter:
-    """Route inbound SSP payloads to appropriate plugins"""
+    """Route inbound message payloads to appropriate plugins"""
 
     def __init__(self, plugin_loader: PluginLoader):
         """
@@ -39,12 +59,12 @@ class PayloadRouter:
         self.processed_messages = []  # For audit trail
         logger.debug(f"[PAYLOAD_ROUTER] Initialization complete")
 
-    async def route_ssp_frame(self, frame: SSPFrame) -> Dict[str, Any]:
+    async def route(self, frame: InboundPayload) -> Dict[str, Any]:
         """
-        Route a received SSP frame to appropriate plugin
+        Route a received message payload to the appropriate plugin
 
         Args:
-            frame: SSPFrame object to route
+            frame: InboundPayload (type, payload bytes, message id)
 
         Returns:
             {
@@ -56,7 +76,7 @@ class PayloadRouter:
             }
         """
         try:
-            logger.debug(f"[PAYLOAD_ROUTER] route_ssp_frame called: msg_id={frame.msg_id}, payload_len={frame.payload_len}")
+            logger.debug(f"[PAYLOAD_ROUTER] route called: msg_id={frame.msg_id}, payload_len={frame.payload_len}")
             self.payload_stats['total_received'] += 1
 
             # Get payload type
@@ -75,9 +95,8 @@ class PayloadRouter:
             self.payload_stats['by_type'][payload_type]['count'] += 1
 
             logger.info(
-                f"Routing SSP frame - Type: {payload_type_name} ({payload_type}), "
-                f"Size: {frame.payload_len} bytes, "
-                f"MsgID: {frame.msg_id}, Seq: {frame.seq_num}/{frame.total_frags}"
+                f"Routing message - Type: {payload_type_name} ({payload_type}), "
+                f"Size: {frame.payload_len} bytes, MsgID: {frame.msg_id}"
             )
 
             # Handle different payload types
@@ -168,7 +187,9 @@ class PayloadRouter:
         """
         logger.debug(f"[PAYLOAD_ROUTER] Dispatching Bitcoin TX payload: {len(payload)} bytes")
         logger.info(f"Bitcoin TX payload received ({len(payload)} bytes)")
-        result = await self.plugin_loader.dispatch(PayloadType.BITCOIN_TX, payload)
+        # Transactions travel as raw bytes on air (half the airtime of hex);
+        # the Bitcoin plugin expects hex text for sendrawtransaction.
+        result = await self.plugin_loader.dispatch(PayloadType.BITCOIN_TX, payload.hex().encode())
         logger.debug(f"[PAYLOAD_ROUTER] Bitcoin TX handler returned: status={result.get('status')}")
         return result
 

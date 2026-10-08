@@ -371,7 +371,7 @@ class ProcessLifecycleManager:
             iq_queue_fft: multiprocessing.Queue = multiprocessing.Queue(maxsize=3)
             iq_queue_demod: multiprocessing.Queue = multiprocessing.Queue(maxsize=3)
 
-            # TX queue for outbound IQ samples (BitLink21 SSP frames)
+            # TX queue for BitLink21 transmit requests (PlutoSDR only)
             tx_queue: multiprocessing.Queue = multiprocessing.Queue(maxsize=10)
 
             # Stop event for the process
@@ -416,7 +416,7 @@ class ProcessLifecycleManager:
 
             # Create and start the process with a descriptive name
             # Pass both IQ queues so SDR can broadcast to both consumers
-            # Pass tx_queue for outbound SSP frame transmission (PlutoSDR only)
+            # Pass tx_queue for BitLink21 transmit requests (PlutoSDR only)
             worker_args = (config_queue, data_queue, stop_event, iq_queue_fft, iq_queue_demod)
             if connection_type == "plutosdr":
                 worker_args = worker_args + (tx_queue,)
@@ -472,29 +472,20 @@ class ProcessLifecycleManager:
                 "device": sdr_device,  # Store device info for runtime snapshots
                 "persistent": True,  # SDR runs until explicit stop — browser disconnect doesn't kill it
                 "sdr_config": sdr_config,  # Store config for reconnecting clients
-                "tx_queue": tx_queue,  # TX queue for BitLink21 outbox → PlutoSDR TX
+                "tx_queue": tx_queue,  # BitLink21 TX requests -> PlutoSDR worker
             }
 
             # Send initial configuration
             config_queue.put(config)
 
-            # Wire BitLink21 TX worker to this SDR's tx_queue
+            # Let the BitLink21 service know (it may auto-start the station)
             if connection_type == "plutosdr":
                 try:
-                    from bitlink21.tx_worker import tx_worker
-                    tx_worker.set_tx_queue(tx_queue)
-                    tx_worker.set_sio(self.sio)
-                    # Get event loop for async DB access from sync thread
-                    import asyncio
-                    try:
-                        loop = asyncio.get_running_loop()
-                        tx_worker.set_event_loop(loop)
-                    except RuntimeError:
-                        pass
-                    tx_worker.start()
-                    self.logger.info(f"BitLink21 TX Worker wired to SDR {sdr_id}")
+                    from bitlink21.service import service as bitlink21_service
+
+                    await bitlink21_service.on_sdr_started(sdr_id, sdr_device)
                 except Exception as e:
-                    self.logger.warning(f"Failed to wire TX Worker: {e}")
+                    self.logger.warning(f"BitLink21 service hook failed: {e}")
 
             # Add this client to the room (skip for internal observation sessions)
             if not VFOManager.is_internal_session(client_id):
@@ -950,62 +941,18 @@ class ProcessLifecycleManager:
                                 # FFT processor stats
                                 process_info["fft_stats"] = data.get("stats", {})
 
-                        elif data_type in ("constellation", "constellation_data"):
-                            # Forward constellation points (from SSP modem or QO-100 DSP)
-                            await self.sio.emit("bitlink21:constellation_data",
-                                data.get("points", []), room=sdr_id)
+                        elif isinstance(data_type, str) and data_type.startswith("bitlink21_"):
+                            # BitLink21 station events (status, files, TX progress)
+                            from bitlink21.service import service as bitlink21_service
 
-                        elif data_type == "decoder_status" and data.get("decoder_type") == "ssp":
-                            # Forward SSP decoder status
-                            await self.sio.emit("bitlink21:beacon_status", {
-                                "frames_decoded": data.get("frames_decoded", 0),
-                                "fec_corrections": data.get("fec_corrections", 0),
-                                "errors": data.get("errors", 0),
-                            }, room=sdr_id)
-
-                        elif data_type == "beacon_status":
-                            # Forward beacon status to all clients
-                            from bitlink21.beacon_afc import beacon_afc
-                            beacon_afc.update_from_worker(data)
-
-                            # Apply correction to ALL active VFO frequencies (server-side)
-                            # This is our equivalent of QO100_Transceiver's NCO retune
-                            correction_hz = data.get("correction_hz")
-                            if correction_hz and abs(correction_hz) > 0.5:
-                                # Rate-limit: max ±5 Hz per update to prevent oscillation
-                                MAX_CORR = 5.0
-                                clamped = max(-MAX_CORR, min(MAX_CORR, correction_hz))
-                                try:
-                                    vfo_mgr = VFOManager()
-                                    for sess_id in vfo_mgr.get_all_session_ids():
-                                        for vfo_id in range(1, 5):  # VFO 1-4
-                                            vfo = vfo_mgr.get_vfo_state(sess_id, vfo_id)
-                                            if vfo and vfo.center_freq:
-                                                new_freq = int(vfo.center_freq + clamped)
-                                                vfo_mgr.update_vfo_state(
-                                                    session_id=sess_id,
-                                                    vfo_id=vfo_id,
-                                                    center_freq=new_freq,
-                                                )
-                                                await self.sio.emit("vfo-frequency-update", {
-                                                    "vfoNumber": vfo_id,
-                                                    "frequency": new_freq,
-                                                }, room=sdr_id)
-                                except Exception as e:
-                                    self.logger.debug(f"Beacon VFO correction failed: {e}")
-
-                            # Forward status + spectrum to frontend
-                            beacon_msg = {
-                                "measuring": data.get("measuring", False),
-                                "correcting": data.get("correcting", False),
-                                "offset_hz": data.get("offset_hz", 0),
-                                "snr": data.get("snr", 0),
-                                "freq_res": data.get("freq_res", 5),
-                            }
-                            spectrum = data.get("spectrum")
-                            if spectrum:
-                                beacon_msg["spectrum"] = spectrum
-                            await self.sio.emit("bitlink21:beacon_status", beacon_msg, room=sdr_id)
+                            if data_type == "bitlink21_retuned":
+                                await self.sio.emit("bitlink21:retuned", {
+                                    "center_freq": data.get("center_freq"),
+                                    "sample_rate": data.get("sample_rate"),
+                                    "plan": data.get("plan"),
+                                }, room=sdr_id)
+                            else:
+                                await bitlink21_service.handle_worker_event(sdr_id, data)
 
                         elif data_type == QueueMessageTypes.STREAMING_START:
                             # Send streaming status to all clients connected to this SDR
