@@ -1,6 +1,6 @@
 """Regression test on a real off-air recording.
 
-tests/data/qo100_mm_beacon_25ksps.iq16 is 8 s of the AMSAT-DL QO-100
+tests/fixtures/qo100_mm_beacon_25ksps.iq16 is 8 s of the AMSAT-DL QO-100
 multimedia beacon (HSModem 8APSK 2400 Bd), received 2026-10-08 with a
 PlutoSDR + LNB and channelised to 1e6/41 S/s around the beacon (int16 I/Q,
 interleaved). Every frame decoded here passed hsmodem's RS(255,223) and
@@ -14,7 +14,7 @@ import numpy as np
 from bitlink21.radio.demodulator import HsModemReceiver
 from bitlink21.radio.modes import get_mode
 
-DATA = os.path.join(os.path.dirname(__file__), "data", "qo100_mm_beacon_25ksps.iq16")
+DATA = os.path.join(os.path.dirname(__file__), "fixtures", "qo100_mm_beacon_25ksps.iq16")
 FS = 1e6 / 41
 
 
