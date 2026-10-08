@@ -1,7 +1,7 @@
-# BitLink21 v2.0.0 — Bitcoin Decentralized Communication System
+# BitLink21 v4.0.0 — Bitcoin Decentralized Communication System
 # Forked from Ground Station (sgoudelis/ground-station)
-# Adds: PlutoSDR TX+RX (pyadi-iio), SSP protocol, NIP-04 encryption,
-#        Bitcoin TX relay, Lightning invoice relay, Nostr identity
+# Adds: PlutoSDR TX+RX (pyadi-iio), HSModem-compatible satellite modem with
+#        QO-100 beacon lock, Bitcoin TX relay, Lightning invoice relay
 
 # Stage 1: Build the frontend
 FROM node:20-alpine AS frontend-builder
@@ -433,8 +433,8 @@ RUN wget -O /usr/local/share/uhd/images/libresdr_b210.bin \
 # Install pyadi-iio for PlutoSDR TX+RX support (uses libiio already installed above)
 RUN pip install pyadi-iio>=0.0.16
 
-# Install BitLink21 dependencies (SSP protocol, NIP-04 encryption, Bitcoin/Lightning)
-RUN pip install nostr>=0.0.2 qrcode>=7.4.2
+# Install BitLink21 extras (QR codes for Lightning invoices)
+RUN pip install qrcode>=7.4.2
 
 # Remove all that source code
 RUN rm -rf /src

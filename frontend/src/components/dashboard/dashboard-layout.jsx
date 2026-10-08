@@ -833,9 +833,10 @@ export default function Layout() {
                 <PerformanceMetricsDialog />
             </Box>
 
-            {/* Location Setup Dialog */}
+            {/* Location Setup Dialog (tracking pages only: the BitLink21
+                pages work with a geostationary satellite and need no location) */}
             <Dialog
-                open={showLocationSetupDialog}
+                open={showLocationSetupDialog && !(location.pathname === '/' || location.pathname.startsWith('/bitlink21'))}
                 onClose={() => dispatch(setShowLocationSetupDialog(false))}
                 aria-labelledby="location-setup-dialog-title"
                 maxWidth="sm"

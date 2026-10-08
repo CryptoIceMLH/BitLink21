@@ -92,10 +92,6 @@ import FftAccordion from "./settings-fft.jsx";
 import VfoAccordion from "./vfo-settings/settings-vfo.jsx";
 import RecordingAccordion from "./settings-recording.jsx";
 import PlaybackAccordion from "./settings-playback.jsx";
-import TxControlsAccordion from "./tx-controls.jsx";
-import BeaconLockPanel from "./beacon-lock-panel.jsx";
-import ConstellationDiagram from "./constellation-diagram.jsx";
-import RitXitControls from "./rit-xit-controls.jsx";
 import { useTranslation } from 'react-i18next';
 
 const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemainingSecondsRef }, ref) {
@@ -972,17 +968,6 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                     isStreaming={isStreaming}
                 />
 
-                {/* BitLink21 TX/Beacon/Modem — always visible */}
-                <TxControlsAccordion
-                    expanded={expandedPanels.includes('tx')}
-                    onAccordionChange={handleAccordionChange('tx')}
-                />
-                <BeaconLockPanel
-                    mode="accordion"
-                    expanded={expandedPanels.includes('beacon')}
-                    onAccordionChange={handleAccordionChange('beacon')}
-                />
-
                 <VfoAccordion
                     expanded={expandedPanels.includes('vfo')}
                     onAccordionChange={handleAccordionChange('vfo')}
@@ -1055,20 +1040,6 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
                     playbackRemainingSecondsRef={playbackRemainingSecondsRef}
                 />
 
-                {/* Constellation + RIT/XIT */}
-                <div style={{ padding: '8px 16px' }}>
-                    <ConstellationDiagram />
-                    <div style={{ marginTop: 12 }}>
-                        <RitXitControls
-                            onRitChange={(offsetHz) => {
-                                sendSDRConfigToBackend({ rit_offset: offsetHz });
-                            }}
-                            onXitChange={(offsetHz) => {
-                                sendSDRConfigToBackend({ xit_offset: offsetHz });
-                            }}
-                        />
-                    </div>
-                </div>
             </div>
         </>
     );

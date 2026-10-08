@@ -258,81 +258,9 @@ export const GFSK_PARAMETERS = Object.entries(FSK_PARAMETERS).reduce((acc, [key,
 }, {});
 
 /**
- * BPSK Decoder Parameters
- * BPSK (Binary Phase Shift Keying) modulates data by shifting carrier phase.
- * Supports coherent BPSK and non-coherent DBPSK (differential) modes.
+ * BPSK Decoder Parameters (gr-satellites BPSK demodulator)
  */
-export const MODULATION_OPTIONS = [
-    // PSK (8)
-    { value: 'bpsk', label: 'BPSK (1 bit/sym)' },
-    { value: 'qpsk', label: 'QPSK (2 bit/sym)' },
-    { value: '8psk', label: '8-PSK (3 bit/sym)' },
-    { value: 'psk16', label: '16-PSK (4 bit/sym)' },
-    { value: 'psk32', label: '32-PSK (5 bit/sym)' },
-    { value: 'psk64', label: '64-PSK (6 bit/sym)' },
-    { value: 'psk128', label: '128-PSK (7 bit/sym)' },
-    { value: 'psk256', label: '256-PSK (8 bit/sym)' },
-    // DPSK — differential (8)
-    { value: 'dbpsk', label: 'DBPSK (1 bit/sym)' },
-    { value: 'dqpsk', label: 'DQPSK (2 bit/sym)' },
-    { value: 'd8psk', label: 'D8PSK (3 bit/sym)' },
-    { value: 'd16psk', label: 'D16PSK (4 bit/sym)' },
-    { value: 'd32psk', label: 'D32PSK (5 bit/sym)' },
-    { value: 'd64psk', label: 'D64PSK (6 bit/sym)' },
-    { value: 'd128psk', label: 'D128PSK (7 bit/sym)' },
-    { value: 'd256psk', label: 'D256PSK (8 bit/sym)' },
-    // ASK (8)
-    { value: 'ask2', label: 'ASK2 / OOK (1 bit/sym)' },
-    { value: 'ask4', label: '4-ASK (2 bit/sym)' },
-    { value: 'ask8', label: '8-ASK (3 bit/sym)' },
-    { value: 'ask16', label: '16-ASK (4 bit/sym)' },
-    { value: 'ask32', label: '32-ASK (5 bit/sym)' },
-    { value: 'ask64', label: '64-ASK (6 bit/sym)' },
-    { value: 'ask128', label: '128-ASK (7 bit/sym)' },
-    { value: 'ask256', label: '256-ASK (8 bit/sym)' },
-    // QAM (5)
-    { value: '16qam', label: '16-QAM (4 bit/sym)' },
-    { value: 'qam32', label: '32-QAM (5 bit/sym)' },
-    { value: 'qam64', label: '64-QAM (6 bit/sym)' },
-    { value: 'qam128', label: '128-QAM (7 bit/sym)' },
-    { value: 'qam256', label: '256-QAM (8 bit/sym)' },
-    // APSK — amplitude + phase (7)
-    { value: 'apsk4', label: '4-APSK (2 bit/sym)' },
-    { value: '8apsk', label: '8-APSK (3 bit/sym)' },
-    { value: '16apsk', label: '16-APSK (4 bit/sym)' },
-    { value: '32apsk', label: '32-APSK (5 bit/sym)' },
-    { value: '64apsk', label: '64-APSK (6 bit/sym)' },
-    { value: '128apsk', label: '128-APSK (7 bit/sym)' },
-    { value: '256apsk', label: '256-APSK (8 bit/sym)' },
-    // Special (6)
-    { value: 'ook', label: 'OOK (1 bit/sym)' },
-    { value: 'bpsk_diff', label: 'BPSK-Diff (1 bit/sym)' },
-    { value: 'sqam32', label: '32-SQAM (5 bit/sym)' },
-    { value: 'sqam128', label: '128-SQAM (7 bit/sym)' },
-    { value: 'v29', label: 'V.29 (4 bit/sym)' },
-    { value: 'pi4dqpsk', label: 'π/4-DQPSK (2 bit/sym)' },
-    // ARB — arbitrary optimized (6)
-    { value: 'arb16opt', label: 'ARB16opt (4 bit/sym)' },
-    { value: 'arb32opt', label: 'ARB32opt (5 bit/sym)' },
-    { value: 'arb64opt', label: 'ARB64opt (6 bit/sym)' },
-    { value: 'arb128opt', label: 'ARB128opt (7 bit/sym)' },
-    { value: 'arb256opt', label: 'ARB256opt (8 bit/sym)' },
-    { value: 'arb64vt', label: 'ARB64vt (6 bit/sym)' },
-    // FSK (4)
-    { value: 'gmsk', label: 'GMSK (1 bit/sym)' },
-    { value: '2fsk', label: '2-FSK (1 bit/sym)' },
-    { value: '4fsk', label: '4-FSK (2 bit/sym)' },
-    { value: '8fsk', label: '8-FSK (3 bit/sym)' },
-];  // 52 total
-
 export const BPSK_PARAMETERS = {
-    bpsk_modulation: {
-        label: 'Modulation',
-        description: 'Modulation scheme — select to match the signal you want to decode',
-        type: 'select',
-        default: 'bpsk',
-        options: MODULATION_OPTIONS
-    },
     bpsk_baudrate: {
         label: 'Baud Rate',
         description: 'Symbol rate in symbols/second',
@@ -465,35 +393,6 @@ export const SSTV_PARAMETERS = {
  * Decoder support flags
  * Use this map to disable unsupported decoders in the UI.
  */
-export const QO100_PARAMETERS = {
-    qo100_modulation: {
-        label: 'Modulation',
-        description: 'Modulation scheme — select to match the signal',
-        type: 'select',
-        default: 'qpsk',
-        options: MODULATION_OPTIONS
-    },
-    qo100_baudrate: {
-        label: 'Baud Rate (symbols/sec)',
-        description: 'Enter any value — not limited to presets',
-        type: 'number',
-        default: 4800,
-        min: 50,
-        max: 200000,
-    },
-    qo100_framing: {
-        label: 'Framing Protocol',
-        description: 'Data framing — None for raw bytes',
-        type: 'select',
-        default: 'none',
-        options: [
-            { value: 'none', label: 'None (raw bytes)' },
-            { value: 'ax25', label: 'AX.25 (G3RUH)' },
-            { value: 'doka', label: 'CCSDS (Reed-Solomon)' },
-        ]
-    },
-};
-
 export const DECODER_SUPPORT = {
     sstv: true,
     fsk: true,
@@ -501,10 +400,9 @@ export const DECODER_SUPPORT = {
     gfsk: true,
     bpsk: true,
     apt: true,
-    lora: true,
-    morse: true,
-    afsk: true,
-    qo100: true,
+    lora: false,
+    morse: false,
+    afsk: false
 };
 
 /**
@@ -531,46 +429,6 @@ export const SATDUMP_PIPELINES = {
     }
 };
 
-/**
- * Combined parameter definitions for all decoders
- */
-// QO-100 NB speed modes (from SSB_HighSpeed_Modem reference)
-// These are matched TX/RX modes that fit within a single SSB channel
-export const SSP_SPEED_MODES = [
-    { id: 0,  scheme: 'BPSK', baudrate: 1200, bandwidth: 1500,  dataRate: 800,   label: 'BPSK 1200 (~1.5 kHz)' },
-    { id: 1,  scheme: 'BPSK', baudrate: 2400, bandwidth: 3000,  dataRate: 2000,  label: 'BPSK 2400 (~3 kHz)' },
-    { id: 2,  scheme: 'QPSK', baudrate: 3000, bandwidth: 2400,  dataRate: 2400,  label: 'QPSK 3000 (~2.4 kHz)' },
-    { id: 3,  scheme: 'QPSK', baudrate: 4000, bandwidth: 3200,  dataRate: 3200,  label: 'QPSK 4000 (~3.2 kHz)' },
-    { id: 4,  scheme: 'QPSK', baudrate: 4410, bandwidth: 3500,  dataRate: 3600,  label: 'QPSK 4410 (~3.5 kHz)' },
-    { id: 5,  scheme: 'QPSK', baudrate: 4800, bandwidth: 3800,  dataRate: 4000,  label: 'QPSK 4800 (~3.8 kHz)' },
-    { id: 6,  scheme: '8PSK', baudrate: 5500, bandwidth: 3700,  dataRate: 4400,  label: '8PSK 5500 (~3.7 kHz)' },
-    { id: 7,  scheme: '8PSK', baudrate: 6000, bandwidth: 4000,  dataRate: 4800,  label: '8PSK 6000 (~4 kHz)' },
-    { id: 8,  scheme: '8PSK', baudrate: 6600, bandwidth: 4400,  dataRate: 5200,  label: '8PSK 6600 (~4.4 kHz)' },
-    { id: 9,  scheme: '8PSK', baudrate: 7200, bandwidth: 4800,  dataRate: 6000,  label: '8PSK 7200 (~4.8 kHz)' },
-];
-
-export const SSP_PARAMETERS = {
-    ssp_speedmode: {
-        label: 'Speed Mode',
-        description: 'QO-100 NB modem speed — sets modulation, baudrate, and bandwidth together',
-        type: 'select',
-        default: 5,
-        options: SSP_SPEED_MODES.map(m => ({ value: m.id, label: `${m.label} — ${m.dataRate} bps` }))
-    },
-    ssp_fec: {
-        label: 'FEC (RS 255,223)',
-        description: 'Forward Error Correction — Reed-Solomon',
-        type: 'switch',
-        default: true
-    },
-    ssp_encryption: {
-        label: 'NIP-04 Encryption',
-        description: 'Decrypt incoming SSP frames with your NSEC key',
-        type: 'switch',
-        default: true
-    },
-};
-
 export const DECODER_PARAMETERS = {
     ...LORA_PARAMETERS,
     ...FSK_PARAMETERS,
@@ -578,8 +436,7 @@ export const DECODER_PARAMETERS = {
     ...GFSK_PARAMETERS,
     ...BPSK_PARAMETERS,
     ...AFSK_PARAMETERS,
-    ...SSTV_PARAMETERS,
-    ...QO100_PARAMETERS
+    ...SSTV_PARAMETERS
 };
 
 /**
@@ -655,7 +512,6 @@ export function mapParametersToBackend(decoder, parameters) {
             baudrate: parameters.bpsk_baudrate,
             framing: parameters.bpsk_framing,
             differential: parameters.bpsk_differential,
-            modulation: parameters.bpsk_modulation || 'bpsk',
         };
     }
 
@@ -665,14 +521,6 @@ export function mapParametersToBackend(decoder, parameters) {
             af_carrier: parameters.afsk_af_carrier,
             deviation: parameters.afsk_deviation,
             framing: parameters.afsk_framing
-        };
-    }
-
-    if (decoder === 'qo100') {
-        return {
-            modulation: parameters.qo100_modulation || 'qpsk',
-            baudrate: parseInt(parameters.qo100_baudrate) || 4800,
-            framing: parameters.qo100_framing || 'none',
         };
     }
 

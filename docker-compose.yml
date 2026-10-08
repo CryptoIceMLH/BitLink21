@@ -1,5 +1,5 @@
-# BitLink21 v2.0.0 — Single Container Architecture
-# Forked from Ground Station + BitLink21 features (SSP, NIP-04, Bitcoin/Lightning, PlutoSDR TX+RX)
+# BitLink21 v4.0.0 — Single Container Architecture
+# Ground Station fork + BitLink21 (HSModem satellite modem, QO-100 beacon lock, Bitcoin/Lightning)
 
 services:
   bitlink21:
@@ -9,7 +9,7 @@ services:
       args:
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
         BUILD_DATE: ${BUILD_DATE:-unknown}
-        BUILD_VERSION: ${BUILD_VERSION:-2.0.0}
+        BUILD_VERSION: ${BUILD_VERSION:-4.0.0}
     container_name: bitlink21
     environment:
       # PlutoSDR configuration

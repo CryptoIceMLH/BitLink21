@@ -29,10 +29,8 @@ import GroupWorkIcon from '@mui/icons-material/GroupWork';
 import WavesIcon from '@mui/icons-material/Waves';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import FolderIcon from '@mui/icons-material/Folder';
-import MessageIcon from '@mui/icons-material/Message';
-import FingerprintIcon from '@mui/icons-material/Fingerprint';
 import CurrencyBitcoinIcon from '@mui/icons-material/CurrencyBitcoin';
-import BoltIcon from '@mui/icons-material/Bolt';
+import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import i18n from '../i18n/config.js';
 import { TleIcon } from '../components/common/custom-icons.jsx';
 import { Box, CircularProgress } from '@mui/material';
@@ -253,10 +251,24 @@ const SchedulerIconWithStatus = () => {
 export const getNavigation = () => [
     {
         kind: 'header',
-        title: i18n.t('tracking', { ns: 'navigation' }),
+        title: 'BitLink21',
     },
     {
         segment: '',
+        title: 'Link',
+        icon: <SatelliteAltIcon />,
+    },
+    {
+        segment: 'bitlink21/payments',
+        title: 'Bitcoin & Lightning',
+        icon: <CurrencyBitcoinIcon />,
+    },
+    {
+        kind: 'header',
+        title: i18n.t('tracking', { ns: 'navigation' }),
+    },
+    {
+        segment: 'overview',
         title: i18n.t('birds_eye_view', { ns: 'navigation' }),
         icon: <PublicIcon/>,
     },
@@ -267,28 +279,8 @@ export const getNavigation = () => [
     },
     {
         segment: 'waterfall',
-        title: i18n.t('waterfall_view', { ns: 'navigation' }),
+        title: 'Radio (classic)',
         icon: <WaterfallIconWithStatus />,
-    },
-    {
-        segment: 'bitlink21/messages',
-        title: i18n.t('messages', { ns: 'bitlink21', defaultValue: 'Messages' }),
-        icon: <MessageIcon />,
-    },
-    {
-        segment: 'bitlink21/identity',
-        title: i18n.t('identity', { ns: 'bitlink21', defaultValue: 'Identity' }),
-        icon: <FingerprintIcon />,
-    },
-    {
-        segment: 'bitlink21/bitcoin',
-        title: i18n.t('bitcoin', { ns: 'bitlink21', defaultValue: 'Bitcoin' }),
-        icon: <CurrencyBitcoinIcon />,
-    },
-    {
-        segment: 'bitlink21/lightning',
-        title: i18n.t('lightning', { ns: 'bitlink21', defaultValue: 'Lightning' }),
-        icon: <BoltIcon />,
     },
     {
         segment: 'filebrowser',

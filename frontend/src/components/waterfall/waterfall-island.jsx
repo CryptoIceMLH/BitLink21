@@ -87,7 +87,6 @@ import useWaterfallStream from "./waterfall-stream.jsx";
 import { useTranslation } from 'react-i18next';
 import { useWaterfallSnapshot } from "./waterfall-snapshot.js";
 import DecodedPacketsDrawer from "./decoded-packets-drawer.jsx";
-import BeaconLockPanel from "./beacon-lock-panel.jsx";
 import WaterfallRightSidebar from "./waterfall-right-sidebar.jsx";
 import { useAudio } from "../dashboard/audio-provider.jsx";
 import {
@@ -244,7 +243,6 @@ const MainWaterfallDisplay = React.memo(function MainWaterfallDisplay({
         lastRotatorEvent
     } = useSelector((state) => state.targetSatTrack);
 
-    const { beaconMeasuring } = useSelector((state) => state.bitlink21);
 
     const targetFPSRef = useRef(targetFPS);
     const waterfallControlRef = useRef(null);
@@ -660,8 +658,6 @@ const MainWaterfallDisplay = React.memo(function MainWaterfallDisplay({
                 />
             </Box>
 
-            {/* Beacon tracking panel — only visible when beacon tracking is active */}
-            {beaconMeasuring && <BeaconLockPanel mode="panel" />}
 
             {/* Container for both bandscope and waterfall */}
 

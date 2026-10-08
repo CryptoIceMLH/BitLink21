@@ -258,9 +258,9 @@ const tasksPersistConfig = {
 
 // Persist configuration for BitLink21 slice
 const bitlink21PersistConfig = {
-    key: 'bitlink21',
+    key: 'bitlink21-v4',
     storage,
-    whitelist: ['txFreq', 'txGain', 'config']  // Persist TX settings and config cache
+    whitelist: []  // Server is the source of truth for BitLink21 state
 };
 
 

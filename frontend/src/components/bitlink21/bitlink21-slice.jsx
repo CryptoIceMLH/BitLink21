@@ -1,15 +1,20 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 
-// --- Async Thunks (Socket.IO requests) ---
+// All BitLink21 state lives on the server (station profile, settings,
+// messages). This slice mirrors it and receives live Socket.IO updates.
 
-export const fetchIdentity = createAsyncThunk(
-    'bitlink21/fetchIdentity',
-    async ({ socket }, { rejectWithValue }) => {
+const request = (kind, command) => createAsyncThunk(
+    `bitlink21/${command}`,
+    async ({ socket, ...data } = {}, { rejectWithValue }) => {
         try {
             return await new Promise((resolve, reject) => {
-                socket.emit('data_request', 'bitlink21:get_identity', null, (res) => {
-                    if (res.success) resolve(res.data);
-                    else reject(new Error(res.error || 'Failed to fetch identity'));
+                if (!socket) {
+                    reject(new Error('Not connected to the server'));
+                    return;
+                }
+                socket.emit(kind, `bitlink21:${command}`, data, (res) => {
+                    if (res?.success) resolve(res.data);
+                    else reject(new Error(res?.error || `${command} failed`));
                 });
             });
         } catch (error) {
@@ -18,303 +23,111 @@ export const fetchIdentity = createAsyncThunk(
     }
 );
 
-export const setIdentity = createAsyncThunk(
-    'bitlink21/setIdentity',
-    async ({ socket, npub, nsec }, { rejectWithValue }) => {
-        try {
-            return await new Promise((resolve, reject) => {
-                socket.emit('data_submission', 'bitlink21:set_identity', { npub, nsec }, (res) => {
-                    if (res.success) resolve(res.data);
-                    else reject(new Error(res.error || 'Failed to set identity'));
-                });
-            });
-        } catch (error) {
-            return rejectWithValue(error.message);
-        }
-    }
-);
+export const fetchState = request('data_request', 'get_state');
+export const updateSettings = request('data_submission', 'update_settings');
+export const startStation = request('data_submission', 'start_station');
+export const stopStation = request('data_submission', 'stop_station');
+export const calibrateRx = request('data_submission', 'calibrate_rx');
+export const sendMessage = request('data_submission', 'send_message');
+export const fetchMessages = request('data_request', 'get_messages');
+export const deleteMessage = request('data_submission', 'delete_message');
+export const fetchFiles = request('data_request', 'get_files');
+export const deleteFile = request('data_submission', 'delete_file');
+export const testBitcoinConnection = request('data_submission', 'bitcoin_test_connection');
 
-export const fetchContacts = createAsyncThunk(
-    'bitlink21/fetchContacts',
-    async ({ socket }, { rejectWithValue }) => {
-        try {
-            return await new Promise((resolve, reject) => {
-                socket.emit('data_request', 'bitlink21:get_contacts', null, (res) => {
-                    if (res.success) resolve(res.data);
-                    else reject(new Error(res.error || 'Failed to fetch contacts'));
-                });
-            });
-        } catch (error) {
-            return rejectWithValue(error.message);
-        }
-    }
-);
-
-export const addContact = createAsyncThunk(
-    'bitlink21/addContact',
-    async ({ socket, npub, nickname }, { rejectWithValue }) => {
-        try {
-            return await new Promise((resolve, reject) => {
-                socket.emit('data_submission', 'bitlink21:add_contact', { npub, nickname }, (res) => {
-                    if (res.success) resolve(res.data);
-                    else reject(new Error(res.error || 'Failed to add contact'));
-                });
-            });
-        } catch (error) {
-            return rejectWithValue(error.message);
-        }
-    }
-);
-
-export const deleteContact = createAsyncThunk(
-    'bitlink21/deleteContact',
-    async ({ socket, npub }, { rejectWithValue }) => {
-        try {
-            return await new Promise((resolve, reject) => {
-                socket.emit('data_submission', 'bitlink21:delete_contact', { npub }, (res) => {
-                    if (res.success) resolve(npub);
-                    else reject(new Error(res.error || 'Failed to delete contact'));
-                });
-            });
-        } catch (error) {
-            return rejectWithValue(error.message);
-        }
-    }
-);
-
-export const fetchMessages = createAsyncThunk(
-    'bitlink21/fetchMessages',
-    async ({ socket, limit = 50, offset = 0 }, { rejectWithValue }) => {
-        try {
-            return await new Promise((resolve, reject) => {
-                socket.emit('data_request', 'bitlink21:get_messages', { limit, offset }, (res) => {
-                    if (res.success) resolve(res.data);
-                    else reject(new Error(res.error || 'Failed to fetch messages'));
-                });
-            });
-        } catch (error) {
-            return rejectWithValue(error.message);
-        }
-    }
-);
-
-export const fetchOutbox = createAsyncThunk(
-    'bitlink21/fetchOutbox',
-    async ({ socket, limit = 50, offset = 0 }, { rejectWithValue }) => {
-        try {
-            return await new Promise((resolve, reject) => {
-                socket.emit('data_request', 'bitlink21:get_outbox', { limit, offset }, (res) => {
-                    if (res.success) resolve(res.data);
-                    else reject(new Error(res.error || 'Failed to fetch outbox'));
-                });
-            });
-        } catch (error) {
-            return rejectWithValue(error.message);
-        }
-    }
-);
-
-export const sendMessage = createAsyncThunk(
-    'bitlink21/sendMessage',
-    async ({ socket, destination_npub, payload_type, body, encrypted, broadcast }, { rejectWithValue }) => {
-        try {
-            return await new Promise((resolve, reject) => {
-                socket.emit('data_submission', 'bitlink21:send_message', {
-                    destination_npub, payload_type, body, encrypted, broadcast
-                }, (res) => {
-                    if (res.success) resolve(res.data);
-                    else reject(new Error(res.error || 'Failed to send message'));
-                });
-            });
-        } catch (error) {
-            return rejectWithValue(error.message);
-        }
-    }
-);
-
-export const fetchStats = createAsyncThunk(
-    'bitlink21/fetchStats',
-    async ({ socket }, { rejectWithValue }) => {
-        try {
-            return await new Promise((resolve, reject) => {
-                socket.emit('data_request', 'bitlink21:get_stats', null, (res) => {
-                    if (res.success) resolve(res.data);
-                    else reject(new Error(res.error || 'Failed to fetch stats'));
-                });
-            });
-        } catch (error) {
-            return rejectWithValue(error.message);
-        }
-    }
-);
-
-export const fetchConfig = createAsyncThunk(
-    'bitlink21/fetchConfig',
-    async ({ socket, key }, { rejectWithValue }) => {
-        try {
-            return await new Promise((resolve, reject) => {
-                socket.emit('data_request', 'bitlink21:get_config', { key }, (res) => {
-                    if (res.success) resolve(res.data);
-                    else reject(new Error(res.error || 'Failed to fetch config'));
-                });
-            });
-        } catch (error) {
-            return rejectWithValue(error.message);
-        }
-    }
-);
-
-export const setConfig = createAsyncThunk(
-    'bitlink21/setConfig',
-    async ({ socket, key, value }, { rejectWithValue }) => {
-        try {
-            return await new Promise((resolve, reject) => {
-                socket.emit('data_submission', 'bitlink21:set_config', { key, value }, (res) => {
-                    if (res.success) resolve(res.data);
-                    else reject(new Error(res.error || 'Failed to set config'));
-                });
-            });
-        } catch (error) {
-            return rejectWithValue(error.message);
-        }
-    }
-);
-
-// --- Slice ---
+const applyState = (state, data) => {
+    if (!data) return;
+    state.settings = data.settings;
+    state.plan = data.plan;
+    state.modes = data.modes || state.modes;
+    state.presets = data.presets || state.presets;
+    state.stationRunning = data.station_running;
+    state.plutoAvailable = data.pluto_available;
+    if (!data.station_running) state.status = null;
+    else if (data.last_status) state.status = data.last_status;
+    state.loaded = true;
+};
 
 const bitlink21Slice = createSlice({
     name: 'bitlink21',
     initialState: {
-        // Identity
-        identity: null,
-        identityLoading: false,
-        identityError: null,
-
-        // Contacts
-        contacts: [],
-        contactsLoading: false,
-        contactsError: null,
-
-        // Messages (inbox)
+        loaded: false,
+        settings: null,
+        plan: null,
+        modes: [],
+        presets: {},
+        stationRunning: false,
+        plutoAvailable: false,
+        stationError: null,
+        busy: false,
+        status: null,          // live bitlink21_status from the worker
         messages: [],
-        messagesLoading: false,
-        messagesError: null,
-
-        // Outbox
-        outbox: { entries: [], pending_count: 0 },
-        outboxLoading: false,
-        outboxError: null,
-
-        // Send message
-        sendLoading: false,
-        sendError: null,
-
-        // Stats
-        stats: null,
-        statsLoading: false,
-
-        // Config (key-value cache)
-        config: {},
-        configLoading: false,
-
-        // TX controls
-        pttActive: false,
-        txFreq: null,
-        txGain: -20,
-
-        // Beacon AFC — two-state: measuring (drift display) + correcting (auto-correct)
-        beaconMeasuring: false,
-        beaconCorrecting: false,
-        beaconOffset: 0,
-        beaconSpectrum: null,  // Mini spectrum dB values from worker FFT
-        beaconSnr: 0,          // Signal-to-noise ratio of beacon peak
-        beaconFreqRes: 5,      // FFT frequency resolution (Hz/bin)
-
-        // Constellation
-        constellationPoints: [],
+        files: [],
+        lastError: null,
     },
     reducers: {
-        setPttActive(state, action) {
-            state.pttActive = action.payload;
+        statusReceived(state, action) {
+            state.status = action.payload;
+            state.stationRunning = true;
         },
-        setTxFreq(state, action) {
-            state.txFreq = action.payload;
+        stationStateChanged(state, action) {
+            const { running, error, plan } = action.payload || {};
+            state.stationRunning = !!running;
+            state.stationError = error || null;
+            if (plan) state.plan = plan;
+            if (!running) state.status = null;
         },
-        setTxGain(state, action) {
-            state.txGain = action.payload;
+        messageUpserted(state, action) {
+            const msg = action.payload;
+            const idx = state.messages.findIndex((m) => m.id === msg.id);
+            if (idx >= 0) state.messages[idx] = msg;
+            else state.messages.unshift(msg);
         },
-        updateBeaconStatus(state, action) {
-            const { measuring, correcting, offset_hz, spectrum, snr, freq_res } = action.payload;
-            if (measuring !== undefined) state.beaconMeasuring = measuring;
-            if (correcting !== undefined) state.beaconCorrecting = correcting;
-            if (offset_hz !== undefined) state.beaconOffset = offset_hz;
-            if (spectrum !== undefined) state.beaconSpectrum = spectrum;
-            if (snr !== undefined) state.beaconSnr = snr;
-            if (freq_res !== undefined) state.beaconFreqRes = freq_res;
+        fileReceived(state, action) {
+            if (!state.files.some((f) => f.id === action.payload.id)) state.files.unshift(action.payload);
         },
-        updateConstellationPoints(state, action) {
-            state.constellationPoints = action.payload;
+        settingsChanged(state, action) {
+            state.settings = action.payload;
         },
-        addIncomingMessage(state, action) {
-            state.messages.unshift(action.payload);
+        clearError(state) {
+            state.lastError = null;
+            state.stationError = null;
         },
     },
     extraReducers: (builder) => {
-        // Identity
+        const pending = (state) => { state.busy = true; state.lastError = null; };
+        const failed = (state, action) => { state.busy = false; state.lastError = action.payload || action.error?.message; };
+        const gotState = (state, action) => {
+            state.busy = false;
+            applyState(state, action.payload);
+            if (action.type === startStation.fulfilled.type) state.stationError = null;
+        };
+
+        for (const thunk of [fetchState, updateSettings, startStation, stopStation, calibrateRx]) {
+            builder.addCase(thunk.pending, pending).addCase(thunk.fulfilled, gotState).addCase(thunk.rejected, failed);
+        }
         builder
-            .addCase(fetchIdentity.pending, (state) => { state.identityLoading = true; state.identityError = null; })
-            .addCase(fetchIdentity.fulfilled, (state, action) => { state.identityLoading = false; state.identity = action.payload; })
-            .addCase(fetchIdentity.rejected, (state, action) => { state.identityLoading = false; state.identityError = action.payload; })
-
-            .addCase(setIdentity.fulfilled, (state, action) => { state.identity = action.payload; })
-
-        // Contacts
-            .addCase(fetchContacts.pending, (state) => { state.contactsLoading = true; state.contactsError = null; })
-            .addCase(fetchContacts.fulfilled, (state, action) => { state.contactsLoading = false; state.contacts = action.payload || []; })
-            .addCase(fetchContacts.rejected, (state, action) => { state.contactsLoading = false; state.contactsError = action.payload; })
-
-            .addCase(addContact.fulfilled, (state, action) => { state.contacts.push(action.payload); })
-            .addCase(deleteContact.fulfilled, (state, action) => {
-                state.contacts = state.contacts.filter(c => c.npub !== action.payload);
+            .addCase(sendMessage.pending, pending)
+            .addCase(sendMessage.fulfilled, (state) => { state.busy = false; })
+            .addCase(sendMessage.rejected, failed)
+            .addCase(fetchMessages.fulfilled, (state, action) => { state.messages = action.payload || []; })
+            .addCase(deleteMessage.fulfilled, (state, action) => {
+                state.messages = state.messages.filter((m) => m.id !== action.meta.arg.id);
             })
-
-        // Messages
-            .addCase(fetchMessages.pending, (state) => { state.messagesLoading = true; state.messagesError = null; })
-            .addCase(fetchMessages.fulfilled, (state, action) => { state.messagesLoading = false; state.messages = action.payload || []; })
-            .addCase(fetchMessages.rejected, (state, action) => { state.messagesLoading = false; state.messagesError = action.payload; })
-
-        // Outbox
-            .addCase(fetchOutbox.pending, (state) => { state.outboxLoading = true; state.outboxError = null; })
-            .addCase(fetchOutbox.fulfilled, (state, action) => { state.outboxLoading = false; state.outbox = action.payload || { entries: [], pending_count: 0 }; })
-            .addCase(fetchOutbox.rejected, (state, action) => { state.outboxLoading = false; state.outboxError = action.payload; })
-
-        // Send message
-            .addCase(sendMessage.pending, (state) => { state.sendLoading = true; state.sendError = null; })
-            .addCase(sendMessage.fulfilled, (state) => { state.sendLoading = false; })
-            .addCase(sendMessage.rejected, (state, action) => { state.sendLoading = false; state.sendError = action.payload; })
-
-        // Stats
-            .addCase(fetchStats.pending, (state) => { state.statsLoading = true; })
-            .addCase(fetchStats.fulfilled, (state, action) => { state.statsLoading = false; state.stats = action.payload; })
-            .addCase(fetchStats.rejected, (state) => { state.statsLoading = false; })
-
-        // Config
-            .addCase(fetchConfig.fulfilled, (state, action) => {
-                if (action.payload) state.config[action.payload.key] = action.payload.value;
-            })
-            .addCase(setConfig.fulfilled, (state, action) => {
-                if (action.payload) state.config[action.payload.key] = action.payload.value;
+            .addCase(fetchFiles.fulfilled, (state, action) => { state.files = action.payload || []; })
+            .addCase(deleteFile.fulfilled, (state, action) => {
+                state.files = state.files.filter((f) => f.id !== action.meta.arg.id);
             });
     },
 });
 
 export const {
-    setPttActive,
-    setTxFreq,
-    setTxGain,
-    updateBeaconStatus,
-    updateConstellationPoints,
-    addIncomingMessage,
+    statusReceived,
+    stationStateChanged,
+    messageUpserted,
+    fileReceived,
+    settingsChanged,
+    clearError,
 } = bitlink21Slice.actions;
 
 export default bitlink21Slice.reducer;

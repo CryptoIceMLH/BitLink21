@@ -51,10 +51,8 @@ import { AudioProvider, useAudio } from "./components/dashboard/audio-provider.j
 import SatelliteInfoPage from "./components/satellites/satellite-info-page.jsx";
 import FilebrowserMain from "./components/filebrowser/filebrowser-main.jsx";
 import ScheduledObservationsLayout from "./components/scheduler/main-layout.jsx";
-import MessagesPage from "./components/bitlink21/messages-page.jsx";
-import IdentityPage from "./components/bitlink21/identity-page.jsx";
-import BitcoinPage from "./components/bitlink21/bitcoin-page.jsx";
-import LightningPage from "./components/bitlink21/lightning-page.jsx";
+import LinkPage from "./components/bitlink21/link-page.jsx";
+import PaymentsPage from "./components/bitlink21/payments-page.jsx";
 
 
 
@@ -69,6 +67,10 @@ const router = createBrowserRouter([
                     {
                         path: "",
                         errorElement: <ErrorPage />,
+                        Component: LinkPage,
+                    },
+                    {
+                        path: "overview",
                         Component: GlobalSatelliteTrackLayout,
                     },
                     {
@@ -83,20 +85,8 @@ const router = createBrowserRouter([
                         path: "bitlink21",
                         children: [
                             {
-                                path: "messages",
-                                Component: MessagesPage,
-                            },
-                            {
-                                path: "identity",
-                                Component: IdentityPage,
-                            },
-                            {
-                                path: "bitcoin",
-                                Component: BitcoinPage,
-                            },
-                            {
-                                path: "lightning",
-                                Component: LightningPage,
+                                path: "payments",
+                                Component: PaymentsPage,
                             },
                         ],
                     },

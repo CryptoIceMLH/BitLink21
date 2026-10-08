@@ -121,7 +121,13 @@ import { setRuntimeSnapshot } from '../components/settings/sessions-slice.jsx';
 import { fetchSatelliteGroups } from '../components/overview/overview-slice.jsx';
 import { addTranscription } from '../components/waterfall/transcription-slice.jsx';
 import { fetchSoapySDRServers } from '../components/hardware/sdr-slice.jsx';
-import { addIncomingMessage, updateBeaconStatus, updateConstellationPoints } from '../components/bitlink21/bitlink21-slice.jsx';
+import {
+    statusReceived as bitlink21StatusReceived,
+    stationStateChanged as bitlink21StationStateChanged,
+    messageUpserted as bitlink21MessageUpserted,
+    fileReceived as bitlink21FileReceived,
+    settingsChanged as bitlink21SettingsChanged,
+} from '../components/bitlink21/bitlink21-slice.jsx';
 import ImageIcon from '@mui/icons-material/Image';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import RadioButtonCheckedIcon from '@mui/icons-material/RadioButtonChecked';
@@ -1048,16 +1054,40 @@ export const useSocketEventHandlers = (socket) => {
         });
 
         // BitLink21 events
-        socket.on('bitlink21:incoming_message', (data) => {
-            dispatch(addIncomingMessage(data));
+        socket.on('bitlink21:status', (data) => {
+            dispatch(bitlink21StatusReceived(data));
         });
 
-        socket.on('bitlink21:beacon_status', (data) => {
-            dispatch(updateBeaconStatus(data));
+        socket.on('bitlink21:station_state', (data) => {
+            dispatch(bitlink21StationStateChanged(data));
+            if (data?.error) {
+                toast.error(data.error, { autoClose: 8000 });
+            }
         });
 
-        socket.on('bitlink21:constellation_data', (data) => {
-            dispatch(updateConstellationPoints(data));
+        socket.on('bitlink21:message', (data) => {
+            dispatch(bitlink21MessageUpserted(data));
+        });
+
+        socket.on('bitlink21:file', (data) => {
+            dispatch(bitlink21FileReceived(data));
+        });
+
+        socket.on('bitlink21:settings', (data) => {
+            dispatch(bitlink21SettingsChanged(data));
+        });
+
+        socket.on('bitlink21:retuned', (data) => {
+            // The station retuned the SDR: keep the waterfall's RF display in step
+            dispatch((innerDispatch, getState) => {
+                const { converterDefinitions, activeConverterId } = getState().waterfall;
+                const conv = converterDefinitions?.find((c) => c.id === activeConverterId);
+                let rf = data.center_freq;
+                if (conv?.type === 'down') rf = data.center_freq + conv.rxOffset;
+                if (conv?.type === 'up') rf = data.center_freq - conv.rxOffset;
+                innerDispatch(setCenterFrequency(rf));
+                innerDispatch(setSampleRate(data.sample_rate));
+            });
         });
 
         // Cleanup function
@@ -1102,9 +1132,12 @@ export const useSocketEventHandlers = (socket) => {
             socket.off("soapysdr:discovery_complete");
             socket.off("soapysdr:refresh_complete");
             socket.off("soapysdr:discovery_error");
-            socket.off("bitlink21:incoming_message");
-            socket.off("bitlink21:beacon_status");
-            socket.off("bitlink21:constellation_data");
+            socket.off("bitlink21:status");
+            socket.off("bitlink21:station_state");
+            socket.off("bitlink21:message");
+            socket.off("bitlink21:file");
+            socket.off("bitlink21:retuned");
+            socket.off("bitlink21:settings");
         };
     }, [socket, dispatch, t]);
 };

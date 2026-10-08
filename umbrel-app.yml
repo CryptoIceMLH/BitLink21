@@ -4,25 +4,30 @@ name: BitLink21
 tagline: Bitcoin decentralized satellite communication system
 icon: bitlink21-128.png
 category: bitcoin
-version: "3.0.2"
+version: "4.0.0"
 port: 7000
 description: >-
-  BitLink21 is a Bitcoin-native decentralized communication system that transmits
-  encrypted messages, Bitcoin transactions, and Lightning invoices over satellite
-  links using the Satoshi Signal Protocol (SSP). No internet required between nodes.
+  BitLink21 sends messages, Bitcoin transactions and Lightning invoices over the
+  QO-100 geostationary satellite with a PlutoSDR. No internet needed between stations.
 
-  Features: 52 modulation schemes via GNU Radio, NIP-04 encryption, FEC coding,
-  beacon AFC for QO-100, PlutoSDR TX+RX, CSMA, constellation diagram, BER testing,
-  full waterfall/satellite tracking from Ground Station fork.
+  Type a channel frequency and press send: BitLink21 starts the radio, locks to the
+  QO-100 beacon to cancel LNB drift, tunes the channel automatically and confirms
+  delivery by hearing your own message back through the satellite. On air it is fully
+  compatible with DJ0ABR's HSModem (BPSK/QPSK/8APSK, RS(255,223) FEC), so it also
+  receives the AMSAT-DL multimedia beacon. Received Bitcoin transactions can be
+  broadcast through your own node. The full Ground Station toolkit (waterfall, VFOs,
+  decoders, satellite tracking) remains available as the classic radio view.
 developer: BitLink21 Contributors
 website: https://github.com/CryptoIceMLH/BitLink21
 repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 dependencies: []
 releaseNotes: >-
-  v2.0.0: Complete architecture rewrite — forked Ground Station, single container,
-  Socket.IO, Redux, MUI v7, Web Worker waterfall, multi-SDR support, PlutoSDR TX+RX
-  via pyadi-iio, SQLAlchemy + Alembic, all existing BitLink21 features preserved.
+  v4.0.0: Radio rebuilt from the ground up. New Link page: type a frequency and press
+  send. HSModem-compatible modem verified on live QO-100 signals, automatic QO-100
+  beacon lock with drift tracking, delivery confirmation via the satellite and
+  automatic uplink correction, first-run setup wizard, Bitcoin and Lightning page.
+  Nostr support has been removed. Transmit is off until enabled in the app.
 path: ""
 defaultUsername: ""
 defaultPassword: ""

@@ -4,32 +4,30 @@ name: BitLink21
 tagline: Bitcoin decentralized satellite communication system
 icon: https://raw.githubusercontent.com/CryptoIceMLH/BitLink21/master/bitlink21-128.png
 category: bitcoin
-version: "3.0.2"
+version: "4.0.0"
 port: 7000
 description: >-
-  BitLink21 is a self-hosted satellite communications layer for Bitcoin and Lightning.
-  Send encrypted Bitcoin transactions, Lightning invoices, and messages over satellite
-  using SDR hardware — no internet required between nodes.
+  BitLink21 sends messages, Bitcoin transactions and Lightning invoices over the
+  QO-100 geostationary satellite with a PlutoSDR. No internet needed between stations.
 
-  Features:
-  - Multi-SDR support (RTL-SDR, SoapySDR, UHD/USRP, HackRF, Airspy, LimeSDR, PlutoSDR)
-  - PlutoSDR TX+RX via pyadi-iio (full duplex, burst TX for SSP frames)
-  - Web Worker waterfall with 7 color maps and auto-scaling
-  - Nostr NIP-04 encryption (AES-256-CBC + ECDH secp256k1)
-  - Bitcoin transaction relay over satellite
-  - Lightning invoice relay
-  - Satellite tracking, rotator control, scheduled observations
-  - Socket.IO real-time communication
-  - Material-UI v7 + Redux Toolkit frontend
+  Type a channel frequency and press send: BitLink21 starts the radio, locks to the
+  QO-100 beacon to cancel LNB drift, tunes the channel automatically and confirms
+  delivery by hearing your own message back through the satellite. On air it is fully
+  compatible with DJ0ABR's HSModem (BPSK/QPSK/8APSK, RS(255,223) FEC), so it also
+  receives the AMSAT-DL multimedia beacon. Received Bitcoin transactions can be
+  broadcast through your own node. The full Ground Station toolkit (waterfall, VFOs,
+  decoders, satellite tracking) remains available as the classic radio view.
 developer: BitLink21 Contributors
 website: https://github.com/CryptoIceMLH/BitLink21
 repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 gallery: []
 releaseNotes: >-
-  v2.0.0: Complete architecture rewrite — forked Ground Station, single container,
-  Socket.IO, Redux, MUI v7, Web Worker waterfall, multi-SDR support, PlutoSDR TX+RX
-  via pyadi-iio, SQLAlchemy + Alembic, all existing BitLink21 features preserved.
+  v4.0.0: Radio rebuilt from the ground up. New Link page: type a frequency and press
+  send. HSModem-compatible modem verified on live QO-100 signals, automatic QO-100
+  beacon lock with drift tracking, delivery confirmation via the satellite and
+  automatic uplink correction, first-run setup wizard, Bitcoin and Lightning page.
+  Nostr support has been removed. Transmit is off until enabled in the app.
 dependencies: []
 path: ""
 defaultUsername: ""

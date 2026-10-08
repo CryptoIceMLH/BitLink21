@@ -41,6 +41,7 @@ ENCRYPTION_PASSPHRASE = "passphrase"
 def _default_settings() -> Dict[str, Any]:
     return {
         "callsign": "",
+        "setup_done": False,
         "encryption": ENCRYPTION_CLEAR,
         "passphrase": "",
         "profile": PRESETS["qo100-nb"].to_dict(),
