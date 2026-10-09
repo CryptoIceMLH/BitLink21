@@ -107,8 +107,7 @@ speed and send.
 | Fast | QPSK | 4.4 kbit/s | HSModem default |
 | Turbo | 8APSK | 7.2 kbit/s | Strong signal |
 
-Messages can be sent in clear or encrypted with a shared passphrase
-(AES-256-GCM). Files are always sent in clear so any HSModem station can open them.
+
 
 **Advanced** shows beacon lock, modem state, frequency plan and calibration. The
 classic radio view (waterfall, VFOs, decoders) is under **Radio (classic)**.
