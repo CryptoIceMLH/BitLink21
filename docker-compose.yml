@@ -1,8 +1,11 @@
-# BitLink21 v4.0.0 — Single Container Architecture
-# Ground Station fork + BitLink21 (HSModem satellite modem, QO-100 beacon lock, Bitcoin/Lightning)
+# BitLink21 — single container (Ground Station fork + HSModem modem, QO-100 beacon lock, Bitcoin/Lightning)
+#   docker compose up -d     pulls the ready-made image from GHCR
+#   docker compose build     builds it from source instead (about an hour)
 
 services:
   bitlink21:
+    image: ghcr.io/cryptoicemlh/bitlink21:4.0.3
+    pull_policy: missing
     build:
       context: .
       dockerfile: Dockerfile
@@ -26,7 +29,7 @@ services:
       - "${BITLINK21_PORT:-7000}:7000"
     volumes:
       - ./data:/app/backend/data
-    # Uncomment to pass through USB devices for SDR hardware (RTL-SDR, HackRF, etc.):
+    # Uncomment to reach a Pluto over USB (PLUTO_URI=usb:...) instead of the network:
     # devices:
     #   - /dev/bus/usb:/dev/bus/usb
     privileged: false
