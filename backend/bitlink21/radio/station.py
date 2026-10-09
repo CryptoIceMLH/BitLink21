@@ -75,6 +75,7 @@ class Station:
             if self.beacon.locked and self.beacon.offset_hz is not None:
                 self.correction_hz = self.beacon.offset_hz
                 self.receiver.set_nominal(self.plan.rx_channel_offset_hz + self.correction_hz)
+            self.receiver.drift_hz_s = self.beacon.rate_hz_s if self.beacon.locked else 0.0
 
         for frame in self.receiver.process(iq):
             self._on_frame(frame)

@@ -20,6 +20,13 @@ from scipy import fft as sp_fft
 from .dsp import ChannelSelector
 
 
+FAST_DRIFT_HZ_S = 5.0  # above this, measure twice a second while locked
+HOLD_LOCK_HZ = 60.0    # once locked, stay locked within this of the prediction
+# Drift rates tried when a locked beacon is suddenly not found (Hz/s)
+DRIFT_HYPOTHESES_HZ_S = (-60.0, -40.0, -25.0, -12.0, 12.0, 25.0, 40.0, 60.0)
+HYPOTHESIS_WINDOW_HZ = 120.0
+
+
 class BeaconTracker:
     def __init__(
         self,
@@ -56,6 +63,7 @@ class BeaconTracker:
         self._buf_len = int(self.fs * integration_s)
         self._buf = np.zeros(0, dtype=np.complex64)
         self._since_update = 0.0
+        self._dt = update_interval_s
 
         self.offset_hz: Optional[float] = None  # tracked offset (alpha-beta filter)
         self.rate_hz_s = 0.0  # tracked drift rate
@@ -130,10 +138,14 @@ class BeaconTracker:
         self._buf = np.concatenate([self._buf, y])[-self._buf_len:]
         self._since_update += len(iq) / self.channel.fs_in
         self._stream_t += len(iq) / self.channel.fs_in
-        # Once locked, measuring once a second is plenty (drift is Hz/s)
-        interval = max(self.update_interval_s, 1.0) if self.locked else self.update_interval_s
+        # Once locked, once a second is plenty for a slow drift; while the
+        # frequency runs (seen live: 20-40 Hz/s while transmitting) measure
+        # twice a second
+        slow = abs(self.rate_hz_s) < FAST_DRIFT_HZ_S
+        interval = max(self.update_interval_s, 1.0) if (self.locked and slow) else self.update_interval_s
         if self._since_update < interval or len(self._buf) < self._buf_len // 2:
             return False
+        self._dt = self._since_update  # real time since the last measurement
         self._since_update = 0.0
         self._measure()
         return True
@@ -153,21 +165,21 @@ class BeaconTracker:
         spec = np.fft.fftshift(np.abs(sp_fft.fft((z * window).astype(np.complex64), n)) ** 2)
         return freqs, spec
 
-    def _measure(self) -> None:
-        x = self._buf
-        x = x - np.mean(x)
-        dt = self.update_interval_s
+    def _dechirp(self, x: np.ndarray, rate: float) -> np.ndarray:
+        """Remove a frequency ramp (Hz/s) across the window, referenced to its
+        centre: a drifting beacon becomes a sharp line again."""
+        if abs(rate) < 0.5:
+            return x
+        tt = (np.arange(len(x)) - len(x) / 2) / self.fs
+        return (x * np.exp(-1j * np.pi * rate * tt * tt)).astype(np.complex64)
+
+    def _find_line(self, x: np.ndarray, rate: float, centre: float, window: float):
+        """Strongest beacon line in the window after removing ``rate``.
+        Returns (frequency at the window centre, SNR dB) or (None, SNR)."""
+        x = self._dechirp(x, rate)
         power = 2 if self.kind == "psk" else 1
         freqs, spec = self._line_spectrum(x ** power, power)
         bin_hz = freqs[1] - freqs[0]
-
-        # Search the whole span until locked, then only near the prediction
-        # so a neighbouring carrier cannot pull the lock away.
-        predicted = None
-        if self.offset_hz is not None:
-            predicted = self.offset_hz + self.rate_hz_s * dt
-        window = 300.0 if (self.locked and predicted is not None) else self.span_hz
-        centre = predicted if (self.locked and predicted is not None) else 0.0
         allowed = np.abs(freqs - centre) <= window
         allowed &= np.abs(freqs) <= self.span_hz
         noise = float(np.median(spec[np.abs(freqs) <= self.span_hz])) + 1e-30
@@ -187,18 +199,67 @@ class BeaconTracker:
             if self.kind == "psk":
                 # A BPSK beacon has a suppressed carrier: a line that is also
                 # strong in the plain spectrum is a CW carrier, not the beacon.
+                # Judged by how concentrated the plain power is (noise
+                # removed): a CW carrier sits in a few bins, the 400 Bd BPSK
+                # beacon spreads over hundreds. Comparing levels instead
+                # rejected a strong real beacon and locked onto its clock lines.
                 j = int(np.argmin(np.abs(plain_freqs - freqs[cand])))
                 lo, hi = max(j - 3, 0), j + 4
-                plain_snr = 10 * np.log10(np.max(plain_spec[lo:hi]) / plain_noise)
-                sq_snr = 10 * np.log10(spec[cand] / noise)
-                if plain_snr > sq_snr - 10:
+                near = np.abs(plain_freqs - plain_freqs[j]) < 500.0
+                core = float(np.sum(plain_spec[lo:hi])) - (hi - lo) * plain_noise
+                total = float(np.sum(plain_spec[near])) - int(np.count_nonzero(near)) * plain_noise
+                if total > 0 and core / total > 0.3:
                     masked[np.abs(freqs - freqs[cand]) < 50] = 0
                     continue
             k = cand
             break
+        if k is None or k == 0 or k == len(spec) - 1:
+            return None, None
+        snr = float(10 * np.log10(spec[k] / noise))
+        if snr < self.min_snr_db:
+            return None, snr
+        # Quadratic interpolation on the log spectrum for sub-bin accuracy
+        a, b, c = np.log(spec[k - 1] + 1e-30), np.log(spec[k] + 1e-30), np.log(spec[k + 1] + 1e-30)
+        denom = a - 2 * b + c
+        delta = 0.5 * (a - c) / denom if denom != 0 else 0.0
+        return float(freqs[k] + delta * bin_hz), snr
 
-        self.snr_db = None if k is None else float(10 * np.log10(spec[k] / noise))
-        if k is None or self.snr_db < self.min_snr_db or k == 0 or k == len(spec) - 1:
+    def _measure(self) -> None:
+        x = self._buf
+        x = x - np.mean(x)
+        dt = self._dt
+
+        # Search the whole span until locked, then only near the prediction
+        # so a neighbouring carrier cannot pull the lock away.
+        predicted = None
+        if self.offset_hz is not None:
+            predicted = self.offset_hz + self.rate_hz_s * dt
+        locked_search = self.locked and predicted is not None
+        window = 300.0 if locked_search else self.span_hz
+        # Window centre lies half an integration time in the past
+        half = self.integration_s / 2
+        centre = (predicted - self.rate_hz_s * half) if locked_search else 0.0
+
+        rate = self.rate_hz_s
+        line, snr = self._find_line(x, rate, centre, window)
+        if line is None and locked_search:
+            # Lost it: the receive frequency may have started running (live:
+            # 20-40 Hz/s while transmitting) and smeared the line. Try drift
+            # rates; the one giving a sharp line also gives the new rate.
+            # Only near the expectation: the beacon's symbol-clock lines sit a
+            # few hundred Hz away and must not be mistaken for it
+            best = (None, None, rate)
+            for r in DRIFT_HYPOTHESES_HZ_S:
+                f, s = self._find_line(x, r, centre, HYPOTHESIS_WINDOW_HZ)
+                if f is not None and (best[1] is None or s > best[1]):
+                    best = (f, s, r)
+            if best[0] is not None:
+                line, snr, rate = best
+                self.rate_hz_s = rate
+                predicted = self.offset_hz + rate * dt
+        self.snr_db = snr
+
+        if line is None:
             self.raw_offset_hz = None
             self._misses += 1
             if self._misses >= 4:  # ~2 s without the beacon
@@ -210,19 +271,27 @@ class BeaconTracker:
             self._update_spectrum(x)
             return
         self._misses = 0
-
-        # Quadratic interpolation on the log spectrum for sub-bin accuracy
-        a, b, c = np.log(spec[k - 1] + 1e-30), np.log(spec[k] + 1e-30), np.log(spec[k + 1] + 1e-30)
-        denom = a - 2 * b + c
-        delta = 0.5 * (a - c) / denom if denom != 0 else 0.0
-        # The FFT window is centred half an integration time in the past
-        raw = float(freqs[k] + delta * bin_hz) + self.rate_hz_s * self.integration_s / 2
+        # Frequency now: the line is the window centre, half a window back
+        raw = line + rate * half
         self.raw_offset_hz = raw
 
         if self._seeded and predicted is not None and abs(raw - predicted) <= 100:
             # Seed confirmed by a real measurement: keep the lock
             self._seeded = False
             self._residuals.extend([0.0, 0.0])
+        if locked_search and not self._seeded and abs(raw - predicted) > 100:
+            # A single far-off reading while locked is not trusted (a symbol-
+            # clock line or interference): count it as a miss
+            self.raw_offset_hz = None
+            self._misses += 1
+            if self._misses >= 4:
+                self.locked = False
+                self._locked_since = None
+                self._residuals.clear()
+            else:
+                self.offset_hz += self.rate_hz_s * dt
+            self._update_spectrum(x)
+            return
         if self.offset_hz is None or abs(raw - predicted) > 100:
             # First fix or a jump: restart the tracker
             self._seeded = False
@@ -236,7 +305,12 @@ class BeaconTracker:
             self.offset_hz = predicted + 0.5 * r
             self.rate_hz_s += 0.15 * r / dt
             self._residuals.append(abs(r))
-        self.locked = (len(self._residuals) >= 3 and max(self._residuals) < 15.0) or self._seeded
+        if self.locked and self._residuals:
+            # Keep the lock while the beacon stays near the prediction; a fast
+            # drift onset briefly misses by tens of Hz until the rate settles
+            self.locked = self._residuals[-1] < HOLD_LOCK_HZ
+        else:
+            self.locked = (len(self._residuals) >= 3 and max(self._residuals) < 15.0) or self._seeded
         if self.locked and self._locked_since is None:
             self._locked_since = self._stream_t
         elif not self.locked:

@@ -194,3 +194,61 @@ def test_wrong_seed_falls_back_to_search():
     for i in range(0, len(x), 65536):
         st.process(x[i: i + 65536])
     assert st.beacon.locked and abs(st.correction_hz - 2500.0) < 10
+
+
+def test_beacon_tracker_follows_fast_drift_without_unlocking():
+    """Regression (live 2026-10-09): the receive frequency ran at 20-40 Hz/s
+    while transmitting; the tracker smeared the line, unlocked after every
+    message and grabbed the beacon's symbol-clock lines 400 Hz away."""
+    fs = 1e6
+    dur = 24
+    n = int(fs * dur)
+    t = np.arange(n) / fs
+    rate = np.where((t >= 8) & (t < 20), -40.0, -2.0)
+    err = -4400.0 + np.cumsum(rate) / fs
+    rng = np.random.default_rng(1)
+    bits = rng.integers(0, 2, int(400 * dur) + 2) * 2 - 1
+    bb = signal.lfilter(signal.firwin(301, 400, fs=fs), 1, np.repeat(bits, int(fs / 400))[:n])
+    x = (3 * bb * np.exp(2j * np.pi * np.cumsum(70e3 + err) / fs)
+         + 0.05 * (rng.standard_normal(n) + 1j * rng.standard_normal(n))).astype(np.complex64)
+    bt = BeaconTracker(fs, 70e3, kind="psk", span_hz=25000)
+    unlocked_after_lock = False
+    for i in range(0, n, 65536):
+        if bt.process(x[i: i + 65536]):
+            k = min(i + 65535, n - 1)
+            if t[k] > 3 and not bt.locked:
+                unlocked_after_lock = True
+            if 13.5 < t[k] < 19.5:  # settled on the ramp
+                assert abs(bt.offset_hz - err[k]) < 10, (t[k], bt.offset_hz, err[k])
+                assert abs(bt.rate_hz_s + 40) < 8
+    assert not unlocked_after_lock
+
+
+def test_long_bpsk_message_decodes_while_receive_frequency_runs():
+    """Regression (live 2026-10-09): a 12 s BPSK message got 1 good frame
+    out of 11 while the receive chain drifted ~40 Hz/s."""
+    fs = 1e6
+    prof = SatelliteProfile(sample_rate_hz=fs, rx_dial_rf_hz=10489.61e6, rx_mode=0)
+    plan = make_plan(prof)
+    mode = get_mode(0)
+    name, content = envelope.encode(envelope.TYPE_TEXT, b"test", callsign="N0CALL")
+    burst = modulate_blocks(filetransfer.build_file_frames(name, content), mode, fs, 0.0,
+                            lead_in_symbols=int(mode.symbol_rate * 1.5))
+    t_tx0 = 6.0
+    n = int(fs * (t_tx0 + len(burst) / fs + 3.0))
+    t = np.arange(n) / fs
+    rate = np.where((t >= t_tx0) & (t < t_tx0 + len(burst) / fs), -40.0, -2.0)
+    err = -4400.0 + np.cumsum(rate) / fs
+    rng = np.random.default_rng(3)
+    bits = rng.integers(0, 2, int(400 * t[-1]) + 3) * 2 - 1
+    bb = signal.lfilter(signal.firwin(301, 400, fs=fs), 1, np.repeat(bits, int(fs / 400))[:n])
+    x = 3 * bb * np.exp(2j * np.pi * np.cumsum(plan.beacon_offset_hz + err) / fs)
+    seg = slice(int(t_tx0 * fs), int(t_tx0 * fs) + len(burst))
+    amp = np.sqrt(10 ** 1.2 * 2 * 0.05 ** 2 * mode.symbol_rate * 1.2 / fs / np.mean(np.abs(burst) ** 2))
+    x[seg] += amp * burst * np.exp(2j * np.pi * np.cumsum(plan.rx_channel_offset_hz + err) / fs)[seg]
+    x = (x + 0.05 * (rng.standard_normal(n) + 1j * rng.standard_normal(n))).astype(np.complex64)
+    st = Station(prof, fs)
+    files = []
+    for i in range(0, n, 65536):
+        files += [e for e in st.process(x[i: i + 65536]) if e["type"] == "bitlink21_file"]
+    assert len(files) == 1 and files[0]["is_envelope"]

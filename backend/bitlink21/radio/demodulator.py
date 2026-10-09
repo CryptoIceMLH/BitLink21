@@ -37,6 +37,9 @@ STATE_ACQUIRED = "acquired"
 STATE_LOCKED = "locked"
 
 
+PLL_TRACK_HZ = 48.0  # minimum carrier-tracking loop bandwidth (Hz)
+
+
 def _loop_gains(bw: float, damping: float, ted_gain: float = 1.0):
     """Second-order loop gains (per update) from normalized noise bandwidth."""
     theta = bw / (damping + 1 / (4 * damping))
@@ -111,7 +114,11 @@ class HsModemReceiver:
         self._phase = 0.0
         self._freq = 0.0  # rad/symbol
         self._pll_acq = _loop_gains(0.04, 0.707)
-        self._pll_track = _loop_gains(0.01, 0.707)
+        # Tracking bandwidth at least PLL_TRACK_HZ: the receive frequency can
+        # run at 20-40 Hz/s (seen live while transmitting); a 1%-of-symbol-rate
+        # loop (12 Hz at BPSK 1200) could not follow it
+        self._pll_track = _loop_gains(max(0.01, PLL_TRACK_HZ / self.rs), 0.707)
+        self.drift_hz_s = 0.0  # receive-chain drift rate from the beacon tracker
         self._sym_power = 1.0
         self._theta0 = {"bpsk": 0.0, "qpsk": np.pi / 4, "8apsk": 0.0}[self.modulation]
         self._ring_min = 0.5 if self.modulation == "8apsk" else 0.0
@@ -203,6 +210,11 @@ class HsModemReceiver:
 
     def process(self, iq: np.ndarray) -> List[framing.Frame]:
         self._samples_seen += len(iq) / self.stage_a.fs_in
+        if self.state in (STATE_LOCKED, STATE_ACQUIRED) and self.drift_hz_s:
+            # Feed-forward the receive-chain drift measured on the beacon (it
+            # moves our channel by the same amount): the carrier loop then
+            # only tracks what is left
+            self.nco_b.freq_hz += self.drift_hz_s * len(iq) / self.stage_a.fs_in
         a = self.stage_a.process(iq)
         if len(a) == 0:
             return []
