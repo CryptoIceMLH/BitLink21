@@ -56,7 +56,9 @@ class BitLink21Runner:
         self.plan = make_plan(self.profile)
         self.fs = float(self.profile.sample_rate_hz)
         self.station = Station(self.profile, self.fs)
-        self._rx_q: "queue.Queue[np.ndarray]" = queue.Queue(maxsize=12)
+        # ~4 s of buffers: absorbs short CPU spikes (e.g. building a TX burst)
+        self._rx_q: "queue.Queue[np.ndarray]" = queue.Queue(maxsize=64)
+        self._drop_times: list = []
         self._stop = threading.Event()
         self.dropped = 0
         self._rx_thread = threading.Thread(target=self._rx_loop, name="bitlink21-rx", daemon=True)
@@ -90,6 +92,7 @@ class BitLink21Runner:
             except queue.Empty:
                 pass
             self.dropped += 1
+            self._drop_times.append(time.time())
             self._rx_q.put_nowait(samples)
 
     def _emit(self, event: Dict[str, Any]) -> None:
@@ -107,7 +110,10 @@ class BitLink21Runner:
             try:
                 for event in self.station.process(samples):
                     if event["type"] == "bitlink21_status":
+                        now = time.time()
+                        self._drop_times = [t for t in self._drop_times if now - t < 10.0]
                         event["rx_dropped_buffers"] = self.dropped
+                        event["rx_dropped_recent"] = len(self._drop_times)  # last 10 s
                     self._emit(event)
             except Exception as e:
                 logger.exception(f"BitLink21 station error: {e}")
@@ -409,6 +415,10 @@ def plutosdr_worker_process(
         last_cpu_check = time.time()
         cpu_check_interval = 0.5
 
+        # RX stream health (automatic reconnect when the Pluto stops streaming)
+        rx_error_streak = 0
+        reconnects = 0
+        last_reconnect = 0.0
 
         # ----------------------------------------------------------------
         # Main processing loop
@@ -650,6 +660,7 @@ def plutosdr_worker_process(
                 samples = sdr.rx()
 
                 if samples is not None and len(samples) > 0:
+                    rx_error_streak = 0
                     stats["samples_read"] += len(samples)
                     stats["last_activity"] = time.time()
 
@@ -710,18 +721,53 @@ def plutosdr_worker_process(
                                 stats["queue_drops"] += 1
 
             except Exception as e:
-                logger.error(f"Error reading RX samples: {e}")
                 stats["read_errors"] += 1
                 stats["errors"] += 1
-
-                data_queue.put(
-                    {
-                        "type": "error",
-                        "client_id": client_id,
-                        "message": f"RX error: {e}",
-                        "timestamp": time.time(),
-                    }
-                )
+                rx_error_streak += 1
+                # Log/report the first error and then only every 50th, so a dead
+                # stream cannot flood the log (it produced 500 lines in 12 s)
+                if rx_error_streak == 1 or rx_error_streak % 50 == 0:
+                    logger.error(f"Error reading RX samples ({rx_error_streak}x): {e}")
+                    data_queue.put(
+                        {
+                            "type": "error",
+                            "client_id": client_id,
+                            "message": f"RX error: {e}",
+                            "timestamp": time.time(),
+                        }
+                    )
+                # After ~1 s of failures the stream is dead: reconnect to the
+                # Pluto (a stuck iiod session gives errno 9/110 forever).
+                if rx_error_streak >= 10 and time.time() - last_reconnect >= 5.0:
+                    last_reconnect = time.time()
+                    reconnects += 1
+                    logger.warning(f"PlutoSDR stream lost, reconnecting (attempt {reconnects})")
+                    try:
+                        try:
+                            sdr.rx_destroy_buffer()
+                        except Exception:
+                            pass
+                        new_sdr = adi.Pluto(uri=uri)
+                        cfg = dict(old_config)
+                        cfg.update({"center_freq": center_freq, "sample_rate": sample_rate, "lnb_offset": 0})
+                        _configure_pluto(new_sdr, cfg)
+                        if bitlink21 is not None:
+                            new_sdr.gain_control_mode_chan0 = "manual"
+                            new_sdr.rx_hardwaregain_chan0 = float(bitlink21.profile.rx_gain_db)
+                            new_sdr.tx_hardwaregain_chan0 = TX_IDLE_GAIN_DB
+                            bitlink21.sdr = new_sdr
+                        sdr = new_sdr
+                        logger.info("PlutoSDR reconnected")
+                        rx_error_streak = 0
+                        reconnects = 0
+                    except Exception as re_err:
+                        logger.error(f"PlutoSDR reconnect failed: {re_err}")
+                        if reconnects >= 3:
+                            data_queue.put({
+                                "type": "bitlink21_station_error",
+                                "error": "The PlutoSDR stopped streaming and does not recover. "
+                                         "Power-cycle the PlutoSDR, then press Start radio.",
+                            })
                 # Brief pause before retrying to avoid tight error loops
                 time.sleep(0.1)
 

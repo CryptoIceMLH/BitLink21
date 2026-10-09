@@ -3,6 +3,7 @@
 from typing import Iterable
 
 import numpy as np
+from scipy import signal
 
 from . import framing
 from .dsp import resample, rrc_taps
@@ -36,15 +37,23 @@ def modulate_blocks(
     symbols = np.concatenate([symbols, np.zeros(tail_symbols, dtype=np.complex64)])
 
     sps = mode.tx_interp
-    up = np.zeros(len(symbols) * sps, dtype=np.complex64)
-    up[::sps] = symbols
     taps = rrc_taps(sps, RRC_ROLLOFF, span_symbols=30)  # hsmodem uses m=15
-    bb = np.convolve(up, taps * np.sqrt(sps))
+    # Polyphase interpolation (same result as zero-stuffing + convolution,
+    # ~sps times less work; a long BPSK burst took 2 s to build before)
+    bb = signal.upfirdn((taps * np.sqrt(sps)).astype(np.float32), symbols.astype(np.complex64), up=sps)
 
     iq = resample(bb, mode.audio_rate, fs_out).astype(np.complex64)
     if offset_hz:
-        t = np.arange(len(iq)) / fs_out
-        iq *= np.exp(2j * np.pi * offset_hz * t).astype(np.complex64)
+        # Block-wise rotation: one exp() per block instead of per sample
+        step = 2 * np.pi * offset_hz / fs_out
+        C = 65536
+        n = len(iq)
+        rows = -(-n // C)
+        base = np.exp(1j * step * np.arange(C)).astype(np.complex64)
+        starts = np.exp(1j * step * C * np.arange(rows)).astype(np.complex64)
+        padded = np.zeros(rows * C, dtype=np.complex64)
+        padded[:n] = iq
+        iq = (padded.reshape(rows, C) * base[None, :] * starts[:, None]).reshape(-1)[:n]
 
     # Short raised-cosine ramps avoid key clicks at burst start/end.
     ramp = min(len(iq) // 4, int(fs_out * 0.005))

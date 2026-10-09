@@ -125,7 +125,8 @@ class HsModemReceiver:
         self._locked_hyp = None
 
         # Acquisition buffers
-        self._acq_a = deque(maxlen=int(self.fs_a * 1.5))
+        self._acq_len = int(self.fs_a * 1.5)
+        self._acq_a = np.zeros(0, dtype=np.complex64)
         self._acq_mf: List[np.ndarray] = []
         self._acq_mf_len = 0
         self._last_acq = 0.0
@@ -178,7 +179,7 @@ class HsModemReceiver:
         self.stage_a.offset_hz = float(offset_hz)
         self.nco_b.freq_hz -= delta
         if abs(delta) > 100.0:
-            self._acq_a.clear()
+            self._acq_a = np.zeros(0, dtype=np.complex64)
 
     @property
     def residual_offset_hz(self) -> float:
@@ -205,7 +206,7 @@ class HsModemReceiver:
         a = self.stage_a.process(iq)
         if len(a) == 0:
             return []
-        self._acq_a.extend(a)
+        self._acq_a = np.concatenate([self._acq_a, a])[-self._acq_len:]
 
         b = self.stage_b.process(self.nco_b.mix(a))
         self._a_count += len(a)
@@ -227,7 +228,7 @@ class HsModemReceiver:
     # ------------------------------------------------------------------
 
     def _reset_acquisition(self):
-        self._acq_a.clear()
+        self._acq_a = np.zeros(0, dtype=np.complex64)
         self._acq_mf = []
         self._acq_mf_len = 0
         self.state = STATE_SEARCHING
@@ -274,7 +275,7 @@ class HsModemReceiver:
         """PSD-based detection; returns coarse offset (Hz) or None."""
         if len(self._acq_a) < self.fs_a * 0.5:
             return None
-        x = np.fromiter(self._acq_a, dtype=np.complex64, count=len(self._acq_a))
+        x = self._acq_a
         nfft = 1 << int(np.ceil(np.log2(self.fs_a / 8)))  # ~8 Hz bins
         nfft = min(nfft, len(x))
         f, p = sps_signal.welch(x, fs=self.fs_a, nperseg=nfft, return_onesided=False, detrend=False)

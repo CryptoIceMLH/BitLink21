@@ -13,6 +13,7 @@ export const PAYLOAD_TYPES = [
     { value: 'text', label: 'Message' },
     { value: 'bitcoin_tx', label: 'Bitcoin TX' },
     { value: 'lightning_invoice', label: 'Lightning' },
+    { value: 'file', label: 'File' },
 ];
 
 // Accepts "10489.6", "10489,600", "10489.600 MHz", "10489600000" -> Hz

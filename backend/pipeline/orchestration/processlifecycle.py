@@ -124,6 +124,8 @@ class ProcessLifecycleManager:
             self._trace = False
         # Per-(SDR, session, VFO) restart serialization locks
         self._restart_locks = {}
+        # Per-SDR start serialization locks
+        self._start_locks = {}
 
     def get_running_sdrs(self):
         """Return list of running SDR processes with their configs (for reconnecting clients)."""
@@ -219,6 +221,14 @@ class ProcessLifecycleManager:
         Returns:
             The device ID for the started process
         """
+
+        # Serialise starts per SDR: two concurrent starts for the same device
+        # must not both pass the "already running?" check below.
+        lock = self._start_locks.setdefault(sdr_device.get("id"), asyncio.Lock())
+        async with lock:
+            return await self._start_sdr_process_locked(sdr_device, sdr_config, client_id)
+
+    async def _start_sdr_process_locked(self, sdr_device, sdr_config, client_id):
 
         assert self.sio is not None, (
             "Socket.IO server instance not set when setting up SDR process manager."

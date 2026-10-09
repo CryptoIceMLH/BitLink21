@@ -5,7 +5,7 @@ import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import { useSocket } from '../common/socket.jsx';
 import { toast } from '../../utils/toast-with-timestamp.jsx';
 import {
-    calibrateRx, clearError, deleteMessage, fetchFiles, fetchMessages, fetchState, sendMessage, startStation,
+    calibrateRx, clearError, deleteMessage, fetchFiles, fetchMessages, fetchState, sendFile, sendMessage, startStation,
     stopStation, updateSettings,
 } from './bitlink21-slice.jsx';
 import LinkStatus, { linkSteps } from './link-status.jsx';
@@ -54,6 +54,13 @@ export default function LinkPage() {
     const send = useCallback(async (msg) => {
         setSending(true);
         const res = await dispatch(sendMessage({ socket, ...msg }));
+        setSending(false);
+        return !res.error;
+    }, [dispatch, socket]);
+
+    const sendFileCb = useCallback(async (f) => {
+        setSending(true);
+        const res = await dispatch(sendFile({ socket, ...f }));
         setSending(false);
         return !res.error;
     }, [dispatch, socket]);
@@ -119,6 +126,7 @@ export default function LinkPage() {
                             readyState={steps.ready}
                             sending={sending}
                             onSend={send}
+                            onSendFile={sendFileCb}
                         />
                     </Stack>
                 </Grid>

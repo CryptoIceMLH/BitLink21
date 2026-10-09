@@ -91,6 +91,19 @@ async def send_message(sio: Any, data: Optional[Dict], logger: Any, sid: str) ->
         return _fail(logger, "send_message", e)
 
 
+async def send_file(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Result:
+    """data: {name: str, data_b64: str}"""
+    try:
+        await service.ensure_ready(sio)
+        data = data or {}
+        content = base64.b64decode(data.get("data_b64") or "")
+        msg = await service.send_file(data.get("name") or "", content)
+        logger.info(f"BitLink21 file queued for TX ({msg.get('filename')}, {len(content)} B) by {sid}")
+        return {"success": True, "data": msg}
+    except Exception as e:
+        return _fail(logger, "send_file", e)
+
+
 async def get_messages(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Result:
     try:
         await service.ensure_ready(sio)
@@ -177,6 +190,7 @@ def register_handlers(registry):
             "bitlink21:stop_station": (stop_station, "data_submission"),
             "bitlink21:calibrate_rx": (calibrate_rx, "data_submission"),
             "bitlink21:send_message": (send_message, "data_submission"),
+            "bitlink21:send_file": (send_file, "data_submission"),
             "bitlink21:get_messages": (get_messages, "data_request"),
             "bitlink21:delete_message": (delete_message, "data_submission"),
             "bitlink21:get_files": (get_files, "data_request"),

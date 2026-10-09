@@ -28,7 +28,7 @@ from bitlink21.plugins import PluginLoader
 from bitlink21.plugins.bitcoin_tx import BitcoinTxPlugin
 from bitlink21.plugins.generic_data import GenericDataPlugin
 from bitlink21.plugins.lightning_invoice import LightningInvoicePlugin, parse_bolt11_hrp
-from bitlink21.radio import envelope
+from bitlink21.radio import envelope, filetransfer
 from bitlink21.radio.modes import SPEED_MODES
 from bitlink21.radio.profile import PRESETS, SatelliteProfile, make_plan
 from bitlink21.store import store
@@ -36,6 +36,7 @@ from bitlink21.store import store
 logger = logging.getLogger("bitlink21.service")
 
 ENCRYPTION_CLEAR = "clear"
+MAX_FILE_BYTES = 200 * 1024
 ENCRYPTION_PASSPHRASE = "passphrase"
 
 
@@ -74,6 +75,7 @@ class BitLink21Service:
         self.last_status: Optional[Dict[str, Any]] = None
         self._ready = False
         self._init_lock: Optional[asyncio.Lock] = None
+        self._start_lock: Optional[asyncio.Lock] = None
 
     # ------------------------------------------------------------ setup
 
@@ -226,6 +228,14 @@ class BitLink21Service:
         return pluto
 
     async def start_station(self) -> Dict[str, Any]:
+        # One start at a time: the page's auto-start and a "Start radio" click
+        # arriving together used to launch two workers fighting over one Pluto.
+        if self._start_lock is None:
+            self._start_lock = asyncio.Lock()
+        async with self._start_lock:
+            return await self._start_station_locked()
+
+    async def _start_station_locked(self) -> Dict[str, Any]:
         pluto = self._find_pluto()
         if pluto is None or pluto["config_queue"] is None:
             pluto = await self._start_pluto()
@@ -301,6 +311,46 @@ class BitLink21Service:
         })
         return await store.get_message(row_id)
 
+    async def send_file(self, filename: str, data: bytes) -> Dict[str, Any]:
+        """Send a plain HSModem binary file (readable by any HSModem/oscardata
+        station). Files are never encrypted; use a message for that."""
+        await self._check_can_transmit()
+        name = os.path.basename(filename or "").strip()
+        if not name:
+            raise ValueError("File has no name")
+        if not data:
+            raise ValueError("File is empty")
+        if len(data) > MAX_FILE_BYTES:
+            raise ValueError(f"File too large for one satellite transfer (max {MAX_FILE_BYTES // 1024} kB)")
+        try:
+            name.encode("ascii")
+        except UnicodeEncodeError:
+            raise ValueError("Use a plain ASCII file name (HSModem limitation)")
+        filetransfer.build_file_frames(name[:50], data)  # validates frame-count limit
+        row_id = await store.add_message(
+            direction="tx", msg_id=os.urandom(8).hex(), payload_type=envelope.TYPE_BINARY,
+            callsign=self.settings["callsign"], body=data, encrypted=0, status="queued",
+            filename=name[:50], size=len(data),
+        )
+        await self._emit_message(row_id)
+        pluto = self._find_pluto()
+        pluto["tx_queue"].put({
+            "msg_row": row_id, "name": name[:50],
+            "content_b64": base64.b64encode(data).decode("ascii"),
+        })
+        return await store.get_message(row_id)
+
+    async def _check_can_transmit(self) -> None:
+        if not self.settings.get("tx_enabled"):
+            raise RuntimeError("Transmit is switched off. Enable TX in the station settings first.")
+        plan = make_plan(SatelliteProfile.from_dict(self.settings["profile"]))
+        if not plan.tx_allowed:
+            raise RuntimeError(f"Can't transmit on this channel: {plan.tx_block_reason}.")
+        if not self.settings["callsign"]:
+            raise RuntimeError("Set your callsign first (stations must identify on amateur bands).")
+        if self._find_pluto() is None or self.station_sdr_id is None:
+            raise RuntimeError("Station is not running. Start it on the Link page first.")
+
     # ------------------------------------------------------------ worker events
 
     async def handle_worker_event(self, sdr_id: str, event: Dict[str, Any]) -> None:
@@ -325,6 +375,11 @@ class BitLink21Service:
     async def _on_file(self, event: Dict[str, Any]) -> None:
         data = base64.b64decode(event["data_b64"])
         if not envelope.is_envelope(data):
+            # Our own plain file coming back through the satellite?
+            own_file = await store.find_sent_file(event["name"], len(data))
+            if own_file is not None:
+                await self._on_echo(own_file)
+                return
             info = await store.add_file(event["name"], event["frame_type"], data)
             await self._emit("bitlink21:file", info)
             return

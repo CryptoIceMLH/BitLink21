@@ -180,10 +180,15 @@ export default function LinkAdvanced({
                             Receiving {progress.name}: {progress.chunks}{progress.total_chunks ? ` / ${progress.total_chunks}` : ''} frames
                         </Typography>
                     )}
-                    {status?.rx_dropped_buffers > 0 && (
+                    {status?.rx_dropped_recent > 0 ? (
                         <Alert severity="warning" variant="outlined">
-                            DSP fell behind ({status.rx_dropped_buffers} buffers dropped). Lower the sample rate.
+                            Receiver falling behind right now ({status.rx_dropped_recent} buffers dropped in the last 10 s).
+                            If this persists, lower the sample rate.
                         </Alert>
+                    ) : status?.rx_dropped_buffers > 0 && (
+                        <Typography variant="caption" color="text.secondary">
+                            {status.rx_dropped_buffers} buffers dropped since start (none recently)
+                        </Typography>
                     )}
                 </Section>
 

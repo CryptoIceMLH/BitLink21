@@ -146,3 +146,57 @@ def test_lightning_invoice_validation():
     with pytest.raises(ValueError):
         service_mod.validate_payload(envelope.TYPE_LIGHTNING_INVOICE, b"not an invoice")
     service_mod.validate_payload(envelope.TYPE_LIGHTNING_INVOICE, b"lnbc2500u1pvjluezpp5qqq")
+
+
+def test_send_plain_file_and_its_echo_is_confirmed(svc):
+    async def run():
+        await svc.ensure_ready()
+        svc.station_sdr_id = "pluto-1"
+        await svc.update_settings({"tx_enabled": True, "callsign": "dl1abc",
+                                   "profile": {"rx_dial_rf_hz": 10489.600e6}})
+        content = b"plain file sent over QO-100\n" * 40
+        sent = await svc.send_file("notes.txt", content)
+        req = svc.fake_pluto["tx_queue"].get_nowait()
+        assert req["name"] == "notes.txt" and base64.b64decode(req["content_b64"]) == content
+        # The station hears its own plain file back (no BitLink21 envelope)
+        svc.last_status = {"modem": {"offset_hz": 5.0}}
+        await svc.handle_worker_event("pluto-1", _file_event(content, "notes.txt"))
+        return sent, await svc.list_messages(), await svc.list_files()
+
+    sent, msgs, files = asyncio.run(run())
+    assert sent["filename"] == "notes.txt" and sent["size"] == 1120 and sent["body_hex"] is None
+    assert msgs[0]["status"] == "confirmed" and not files  # echo, not a new received file
+
+
+def test_send_file_rejects_bad_input(svc):
+    async def run():
+        await svc.ensure_ready()
+        svc.station_sdr_id = "pluto-1"
+        await svc.update_settings({"tx_enabled": True, "callsign": "dl1abc",
+                                   "profile": {"rx_dial_rf_hz": 10489.600e6}})
+        for name, data, msg in (("", b"x", "no name"), ("a.bin", b"", "empty"),
+                                ("big.bin", b"x" * (300 * 1024), "too large"), ("bé.txt", b"x", "ASCII")):
+            with pytest.raises(ValueError, match=msg):
+                await svc.send_file(name, data)
+
+    asyncio.run(run())
+
+
+def test_concurrent_station_starts_launch_one_pluto(svc, monkeypatch):
+    starts = []
+
+    async def fake_start():
+        starts.append(1)
+        await asyncio.sleep(0.05)  # the real start takes time
+        svc._pluto_running = True
+        return svc.fake_pluto
+
+    async def run():
+        await svc.ensure_ready()
+        svc._pluto_running = False
+        monkeypatch.setattr(svc, "_find_pluto", lambda: svc.fake_pluto if svc._pluto_running else None)
+        monkeypatch.setattr(svc, "_start_pluto", fake_start)
+        await asyncio.gather(svc.start_station(), svc.start_station())
+
+    asyncio.run(run())
+    assert len(starts) == 1

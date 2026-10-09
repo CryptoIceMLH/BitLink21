@@ -15,6 +15,7 @@ from collections import deque
 from typing import Optional
 
 import numpy as np
+from scipy import fft as sp_fft
 
 from .dsp import ChannelSelector
 
@@ -50,7 +51,10 @@ class BeaconTracker:
         self.fs = self.channel.fs_out
         # Never search beyond what the (squared) channel can represent
         self.span_hz = min(self.span_hz, 0.45 * self.fs / self.power - 600)
-        self._buf = deque(maxlen=int(self.fs * integration_s))
+        # Last `integration_s` of channel samples (numpy ring, not a deque:
+        # a deque of ~125k Python objects per second was a big CPU cost)
+        self._buf_len = int(self.fs * integration_s)
+        self._buf = np.zeros(0, dtype=np.complex64)
         self._since_update = 0.0
 
         self.offset_hz: Optional[float] = None  # tracked offset (alpha-beta filter)
@@ -76,7 +80,7 @@ class BeaconTracker:
         self.reset()
 
     def reset(self) -> None:
-        self._buf.clear()
+        self._buf = np.zeros(0, dtype=np.complex64)
         self._residuals.clear()
         self.offset_hz = None
         self.rate_hz_s = 0.0
@@ -102,23 +106,34 @@ class BeaconTracker:
     def process(self, iq: np.ndarray) -> bool:
         """Feed SDR samples. Returns True when a new measurement was made."""
         y = self.channel.process(iq)
-        self._buf.extend(y)
+        self._buf = np.concatenate([self._buf, y])[-self._buf_len:]
         self._since_update += len(iq) / self.channel.fs_in
         self._stream_t += len(iq) / self.channel.fs_in
-        if self._since_update < self.update_interval_s or len(self._buf) < self._buf.maxlen // 2:
+        # Once locked, measuring once a second is plenty (drift is Hz/s)
+        interval = max(self.update_interval_s, 1.0) if self.locked else self.update_interval_s
+        if self._since_update < interval or len(self._buf) < self._buf_len // 2:
             return False
         self._since_update = 0.0
         self._measure()
         return True
 
-    def _line_spectrum(self, z: np.ndarray, power: int):
-        n = 1 << (int(np.ceil(np.log2(len(z)))) + 2)
-        spec = np.abs(np.fft.fftshift(np.fft.fft(z * np.hanning(len(z)), n))) ** 2
-        freqs = np.fft.fftshift(np.fft.fftfreq(n, 1 / self.fs)) / power
+    def _line_spectrum(self, z: np.ndarray, power: int, pad: int = 1):
+        """Power spectrum and frequency axis (cached per length)."""
+        n = 1 << (int(np.ceil(np.log2(len(z)))) + pad)
+        key = (len(z), n, power)
+        cache = getattr(self, "_spec_cache", {})
+        if key not in cache:
+            cache[key] = (
+                np.hanning(len(z)).astype(np.float32),
+                np.fft.fftshift(np.fft.fftfreq(n, 1 / self.fs)) / power,
+            )
+            self._spec_cache = cache
+        window, freqs = cache[key]
+        spec = np.fft.fftshift(np.abs(sp_fft.fft((z * window).astype(np.complex64), n)) ** 2)
         return freqs, spec
 
     def _measure(self) -> None:
-        x = np.fromiter(self._buf, dtype=np.complex64, count=len(self._buf))
+        x = self._buf
         x = x - np.mean(x)
         dt = self.update_interval_s
         power = 2 if self.kind == "psk" else 1
@@ -138,7 +153,8 @@ class BeaconTracker:
 
         plain_freqs = plain_spec = plain_noise = None
         if self.kind == "psk":
-            plain_freqs, plain_spec = self._line_spectrum(x, 1)
+            # The CW check only needs a coarse plain spectrum: no zero padding
+            plain_freqs, plain_spec = self._line_spectrum(x, 1, pad=0)
             plain_noise = float(np.median(plain_spec)) + 1e-30
 
         masked = np.where(allowed, spec, 0.0)
@@ -203,7 +219,7 @@ class BeaconTracker:
 
     @property
     def integration_s(self) -> float:
-        return self._buf.maxlen / self.fs
+        return self._buf_len / self.fs
 
     def _update_spectrum(self, x: np.ndarray) -> None:
         """Small display spectrum (+-spectrum_span_hz around the beacon)."""

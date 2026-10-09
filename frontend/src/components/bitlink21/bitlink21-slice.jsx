@@ -29,6 +29,7 @@ export const startStation = request('data_submission', 'start_station');
 export const stopStation = request('data_submission', 'stop_station');
 export const calibrateRx = request('data_submission', 'calibrate_rx');
 export const sendMessage = request('data_submission', 'send_message');
+export const sendFile = request('data_submission', 'send_file');
 export const fetchMessages = request('data_request', 'get_messages');
 export const deleteMessage = request('data_submission', 'delete_message');
 export const fetchFiles = request('data_request', 'get_files');
@@ -110,6 +111,9 @@ const bitlink21Slice = createSlice({
             .addCase(sendMessage.pending, pending)
             .addCase(sendMessage.fulfilled, (state) => { state.busy = false; })
             .addCase(sendMessage.rejected, failed)
+            .addCase(sendFile.pending, pending)
+            .addCase(sendFile.fulfilled, (state) => { state.busy = false; })
+            .addCase(sendFile.rejected, failed)
             .addCase(fetchMessages.fulfilled, (state, action) => { state.messages = action.payload || []; })
             .addCase(deleteMessage.fulfilled, (state, action) => {
                 state.messages = state.messages.filter((m) => m.id !== action.meta.arg.id);

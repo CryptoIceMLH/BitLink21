@@ -37,7 +37,9 @@ CREATE TABLE IF NOT EXISTS messages (
     relay_result TEXT,                  -- plugin result JSON
     raw BLOB,                           -- envelope as sent/received
     echo_at REAL,                       -- tx: our own message heard back via the satellite
-    echo_offset_hz REAL                 -- tx: measured uplink error at that time
+    echo_offset_hz REAL,                -- tx: measured uplink error at that time
+    filename TEXT,                      -- plain HSModem file (tx), else NULL
+    size INTEGER                        -- payload size in bytes
 );
 CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_dir_msgid ON messages(direction, msg_id);
@@ -78,6 +80,13 @@ class Store:
         db.row_factory = aiosqlite.Row
         await db.execute("PRAGMA journal_mode=WAL")
         await db.executescript(_SCHEMA)
+        # Upgrade databases created by older versions
+        cur = await db.execute("PRAGMA table_info(messages)")
+        have = {row[1] for row in await cur.fetchall()}
+        for col, decl in (("echo_at", "REAL"), ("echo_offset_hz", "REAL"),
+                          ("filename", "TEXT"), ("size", "INTEGER")):
+            if col not in have:
+                await db.execute(f"ALTER TABLE messages ADD COLUMN {col} {decl}")
         await db.commit()
         # Publish the connection only once the schema exists
         self.db = db
@@ -141,6 +150,13 @@ class Store:
         row = await cur.fetchone()
         return dict(row) if row else None
 
+    async def find_sent_file(self, filename: str, size: int) -> Optional[Dict[str, Any]]:
+        cur = await self.db.execute(
+            "SELECT * FROM messages WHERE direction = 'tx' AND filename = ? AND size = ? "
+            "ORDER BY created_at DESC LIMIT 1", (filename, size))
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
     async def locked_messages(self) -> List[Dict[str, Any]]:
         cur = await self.db.execute("SELECT * FROM messages WHERE locked = 1")
         return [dict(r) for r in await cur.fetchall()]
@@ -155,6 +171,8 @@ class Store:
         d = dict(row)
         body = d.pop("body", None)
         d.pop("raw", None)
+        if d.get("filename"):
+            body = None  # sent files: name + size only
         if body is None:
             d["body_text"] = None
             d["body_hex"] = None

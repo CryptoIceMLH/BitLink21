@@ -48,14 +48,24 @@ class Nco:
         self.fs = fs
         self.freq_hz = freq_hz
         self._phase = 0.0
+        # Cache of exp(-j*step*n) for the current frequency and block length:
+        # SDR blocks have a fixed size, so this turns a per-sample exp() into
+        # one complex multiply (the mixer was the biggest DSP cost).
+        self._cache_key = None
+        self._cache = None
 
     def mix(self, x: np.ndarray) -> np.ndarray:
         if self.freq_hz == 0.0:
             return x
+        n = len(x)
         step = 2 * np.pi * self.freq_hz / self.fs
-        ph = self._phase + step * np.arange(len(x))
-        self._phase = float((self._phase + step * len(x)) % (2 * np.pi))
-        return x * np.exp(-1j * ph).astype(np.complex64)
+        key = (self.freq_hz, n)
+        if key != self._cache_key:
+            self._cache = np.exp(-1j * step * np.arange(n)).astype(np.complex64)
+            self._cache_key = key
+        start = np.complex64(np.exp(-1j * self._phase))
+        self._phase = float((self._phase + step * n) % (2 * np.pi))
+        return x * (self._cache * start)
 
 
 class FirDecimator:
@@ -66,7 +76,7 @@ class FirDecimator:
     """
 
     def __init__(self, taps: np.ndarray, decim: int = 1):
-        self.taps_rev = np.asarray(taps, dtype=np.complex64)[::-1].copy()
+        self.taps = np.asarray(taps, dtype=np.float32 if np.isrealobj(taps) else np.complex64)
         self.decim = int(decim)
         self.ntaps = len(taps)
         self._hist = np.zeros(self.ntaps - 1, dtype=np.complex64)
@@ -80,17 +90,26 @@ class FirDecimator:
     def process(self, x: np.ndarray) -> np.ndarray:
         ext = np.concatenate([self._hist, np.asarray(x, dtype=np.complex64)])
         last = len(ext) - 1
+        D = self.decim
         if self._next > last:
             out = np.zeros(0, dtype=np.complex64)
         else:
-            idx = np.arange(self._next, last + 1, self.decim)
-            windows = sliding_window_view(ext, self.ntaps)
-            out = windows[idx - (self.ntaps - 1)] @ self.taps_rev
-            self._next = int(idx[-1]) + self.decim
+            # Polyphase in C via upfirdn: output k of upfirdn(h, s, down=D)
+            # is sum_m h[m] * s[k*D - m] (s treated as zero outside). The
+            # input s must start early enough to hold the L-1 samples before
+            # the first output, and at an index congruent to `next` mod D so
+            # the decimation phase lines up.
+            st = self._next - D * (-(-(self.ntaps - 1) // D))  # <= next-(L-1), st = next (mod D)
+            s = ext[st: last + 1] if st >= 0 else np.concatenate([np.zeros(-st, np.complex64), ext[: last + 1]])
+            k0 = (self._next - st) // D
+            k1 = (last - st) // D
+            y = signal.upfirdn(self.taps, s, up=1, down=D)
+            out = y[k0: k1 + 1]
+            self._next = st + (k1 + 1) * D
         keep = self.ntaps - 1
         self._next -= len(ext) - keep
         self._hist = ext[len(ext) - keep:] if keep else ext[:0]
-        return out.astype(np.complex64)
+        return out.astype(np.complex64, copy=False)
 
 
 class ChannelSelector:
