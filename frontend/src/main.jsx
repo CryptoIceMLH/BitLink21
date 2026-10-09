@@ -39,7 +39,6 @@ import { store, persistor } from './components/common/store.jsx';
 import ErrorPage from './components/common/error-page.jsx';
 import MainLayout from "./components/waterfall/main-layout.jsx";
 import {WakeLockProvider} from "./components/dashboard/wake-lock-provider.jsx";
-import FilebrowserMain from "./components/filebrowser/filebrowser-main.jsx";
 import LinkPage from "./components/bitlink21/link-page.jsx";
 import PaymentsPage from "./components/bitlink21/payments-page.jsx";
 
@@ -70,10 +69,6 @@ const router = createBrowserRouter([
                                 Component: PaymentsPage,
                             },
                         ],
-                    },
-                    {
-                        path: "filebrowser",
-                        Component: FilebrowserMain,
                     },
                     {
                         path: "settings",

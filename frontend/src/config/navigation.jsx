@@ -24,7 +24,6 @@ import InfoIcon from '@mui/icons-material/Info';
 import MicrowaveIcon from '@mui/icons-material/Microwave';
 import WavesIcon from '@mui/icons-material/Waves';
 import VideocamIcon from '@mui/icons-material/Videocam';
-import FolderIcon from '@mui/icons-material/Folder';
 import CurrencyBitcoinIcon from '@mui/icons-material/CurrencyBitcoin';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import i18n from '../i18n/config.js';
@@ -35,7 +34,6 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import EventNoteIcon from '@mui/icons-material/EventNote';
 import { useSelector } from 'react-redux';
-import { useLocation } from 'react-router-dom';
 
 // Helper component to wrap icons with overlay indicators
 const IconWithOverlay = ({ children, showOverlay = false, overlayType = 'spinner', showLeftOverlay = false, leftOverlayType = null }) => {
@@ -212,22 +210,6 @@ const TleIconWithStatus = () => {
     );
 };
 
-// Wrapper component for FolderIcon that reads Redux state
-const FileBrowserIconWithStatus = () => {
-    const hasNewFiles = useSelector((state) => state.filebrowser?.hasNewFiles);
-    const location = useLocation();
-
-    // Only show notification if NOT currently on the file browser page
-    const isOnFileBrowserPage = location.pathname === '/filebrowser';
-    const showNotification = hasNewFiles && !isOnFileBrowserPage;
-
-    return (
-        <IconWithOverlay showOverlay={showNotification} overlayType="new">
-            <FolderIcon />
-        </IconWithOverlay>
-    );
-};
-
 // Wrapper component for EventNoteIcon that reads Redux state
 const SchedulerIconWithStatus = () => {
     const observations = useSelector((state) => state.scheduler?.observations || []);
@@ -265,11 +247,6 @@ export const getNavigation = () => [
         segment: 'waterfall',
         title: 'Radio (classic)',
         icon: <WaterfallIconWithStatus />,
-    },
-    {
-        segment: 'filebrowser',
-        title: 'File Browser',
-        icon: <FileBrowserIconWithStatus />,
     },
     {kind: 'divider'},
     {
