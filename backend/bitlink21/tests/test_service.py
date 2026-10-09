@@ -257,3 +257,44 @@ def test_parts_from_another_station_are_reassembled(svc):
     mid, files = asyncio.run(run())
     assert mid == []
     assert len(files) == 1 and files[0]["name"] == "log.txt" and files[0]["size"] == 1500
+
+
+def test_wideband_mode_starts_dvbs2_station_and_sends_whole_files(svc):
+    async def run():
+        await svc.ensure_ready()
+        # The NB beacon lock measured -20 kHz: wideband mode starts from that
+        await svc.handle_worker_event("pluto-1", {"type": "bitlink21_status", "correction_hz": -20000.0,
+                                                  "beacon": {"locked": True}})
+        await svc.update_settings({"tx_enabled": True, "callsign": "dl1abc"})
+        svc.station_sdr_id = "pluto-1"
+        state = await svc.update_settings({"link_mode": "wideband", "wideband": {"dl_rf_hz": 10495.0e6, "sym_rate": 250e3}})
+        start = None
+        while not svc.fake_pluto["config_queue"].empty():
+            start = svc.fake_pluto["config_queue"].get_nowait()
+        content = os.urandom(300 * 1024)
+        sent = await svc.send_file("big.bin", content)
+        req = svc.fake_pluto["tx_queue"].get_nowait()
+        return state, start, sent, req, content
+
+    state, start, sent, req, content = asyncio.run(run())
+    assert state["settings"]["link_mode"] == "wideband"
+    assert state["wideband_plan"]["tx_allowed"] and state["wideband_plan"]["net_bitrate"] > 300e3
+    assert start["bitlink21_wideband"]["dl_rf_hz"] == 10495.0e6 and start["bitlink21_wideband"]["sym_rate"] == 250e3
+    assert start["bitlink21_rx_lnb_correction_hz"] == -20000.0
+    # DVB-S2 objects are not limited to 1024 HSModem frames: one part
+    assert len(req["parts"]) == 1 and base64.b64decode(req["parts"][0]["content_b64"]) == content
+    assert sent["filename"] == "big.bin"
+
+
+def test_wideband_rejects_channel_outside_transponder(svc):
+    async def run():
+        await svc.ensure_ready()
+        with pytest.raises(ValueError):
+            await svc.update_settings({"wideband": {"sym_rate": 2e6}})
+        await svc.update_settings({"link_mode": "wideband", "wideband": {"dl_rf_hz": 10491.5e6}})
+        await svc.update_settings({"tx_enabled": True, "callsign": "dl1abc"})
+        svc.station_sdr_id = "pluto-1"
+        with pytest.raises(RuntimeError, match="beacon"):
+            await svc.send_message(envelope.TYPE_TEXT, b"hi")
+
+    asyncio.run(run())

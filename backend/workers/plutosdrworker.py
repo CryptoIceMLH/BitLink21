@@ -36,6 +36,10 @@ TX_AHEAD_S = 8.0      # signal synthesised ahead of the DAC
 TX_PREBUFFER_S = 2.0  # buffered before the first sample goes out
 
 
+class _StationStarted(Exception):
+    """Control flow: the wideband branch finished starting the station."""
+
+
 class BitLink21Runner:
     """Runs the BitLink21 radio Station next to the RX loop.
 
@@ -145,6 +149,15 @@ class BitLink21Runner:
                 continue
             self._transmit(request)
 
+    def _channel_busy(self) -> bool:
+        return self.station.receiver.channel_busy()
+
+    def _make_streams(self, parts: list) -> list:
+        return [
+            self.station.tx_stream(p["name"], base64.b64decode(p["content_b64"]), lead_in=(i == 0))
+            for i, p in enumerate(parts)
+        ]
+
     def _wait_for_clear_channel(self, row) -> bool:
         """Listen before talk: wait until nothing has been on our channel for
         LBT_CLEAR_S (another station, or the tail of our own last echo)."""
@@ -153,7 +166,7 @@ class BitLink21Runner:
         waiting = False
         while not self._stop.is_set():
             now = time.time()
-            if self.station.receiver.channel_busy():
+            if self._channel_busy():
                 quiet_since = None
                 if not waiting:
                     waiting = True
@@ -180,10 +193,7 @@ class BitLink21Runner:
             # One request can carry several HSModem files (a large file split
             # into parts); they go out back to back in one transmission.
             parts = request.get("parts") or [{"name": request["name"], "content_b64": request["content_b64"]}]
-            streams = [
-                self.station.tx_stream(p["name"], base64.b64decode(p["content_b64"]), lead_in=(i == 0))
-                for i, p in enumerate(parts)
-            ]
+            streams = self._make_streams(parts)
             total = sum(len(s) for s in streams)
             n_chunks = -(-total // TX_CHUNK)
             duration = n_chunks * TX_CHUNK / self.fs
@@ -267,6 +277,217 @@ class BitLink21Runner:
                 self.sdr.tx_destroy_buffer()
             except Exception:
                 pass
+
+class WidebandRunner(BitLink21Runner):
+    """Experimental wideband link: BitLink21 messages/files over DVB-S2 on the
+    QO-100 wideband transponder.
+
+    RX: the channel is cut out of the SDR stream and piped (fc32) into
+    gr-dvbs2rx's dvbs2-rx; its MPEG-TS output is turned back into objects,
+    which are reported exactly like narrowband files (same feed, same echo
+    detection). dvbs2-rx's JSON metrics give lock/SNR for the status.
+
+    TX: objects -> MPEG-TS -> gr-dtv DVB-S2 -> the streaming push of the
+    narrowband runner (listen before talk, progress, TX LO set once).
+    """
+
+    def __init__(self, sdr, profile_dict: Dict[str, Any], wb_dict: Dict[str, Any], rx_lnb_correction_hz: float,
+                 data_queue, tx_queue):
+        from bitlink21.radio import wideband
+        from bitlink21.radio.dsp import ChannelSelector
+        from bitlink21.radio.profile import SatelliteProfile
+
+        self.wb_mod = wideband
+        self.sdr = sdr
+        self.data_queue = data_queue
+        self.tx_queue = tx_queue
+        self.profile = SatelliteProfile.from_dict(profile_dict)
+        self.wb = wideband.WidebandProfile.from_dict(wb_dict)
+        self.rx_lnb_correction_hz = float(rx_lnb_correction_hz or 0.0)
+        self.plan = wideband.make_wb_plan(self.wb, self.profile, self.rx_lnb_correction_hz)
+        self.fs = float(self.plan.sample_rate_hz)
+        self.channel = ChannelSelector(
+            self.fs, self.plan.rx_channel_offset_hz,
+            min_out_rate=wideband.channel_rate(self.wb),
+            passband_hz=self.plan.occupied_bw_hz / 2 + 10e3,
+        )
+        self._rx_q: "queue.Queue[np.ndarray]" = queue.Queue(maxsize=128)
+        self._drop_times: list = []
+        self._stop = threading.Event()
+        self.dropped = 0
+        self._rx_thread = threading.Thread(target=self._rx_loop, name="bitlink21-wb-rx", daemon=True)
+        self._tx_thread = threading.Thread(target=self._tx_loop, name="bitlink21-wb-tx", daemon=True)
+        self._tx_lo: Optional[int] = None
+        try:
+            self._tx_lo = int(sdr.tx_lo)
+        except Exception:
+            pass
+        self._ts = wideband.TsObjectReceiver()
+        self._metrics: Dict[str, Any] = {}
+        self._last_ts_at: Optional[float] = None
+        self._level_db: Optional[float] = None
+        self._recent = np.zeros(0, dtype=np.complex64)
+        self._proc = None
+
+    # ------------------------------------------------------------ RX
+
+    def start(self) -> None:
+        import shutil
+        import subprocess
+        import sys
+
+        exe = shutil.which("dvbs2-rx")
+        if exe is None:
+            raise RuntimeError("dvbs2-rx (gr-dvbs2rx) is not installed in this build")
+        import os
+
+        # The TS gets its own pipe: dvbs2-rx writes its logs (and the JSON
+        # metrics) to stdout
+        ts_r, ts_w = os.pipe()
+        args = self.wb_mod.rx_args(self.wb, self.channel.fs_out, ts_fd=ts_w)
+        # Run it with our Python: GNU Radio and gr-dvbs2rx live in the venv
+        self._proc = subprocess.Popen([sys.executable, exe] + args[1:], stdin=subprocess.PIPE,
+                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0,
+                                      pass_fds=(ts_w,))
+        os.close(ts_w)
+        self._ts_out = os.fdopen(ts_r, "rb", buffering=0)
+        threading.Thread(target=self._ts_reader, name="bitlink21-wb-ts", daemon=True).start()
+        threading.Thread(target=self._metrics_reader, name="bitlink21-wb-log", daemon=True).start()
+        super().start()
+        logger.info(f"Wideband station: {' '.join(args)}")
+
+    def stop(self) -> None:
+        super().stop()
+        if self._proc is not None:
+            try:
+                self._proc.stdin.close()
+            except Exception:
+                pass
+            try:
+                self._proc.terminate()
+                self._proc.wait(timeout=3)
+            except Exception:
+                try:
+                    self._proc.kill()
+                except Exception:
+                    pass
+
+    def update_tx(self, profile_dict: Dict[str, Any]) -> None:
+        from bitlink21.radio.profile import SatelliteProfile
+
+        self.profile = SatelliteProfile.from_dict(profile_dict)
+        self.plan = self.wb_mod.make_wb_plan(self.wb, self.profile, self.rx_lnb_correction_hz)
+
+    def _rx_loop(self) -> None:
+        last_status = 0.0
+        while not self._stop.is_set():
+            try:
+                samples = self._rx_q.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            try:
+                y = self.channel.process(samples)
+                if len(y):
+                    self._recent = np.concatenate([self._recent, y])[-int(self.channel.fs_out * 0.5):]
+                    self._proc.stdin.write(y.astype(np.complex64).tobytes())
+            except (BrokenPipeError, ValueError, OSError) as e:
+                if not self._stop.is_set():
+                    self._emit({"type": "bitlink21_station_error", "error": f"DVB-S2 receiver stopped: {e}"})
+                return
+            now = time.time()
+            if now - last_status >= 0.5:
+                last_status = now
+                self._level_db = self._occupancy_db()
+                self._emit(self._status(now))
+
+    def _ts_reader(self) -> None:
+        from bitlink21.radio import envelope, framing
+
+        while not self._stop.is_set():
+            data = self._ts_out.read(188 * 64)
+            if not data:
+                return
+            self._last_ts_at = time.time()
+            for name, payload in self._ts.push(data):
+                self._emit({
+                    "type": "bitlink21_file", "timestamp": time.time(), "name": name,
+                    "frame_type": framing.TYPE_BINARY_FILE, "file_id": 0,
+                    "data_b64": base64.b64encode(payload).decode("ascii"),
+                    "is_envelope": envelope.is_envelope(payload),
+                })
+
+    def _metrics_reader(self) -> None:
+        import json
+
+        for raw in iter(self._proc.stdout.readline, b""):
+            line = raw.decode(errors="replace").strip()
+            start = line.find("{")
+            if start < 0:
+                if line:
+                    logger.debug(f"dvbs2-rx: {line}")
+                continue
+            try:
+                self._metrics = json.loads(line[start:])
+            except ValueError:
+                continue
+
+    def _occupancy_db(self) -> Optional[float]:
+        """Power in the DVB-S2 channel over the noise around it (dB)."""
+        from scipy import signal as sps
+
+        x = self._recent
+        fs = self.channel.fs_out
+        if len(x) < fs * 0.25:
+            return None
+        f, p = sps.welch(x, fs=fs, nperseg=min(2048, len(x)), return_onesided=False, detrend=False)
+        inband = np.abs(f) <= self.plan.occupied_bw_hz / 2
+        outside = (np.abs(f) > self.plan.occupied_bw_hz / 2 + 5e3) & (np.abs(f) < 0.45 * fs)
+        if not np.any(outside):
+            return None
+        floor = float(np.median(p[outside])) + 1e-30
+        excess = float(np.mean(p[inband])) / floor - 1.0
+        return round(float(10 * np.log10(excess)), 1) if excess > 0 else -99.0
+
+    def _channel_busy(self) -> bool:
+        return self._level_db is not None and self._level_db >= 6.0
+
+    def _status(self, now: float) -> Dict[str, Any]:
+        m = self._metrics or {}
+        self._drop_times = [t for t in self._drop_times if now - t < 10.0]
+        receiving = self._last_ts_at is not None and now - self._last_ts_at < 3.0
+        return {
+            "type": "bitlink21_status",
+            "timestamp": now,
+            "mode": "wideband",
+            "plan": self.plan.to_dict(),
+            "correction_hz": round(self.rx_lnb_correction_hz, 1),
+            "beacon": None,
+            "modem": None,
+            "file_progress": None,
+            "channel": {"level_db": self._level_db, "busy": self._channel_busy()},
+            "wideband": {
+                "profile": self.wb.to_dict(),
+                "net_bitrate": round(self.plan.net_bitrate),
+                "receiving": receiving,
+                # dvbs2-rx metrics (lock/SNR/frequency offset/FEC/TS counters)
+                "lock": bool(m.get("lock")),
+                "snr_db": m.get("snr"),
+                "freq_offset_hz": (m.get("plsync") or {}).get("freq_offset_hz"),
+                "fec_frames": (m.get("fec") or {}).get("frames"),
+                "fec_errors": (m.get("fec") or {}).get("errors"),
+                "ts_packets": self._ts.packets,
+                "objects": self._ts.objects,
+            },
+            "rx_dropped_buffers": self.dropped,
+            "rx_dropped_recent": len(self._drop_times),
+        }
+
+    # ------------------------------------------------------------ TX
+
+    def _make_streams(self, parts: list) -> list:
+        objects = [(p["name"], base64.b64decode(p["content_b64"])) for p in parts]
+        return [self.wb_mod.dvbs2_stream(objects, self.wb, self.fs, self.plan.tx_channel_offset_hz)]
+
 
 # Target blocks per second for constant rate streaming (matches SoapySDR worker)
 TARGET_BLOCKS_PER_SEC = 15
@@ -720,6 +941,32 @@ def plutosdr_worker_process(
                             from bitlink21.radio.profile import SatelliteProfile, make_plan
 
                             profile = SatelliteProfile.from_dict(new_config["bitlink21_start"])
+                            wb_dict = new_config.get("bitlink21_wideband")
+                            if wb_dict is not None:
+                                # Experimental wideband (DVB-S2) station
+                                from bitlink21.radio.wideband import WidebandProfile, make_wb_plan
+
+                                corr = float(new_config.get("bitlink21_rx_lnb_correction_hz") or 0.0)
+                                wplan = make_wb_plan(WidebandProfile.from_dict(wb_dict), profile, corr)
+                                sdr.sample_rate = int(wplan.sample_rate_hz)
+                                sample_rate = sdr.sample_rate
+                                sdr.rx_rf_bandwidth = int(wplan.sample_rate_hz)
+                                lnb_offset = 0
+                                center_freq = wplan.rx_lo_hz
+                                sdr.rx_lo = int(center_freq)
+                                sdr.gain_control_mode_chan0 = "manual"
+                                sdr.rx_hardwaregain_chan0 = float(profile.rx_gain_db)
+                                sdr.tx_hardwaregain_chan0 = TX_IDLE_GAIN_DB
+                                if wplan.tx_lo_hz:
+                                    sdr.tx_lo = int(wplan.tx_lo_hz)
+                                num_samples = calculate_samples_per_scan(sample_rate, fft_size)
+                                bitlink21 = WidebandRunner(sdr, profile.to_dict(), wb_dict, corr, data_queue, tx_queue)
+                                bitlink21.start()
+                                data_queue.put({"type": "bitlink21_retuned", "center_freq": center_freq,
+                                                "sample_rate": sample_rate, "plan": wplan.to_dict()})
+                                logger.info(f"BitLink21 wideband station started: RX LO {center_freq / 1e6:.6f} MHz, "
+                                            f"{sample_rate / 1e6:.3f} MS/s, {wplan.net_bitrate / 1e3:.0f} kbit/s")
+                                raise _StationStarted()
                             plan = make_plan(profile)
                             # The station owns the tuning while it runs
                             sdr.sample_rate = int(profile.sample_rate_hz)
@@ -746,6 +993,8 @@ def plutosdr_worker_process(
                                 f"BitLink21 station started: RX LO {center_freq / 1e6:.6f} MHz, "
                                 f"{sample_rate / 1e6:.3f} MS/s, warnings={plan.warnings}"
                             )
+                        except _StationStarted:
+                            pass
                         except Exception as e:
                             logger.exception(f"BitLink21 station start failed: {e}")
                             bitlink21 = None

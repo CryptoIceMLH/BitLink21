@@ -29,7 +29,7 @@ from bitlink21.plugins import PluginLoader
 from bitlink21.plugins.bitcoin_tx import BitcoinTxPlugin
 from bitlink21.plugins.generic_data import GenericDataPlugin
 from bitlink21.plugins.lightning_invoice import LightningInvoicePlugin, parse_bolt11_hrp
-from bitlink21.radio import envelope, filetransfer
+from bitlink21.radio import envelope, filetransfer, wideband
 from bitlink21.radio.modes import SPEED_MODES
 from bitlink21.radio.profile import PRESETS, SatelliteProfile, make_plan
 from bitlink21.store import store
@@ -70,6 +70,13 @@ def _default_settings() -> Dict[str, Any]:
         "lightning": {
             "lnd_rest_url": os.environ.get("LND_REST_URL") or "",
         },
+        # "narrowband" (HSModem on the NB transponder) or "wideband"
+        # (experimental: DVB-S2 on the WB transponder, same messages/files)
+        "link_mode": "narrowband",
+        "wideband": wideband.WidebandProfile().to_dict(),
+        # Receive-chain error last measured on the NB beacon; wideband mode
+        # cannot see that beacon, so it starts from this
+        "last_lnb_correction_hz": 0.0,
     }
 
 
@@ -140,11 +147,29 @@ class BitLink21Service:
             s["bitcoin"]["rpc_pass"] = "********"
         return s
 
+    def _wideband(self) -> bool:
+        return self.settings.get("link_mode") == "wideband"
+
+    def _wb_plan(self) -> "wideband.WidebandPlan":
+        return wideband.make_wb_plan(
+            wideband.WidebandProfile.from_dict(self.settings["wideband"]),
+            SatelliteProfile.from_dict(self.settings["profile"]),
+            self.settings.get("last_lnb_correction_hz") or 0.0,
+        )
+
     def get_state(self) -> Dict[str, Any]:
         profile = SatelliteProfile.from_dict(self.settings["profile"])
+        try:
+            wb_plan = self._wb_plan().to_dict()
+        except ValueError as e:
+            wb_plan = {"error": str(e)}
         return {
             "settings": self.public_settings(),
             "plan": make_plan(profile).to_dict(),
+            "wideband_plan": wb_plan,
+            "wideband_options": {"symbol_rates": list(wideband.SYMBOL_RATES), "modcods": list(wideband.MODCODS),
+                                 "downlink_hz": list(wideband.WB_DOWNLINK_HZ),
+                                 "tx_allowed_downlink_hz": list(wideband.WB_TX_ALLOWED_DL_HZ)},
             "modes": [m.to_dict() for m in SPEED_MODES],
             "presets": {k: v.to_dict() for k, v in PRESETS.items()},
             "station_running": self.station_sdr_id is not None,
@@ -160,6 +185,10 @@ class BitLink21Service:
                 continue
             if key == "encryption" and value not in (ENCRYPTION_CLEAR, ENCRYPTION_PASSPHRASE):
                 raise ValueError("encryption must be 'clear' or 'passphrase'")
+            if key == "link_mode" and value not in ("narrowband", "wideband"):
+                raise ValueError("link_mode must be 'narrowband' or 'wideband'")
+            if key == "wideband":
+                value = wideband.WidebandProfile.from_dict({**self.settings["wideband"], **value}).to_dict()
             if key == "profile":
                 SatelliteProfile.from_dict(value)  # validates field names / types
                 merged = dict(self.settings["profile"])
@@ -177,7 +206,7 @@ class BitLink21Service:
             self._build_router()
         if "passphrase" in changed and self.settings["passphrase"]:
             await self._unlock_messages()
-        if "profile" in changed and self.station_sdr_id:
+        if ("profile" in changed or "link_mode" in changed or "wideband" in changed) and self.station_sdr_id:
             await self.start_station()  # restart with the new plan
         return self.get_state()
 
@@ -248,10 +277,16 @@ class BitLink21Service:
         if pluto is None or pluto["config_queue"] is None:
             pluto = await self._start_pluto()
         profile = SatelliteProfile.from_dict(self.settings["profile"])
-        plan = make_plan(profile)
-        pluto["config_queue"].put({"bitlink21_start": profile.to_dict()})
+        command: Dict[str, Any] = {"bitlink21_start": profile.to_dict()}
+        if self._wideband():
+            plan_dict = self._wb_plan().to_dict()  # validates the channel first
+            command["bitlink21_wideband"] = self.settings["wideband"]
+            command["bitlink21_rx_lnb_correction_hz"] = self.settings.get("last_lnb_correction_hz") or 0.0
+        else:
+            plan_dict = make_plan(profile).to_dict()
+        pluto["config_queue"].put(command)
         self.station_sdr_id = pluto["sdr_id"]
-        await self._emit("bitlink21:station_state", {"running": True, "plan": plan.to_dict()})
+        await self._emit("bitlink21:station_state", {"running": True, "plan": plan_dict})
         return self.get_state()
 
     async def stop_station(self) -> Dict[str, Any]:
@@ -286,9 +321,7 @@ class BitLink21Service:
     async def send_message(self, payload_type: int, body: bytes, encrypt: Optional[bool] = None) -> Dict[str, Any]:
         if not self.settings.get("tx_enabled"):
             raise RuntimeError("Transmit is switched off. Enable TX in the station settings first.")
-        plan = make_plan(SatelliteProfile.from_dict(self.settings["profile"]))
-        if not plan.tx_allowed:
-            raise RuntimeError(f"Can't transmit on this channel: {plan.tx_block_reason}.")
+        self._check_tx_plan()
         if not self.settings["callsign"]:
             raise RuntimeError("Set your callsign first (stations must identify on amateur bands).")
         validate_payload(payload_type, body)
@@ -334,15 +367,16 @@ class BitLink21Service:
             name.encode("ascii")
         except UnicodeEncodeError:
             raise ValueError("Use a plain ASCII file name (HSModem limitation)")
-        if len(data) <= PART_BYTES:
+        if len(data) <= PART_BYTES or self._wideband():  # DVB-S2 objects have no 1024-frame cap
             name = name[:50]
             parts = [(name, data)]
         else:
             n = -(-len(data) // PART_BYTES)
             name = name[:50 - len(f".part{n}of{n}")]
             parts = [(f"{name}.part{k + 1}of{n}", data[k * PART_BYTES:(k + 1) * PART_BYTES]) for k in range(n)]
-        for part_name, part in parts:
-            filetransfer.build_file_frames(part_name, part)  # validates frame-count limit
+        if not self._wideband():
+            for part_name, part in parts:
+                filetransfer.build_file_frames(part_name, part)  # validates the HSModem frame-count limit
         row_id = await store.add_message(
             direction="tx", msg_id=os.urandom(8).hex(), payload_type=envelope.TYPE_BINARY,
             callsign=self.settings["callsign"], body=data, encrypted=0, status="queued",
@@ -374,12 +408,15 @@ class BitLink21Service:
         del self._parts[(base, n)]
         return base, b"".join(entry["parts"][i] for i in range(1, n + 1))
 
+    def _check_tx_plan(self) -> None:
+        plan = self._wb_plan() if self._wideband() else make_plan(SatelliteProfile.from_dict(self.settings["profile"]))
+        if not plan.tx_allowed:
+            raise RuntimeError(f"Can't transmit on this channel: {plan.tx_block_reason}.")
+
     async def _check_can_transmit(self) -> None:
         if not self.settings.get("tx_enabled"):
             raise RuntimeError("Transmit is switched off. Enable TX in the station settings first.")
-        plan = make_plan(SatelliteProfile.from_dict(self.settings["profile"]))
-        if not plan.tx_allowed:
-            raise RuntimeError(f"Can't transmit on this channel: {plan.tx_block_reason}.")
+        self._check_tx_plan()
         if not self.settings["callsign"]:
             raise RuntimeError("Set your callsign first (stations must identify on amateur bands).")
         if self._find_pluto() is None or self.station_sdr_id is None:
@@ -393,6 +430,7 @@ class BitLink21Service:
         if etype == "bitlink21_status":
             self.last_status = event
             await self._emit("bitlink21:status", event)
+            await self._remember_lnb_correction(event)
         elif etype == "bitlink21_file":
             await self._on_file(event)
         elif etype == "bitlink21_tx_status":
@@ -416,6 +454,18 @@ class BitLink21Service:
             await self._emit("bitlink21:station_state", {"running": False, "error": event.get("error")})
         elif etype == "bitlink21_frame":
             pass  # frame-level detail is already summarised in the status
+
+    async def _remember_lnb_correction(self, status: Dict[str, Any]) -> None:
+        """Keep the NB-beacon-measured receive error for wideband mode (saved
+        at most once a minute)."""
+        beacon = status.get("beacon") or {}
+        if status.get("mode") == "wideband" or not beacon.get("locked"):
+            return
+        self.settings["last_lnb_correction_hz"] = float(status.get("correction_hz") or 0.0)
+        now = time.time()
+        if now - getattr(self, "_lnb_saved_at", 0.0) > 60:
+            self._lnb_saved_at = now
+            await store.set_settings({"last_lnb_correction_hz": self.settings["last_lnb_correction_hz"]})
 
     async def _on_file(self, event: Dict[str, Any]) -> None:
         data = base64.b64decode(event["data_b64"])

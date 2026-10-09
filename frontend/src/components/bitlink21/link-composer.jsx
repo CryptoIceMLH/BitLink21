@@ -43,7 +43,7 @@ const readAsBase64 = (file) => new Promise((resolve, reject) => {
     reader.readAsDataURL(file);
 });
 
-function LinkComposer({ settings, modes, profile, readyState, sending, onSend, onSendFile }) {
+function LinkComposer({ settings, modes, profile, widebandPlan, readyState, sending, onSend, onSendFile }) {
     const [type, setType] = useState('text');
     const [body, setBody] = useState('');
     const [file, setFile] = useState(null);
@@ -56,7 +56,10 @@ function LinkComposer({ settings, modes, profile, readyState, sending, onSend, o
     const canEncrypt = !!settings?.passphrase_set;
     const mode = modes.find((m) => m.index === profile?.rx_mode);
     const bytes = isFile ? (file?.size || 0) : bodyByteLength(type, body);
-    const airtime = bytes ? estimateAirtime(bytes, mode) : null;
+    // Wideband (DVB-S2): everything is sent twice, after a ~2 s lead-in
+    const airtime = !bytes ? null
+        : widebandPlan?.net_bitrate ? 2 + (bytes + 300) * 8 * 2 / widebandPlan.net_bitrate
+            : estimateAirtime(bytes, mode);
     const problem = validate(type, body, file);
     const invoice = type === 'lightning_invoice' ? parseInvoice(body) : null;
 
@@ -102,7 +105,7 @@ function LinkComposer({ settings, modes, profile, readyState, sending, onSend, o
                     </Button>
                     <Typography variant="body2" sx={{ mt: 1.5 }} color={file ? 'text.primary' : 'text.secondary'}>
                         {file
-                            ? `${file.name} · ${(file.size / 1024).toFixed(1)} kB${file.size > PART_BYTES ? ` · sent in ${Math.ceil(file.size / PART_BYTES)} parts (BitLink21 stations rejoin them)` : ''}`
+                            ? `${file.name} · ${(file.size / 1024).toFixed(1)} kB${file.size > PART_BYTES && !widebandPlan ? ` · sent in ${Math.ceil(file.size / PART_BYTES)} parts (BitLink21 stations rejoin them)` : ''}`
                             : `or drop it here · up to ${MAX_FILE_BYTES / 1024} kB, sent as normal HSModem files any station can open`}
                     </Typography>
                     {problem && problem !== 'empty' && <Typography variant="caption" color="error">{problem}</Typography>}

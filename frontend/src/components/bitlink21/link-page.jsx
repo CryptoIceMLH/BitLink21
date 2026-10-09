@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Alert, Box, Button, Grid, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Grid, Stack, Tab, Tabs, Typography } from '@mui/material';
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import { useSocket } from '../common/socket.jsx';
 import { toast } from '../../utils/toast-with-timestamp.jsx';
@@ -11,6 +11,7 @@ import {
 import LinkStatus, { linkSteps } from './link-status.jsx';
 import LinkActivity from './link-activity.jsx';
 import LinkChannel from './link-channel.jsx';
+import LinkWideband from './link-wideband.jsx';
 import LinkComposer from './link-composer.jsx';
 import LinkFeed from './link-feed.jsx';
 import LinkAdvanced from './link-advanced.jsx';
@@ -20,7 +21,12 @@ export default function LinkPage() {
     const dispatch = useDispatch();
     const { socket } = useSocket();
     const bl = useSelector((state) => state.bitlink21);
-    const { loaded, settings, plan, modes, stationRunning, status, messages, files, txProgress, busy, lastError, stationError } = bl;
+    const {
+        loaded, settings, plan: nbPlan, widebandPlan, widebandOptions, modes, stationRunning, status, messages, files,
+        txProgress, busy, lastError, stationError,
+    } = bl;
+    const wideband = settings?.link_mode === 'wideband';
+    const plan = wideband ? widebandPlan : nbPlan;
     const [advancedOpen, setAdvancedOpen] = useState(false);
     const [sending, setSending] = useState(false);
     const autoStarted = useRef(false);
@@ -57,6 +63,14 @@ export default function LinkPage() {
         const res = await dispatch(sendMessage({ socket, ...msg }));
         setSending(false);
         return !res.error;
+    }, [dispatch, socket]);
+
+    const applyWideband = useCallback((changes) => {
+        dispatch(updateSettings({ socket, wideband: changes }));
+    }, [dispatch, socket]);
+
+    const setLinkMode = useCallback((mode) => {
+        dispatch(updateSettings({ socket, link_mode: mode }));
     }, [dispatch, socket]);
 
     const sendFileCb = useCallback(async (f) => {
@@ -106,7 +120,7 @@ export default function LinkPage() {
                 <Box sx={{ flex: 1 }}>
                     <Typography variant="h4" sx={{ fontWeight: 800 }}>Link</Typography>
                     <Typography variant="body2" color="text.secondary">
-                        {settings?.callsign ? `${settings.callsign} · ` : ''}QO-100 narrowband
+                        {settings?.callsign ? `${settings.callsign} · ` : ''}QO-100 {wideband ? 'wideband · DVB-S2 (experimental)' : 'narrowband'}
                     </Typography>
                 </Box>
                 {!stationRunning && settings?.setup_done && (
@@ -116,6 +130,15 @@ export default function LinkPage() {
                 )}
                 <Button startIcon={<TuneRoundedIcon />} onClick={() => setAdvancedOpen(true)}>Advanced</Button>
             </Stack>
+
+            <Tabs
+                value={wideband ? 'wideband' : 'narrowband'}
+                onChange={(_, v) => setLinkMode(v)}
+                sx={{ mb: 2, minHeight: 36 }}
+            >
+                <Tab value="narrowband" label="Narrowband · HSModem" sx={{ minHeight: 36 }} disabled={busy} />
+                <Tab value="wideband" label="Experimental · Wideband DVB-S2" sx={{ minHeight: 36 }} disabled={busy} />
+            </Tabs>
 
             <LinkStatus stationRunning={stationRunning} status={status} settings={settings} plan={plan} busy={busy} stationError={stationError} />
 
@@ -132,11 +155,23 @@ export default function LinkPage() {
             <Grid container spacing={2} sx={{ mt: 0.5 }}>
                 <Grid size={{ xs: 12, lg: 6 }}>
                     <Stack spacing={2}>
-                        <LinkChannel profile={settings?.profile} plan={plan} modes={modes} busy={busy} onApply={apply} />
+                        {wideband ? (
+                            <LinkWideband
+                                wideband={settings?.wideband}
+                                plan={widebandPlan}
+                                options={widebandOptions}
+                                correctionHz={settings?.last_lnb_correction_hz}
+                                busy={busy}
+                                onApply={applyWideband}
+                            />
+                        ) : (
+                            <LinkChannel profile={settings?.profile} plan={nbPlan} modes={modes} busy={busy} onApply={apply} />
+                        )}
                         <LinkComposer
                             settings={settings}
                             modes={modes}
                             profile={settings?.profile}
+                            widebandPlan={wideband ? widebandPlan : null}
                             readyState={readyState}
                             sending={sending}
                             onSend={send}
@@ -162,7 +197,7 @@ export default function LinkPage() {
                 open={advancedOpen}
                 onClose={() => setAdvancedOpen(false)}
                 settings={settings}
-                plan={plan}
+                plan={nbPlan}
                 status={status}
                 modes={modes}
                 stationRunning={stationRunning}

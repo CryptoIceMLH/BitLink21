@@ -12,8 +12,9 @@ from .dsp import resample, rrc_taps
 from .modes import RRC_ROLLOFF, SpeedMode
 
 
-class ModulatorStream:
-    """Same waveform as modulate_blocks, produced piece by piece.
+class SymbolStream:
+    """Pulse-shaped, resampled and frequency-shifted IQ from a symbol
+    sequence, produced piece by piece.
 
     A whole file at a slow speed is far too big to build in memory (200 kB at
     BPSK 1200 is ~22 min, ~6 GB of IQ at 0.6 MS/s), so the burst is
@@ -30,30 +31,22 @@ class ModulatorStream:
     MARGIN = 64        # symbols of filter history on each side
     TARGET_SEG_S = 2.0  # seconds of signal per window
 
-    def __init__(self, blocks, mode: SpeedMode, fs_out: float, offset_hz: float = 0.0,
-                 lead_in_symbols: int = 0, tail_symbols: int = 32):
-        blocks = list(blocks)
-        values = np.concatenate([framing.block_to_symbols(b, mode.modulation) for b in blocks])
-        symbols = framing.map_symbols(values, mode.modulation)
-        if lead_in_symbols:
-            filler = framing.bytes_to_symbols(framing.SCRAMBLER[:252].tobytes(), mode.modulation)
-            lead = framing.map_symbols(np.resize(filler, lead_in_symbols), mode.modulation)
-            symbols = np.concatenate([lead, symbols])
-        self.symbols = np.concatenate([symbols, np.zeros(tail_symbols, dtype=np.complex64)]).astype(np.complex64)
-        self.mode = mode
+    def __init__(self, symbols: np.ndarray, symbol_rate: float, sps: int, rolloff: float,
+                 fs_out: float, offset_hz: float = 0.0, span_symbols: int = 30):
+        self.symbols = np.asarray(symbols, dtype=np.complex64)
+        self.symbol_rate = float(symbol_rate)
         self.fs_out = float(fs_out)
         self.offset_hz = float(offset_hz)
-        self.sps = mode.tx_interp
-        self.taps = (rrc_taps(self.sps, RRC_ROLLOFF, span_symbols=30) * np.sqrt(self.sps)).astype(np.float32)
-        ratio = Fraction(self.fs_out / mode.audio_rate).limit_denominator(10000)
+        self.sps = int(sps)
+        self.taps = (rrc_taps(self.sps, rolloff, span_symbols=span_symbols) * np.sqrt(self.sps)).astype(np.float32)
+        ratio = Fraction(self.fs_out / (self.symbol_rate * self.sps)).limit_denominator(10000)
         self.up, self.down = ratio.numerator, ratio.denominator
         # Symbols per alignment step: a window offset of q symbols is a whole
         # number of output samples
         q = self.down // gcd(self.sps * self.up, self.down)
         self.q = q
         self.margin = -(-self.MARGIN // q) * q
-        seg = max(q, int(self.TARGET_SEG_S * mode.symbol_rate) // q * q)
-        self.seg = seg
+        self.seg = max(q, int(self.TARGET_SEG_S * self.symbol_rate) // q * q)
         self.out_per_sym = self.sps * self.up / self.down  # output samples per symbol
         n_sym = len(self.symbols)
         self.total_samples = int(round(-(-n_sym // q) * q * self.out_per_sym))
@@ -109,6 +102,23 @@ class ModulatorStream:
             np.clip(iq.imag, -1, 1, out=iq.imag)
             pos += len(iq)
             yield iq.astype(np.complex64)
+
+
+class ModulatorStream(SymbolStream):
+    """HSModem burst (same waveform as modulate_blocks), streamed."""
+
+    def __init__(self, blocks, mode: SpeedMode, fs_out: float, offset_hz: float = 0.0,
+                 lead_in_symbols: int = 0, tail_symbols: int = 32):
+        blocks = list(blocks)
+        values = np.concatenate([framing.block_to_symbols(b, mode.modulation) for b in blocks])
+        symbols = framing.map_symbols(values, mode.modulation)
+        if lead_in_symbols:
+            filler = framing.bytes_to_symbols(framing.SCRAMBLER[:252].tobytes(), mode.modulation)
+            lead = framing.map_symbols(np.resize(filler, lead_in_symbols), mode.modulation)
+            symbols = np.concatenate([lead, symbols])
+        symbols = np.concatenate([symbols, np.zeros(tail_symbols, dtype=np.complex64)])
+        self.mode = mode
+        super().__init__(symbols, mode.audio_rate / mode.tx_interp, mode.tx_interp, RRC_ROLLOFF, fs_out, offset_hz)
 
 
 def modulate_blocks(

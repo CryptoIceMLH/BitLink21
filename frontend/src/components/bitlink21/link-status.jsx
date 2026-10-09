@@ -30,6 +30,8 @@ function Step({ state, title, detail }) {
 export function linkSteps({ stationRunning, status, settings, plan, busy, stationError }) {
     const beacon = status?.beacon;
     const modem = status?.modem;
+    const wb = status?.wideband;
+    const wideband = settings?.link_mode === 'wideband';
 
     const radio = stationError
         ? { state: 'error', detail: stationError }
@@ -41,6 +43,7 @@ export function linkSteps({ stationRunning, status, settings, plan, busy, statio
 
     let lock;
     if (radio.state !== 'ok') lock = { state: 'wait', detail: 'Waiting for the radio' };
+    else if (wideband) lock = { state: 'ok', detail: `LNB ${formatHz(status?.correction_hz ?? settings?.last_lnb_correction_hz)} (from the NB beacon)` };
     else if (!settings?.profile?.beacon_lock) lock = { state: 'ok', detail: 'Beacon lock off (fixed tuning)' };
     else if (beacon?.locked) {
         const drift = beacon.rate_hz_s ? ` · drift ${beacon.rate_hz_s > 0 ? '+' : ''}${beacon.rate_hz_s.toFixed(1)} Hz/s` : '';
@@ -50,7 +53,11 @@ export function linkSteps({ stationRunning, status, settings, plan, busy, statio
     const traffic = status?.channel;
     let channel;
     if (lock.state !== 'ok') channel = { state: 'wait', detail: 'Waiting for satellite lock' };
-    else if (traffic?.busy && modem?.state !== 'locked') channel = { state: 'busy', detail: `Busy · another signal on air (+${traffic.level_db} dB)` };
+    else if (wideband) {
+        if (wb?.lock) channel = { state: 'ok', detail: `DVB-S2 locked · SNR ${wb.snr_db !== null && wb.snr_db !== undefined ? wb.snr_db.toFixed(1) : '—'} dB` };
+        else if (traffic?.busy) channel = { state: 'busy', detail: `Signal on the channel (+${traffic.level_db} dB), syncing DVB-S2…` };
+        else channel = { state: 'ok', detail: 'Listening · no DVB-S2 signal' };
+    } else if (traffic?.busy && modem?.state !== 'locked') channel = { state: 'busy', detail: `Busy · another signal on air (+${traffic.level_db} dB)` };
     else if (modem?.state === 'locked') channel = { state: 'ok', detail: `Receiving · SNR ${modem.snr_db ?? '—'} dB` };
     else if (modem?.signal_detected) channel = { state: 'busy', detail: 'Signal found, syncing…' };
     else channel = { state: 'ok', detail: 'Listening · channel is quiet' };

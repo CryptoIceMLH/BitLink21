@@ -23,7 +23,9 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 dependencies: []
 releaseNotes: >-
-  v4.0.4: Live receiver activity on the Link page (decoding state, recent
+  v4.0.4: New Experimental tab: send the same messages and files over
+  DVB-S2 on the QO-100 wideband transponder (125-333 kS/s, up to ~600
+  kbit/s, e.g. 100 kB in a few seconds). Live receiver activity on the Link page (decoding state, recent
   frames, incoming file progress) and transmit progress. Listen before talk:
   sending waits while another signal is on your channel. Files up to 500 kB
   (larger ones go out as parts that BitLink21 stations rejoin); transmit is
