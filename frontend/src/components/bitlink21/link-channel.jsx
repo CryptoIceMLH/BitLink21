@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import {
     Box, Button, Chip, InputAdornment, Paper, Stack, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from '@mui/material';
@@ -9,7 +9,7 @@ import { SPEEDS, formatMHz, parseFrequency } from './link-utils.js';
 
 const MM_BEACON_DIAL = 10489.9933e6;
 
-export default function LinkChannel({ profile, plan, modes, busy, onApply }) {
+function LinkChannel({ profile, plan, modes, busy, onApply }) {
     const [freqText, setFreqText] = useState('');
     const [error, setError] = useState(null);
 
@@ -113,3 +113,5 @@ export default function LinkChannel({ profile, plan, modes, busy, onApply }) {
         </Paper>
     );
 }
+
+export default memo(LinkChannel);

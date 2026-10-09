@@ -18,7 +18,7 @@ from . import envelope, filetransfer, framing
 from .beacon import BeaconTracker
 from .demodulator import HsModemReceiver
 from .modes import get_mode
-from .modulator import modulate_blocks
+from .modulator import ModulatorStream, modulate_blocks
 from .profile import SatelliteProfile, make_plan
 
 STATUS_INTERVAL_S = 0.5
@@ -71,7 +71,13 @@ class Station:
             "beacon": self.beacon.status() if self.beacon else None,
             "modem": rx,
             "file_progress": self.files.progress(),
+            "channel": self.channel_status(),
         }
+
+    def channel_status(self) -> dict:
+        level = self.receiver.channel_occupancy_db()
+        return {"level_db": level,
+                "busy": level is not None and level >= self.receiver.BUSY_SNR_DB}
 
     def _on_frame(self, frame: framing.Frame) -> None:
         self._events.append({
@@ -104,3 +110,14 @@ class Station:
         blocks = filetransfer.build_file_frames(name, content, frame_type)
         lead = int(mode.symbol_rate * 1.5)  # 1.5 s training for receivers
         return modulate_blocks(blocks, mode, self.fs, self.plan.tx_channel_offset_hz, lead_in_symbols=lead)
+
+    def tx_stream(self, name: str, content: bytes, frame_type: int = framing.TYPE_BINARY_FILE,
+                  lead_in: bool = True) -> ModulatorStream:
+        """Like build_tx_burst, but generated piece by piece while sending
+        (a large file at a slow speed would not fit in memory)."""
+        if not self.plan.tx_allowed or self.plan.tx_channel_offset_hz is None:
+            raise RuntimeError(f"TX blocked: {self.plan.tx_block_reason or 'no uplink frequency'}")
+        mode = get_mode(self.plan.tx_mode)
+        blocks = filetransfer.build_file_frames(name, content, frame_type)
+        lead = int(mode.symbol_rate * 1.5) if lead_in else 0
+        return ModulatorStream(blocks, mode, self.fs, self.plan.tx_channel_offset_hz, lead_in_symbols=lead)

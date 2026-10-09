@@ -20,6 +20,7 @@ import base64
 import json
 import logging
 import os
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -36,7 +37,13 @@ from bitlink21.store import store
 logger = logging.getLogger("bitlink21.service")
 
 ENCRYPTION_CLEAR = "clear"
-MAX_FILE_BYTES = 200 * 1024
+MAX_FILE_BYTES = 500 * 1024
+# One HSModem file is limited to 1024 frames (~224 kB, 10-bit frame counter).
+# Bigger files go out as consecutive files "name.part1of3", ... which
+# BitLink21 reassembles; plain HSModem stations get the parts.
+PART_BYTES = 200 * 1024
+PART_RE = re.compile(r"^(?P<base>.+)\.part(?P<k>\d+)of(?P<n>\d+)$")
+PART_TTL_S = 3600.0
 ENCRYPTION_PASSPHRASE = "passphrase"
 
 
@@ -76,6 +83,7 @@ class BitLink21Service:
         self._ready = False
         self._init_lock: Optional[asyncio.Lock] = None
         self._start_lock: Optional[asyncio.Lock] = None
+        self._parts: Dict[Any, Dict[str, Any]] = {}  # split files being received
 
     # ------------------------------------------------------------ setup
 
@@ -326,19 +334,45 @@ class BitLink21Service:
             name.encode("ascii")
         except UnicodeEncodeError:
             raise ValueError("Use a plain ASCII file name (HSModem limitation)")
-        filetransfer.build_file_frames(name[:50], data)  # validates frame-count limit
+        if len(data) <= PART_BYTES:
+            name = name[:50]
+            parts = [(name, data)]
+        else:
+            n = -(-len(data) // PART_BYTES)
+            name = name[:50 - len(f".part{n}of{n}")]
+            parts = [(f"{name}.part{k + 1}of{n}", data[k * PART_BYTES:(k + 1) * PART_BYTES]) for k in range(n)]
+        for part_name, part in parts:
+            filetransfer.build_file_frames(part_name, part)  # validates frame-count limit
         row_id = await store.add_message(
             direction="tx", msg_id=os.urandom(8).hex(), payload_type=envelope.TYPE_BINARY,
             callsign=self.settings["callsign"], body=data, encrypted=0, status="queued",
-            filename=name[:50], size=len(data),
+            filename=name, size=len(data),
         )
         await self._emit_message(row_id)
         pluto = self._find_pluto()
         pluto["tx_queue"].put({
-            "msg_row": row_id, "name": name[:50],
-            "content_b64": base64.b64encode(data).decode("ascii"),
+            "msg_row": row_id,
+            "parts": [{"name": pn, "content_b64": base64.b64encode(pd).decode("ascii")} for pn, pd in parts],
         })
         return await store.get_message(row_id)
+
+    def _collect_part(self, name: str, data: bytes):
+        """Store one part of a split file; returns (name, data) once complete."""
+        m = PART_RE.match(name)
+        if not m:
+            return name, data
+        base, k, n = m.group("base"), int(m.group("k")), int(m.group("n"))
+        now = time.time()
+        for key in [key for key, v in self._parts.items() if now - v["t"] > PART_TTL_S]:
+            del self._parts[key]
+        entry = self._parts.setdefault((base, n), {"t": now, "parts": {}})
+        entry["t"] = now
+        entry["parts"][k] = data
+        if len(entry["parts"]) < n or set(entry["parts"]) != set(range(1, n + 1)):
+            logger.info(f"Received part {k}/{n} of {base}")
+            return None
+        del self._parts[(base, n)]
+        return base, b"".join(entry["parts"][i] for i in range(1, n + 1))
 
     async def _check_can_transmit(self) -> None:
         if not self.settings.get("tx_enabled"):
@@ -364,8 +398,19 @@ class BitLink21Service:
         elif etype == "bitlink21_tx_status":
             row = event.get("msg_row")
             if row is not None:
+                # The echo often decodes before the burst ends (the first frames are
+                # repeated), so a late "sending"/"sent" must not undo "confirmed".
+                current = await store.get_message(row)
+                if current and current.get("status") == "confirmed" and event.get("status") != "failed":
+                    return
                 await store.update_message(row, status=event.get("status"), error=event.get("error"))
                 await self._emit_message(row)
+        elif etype == "bitlink21_tx_progress":
+            # Live only (twice a second while sending): no database write
+            await self._emit("bitlink21:tx_progress", {
+                "id": event.get("msg_row"), "progress": event.get("progress"),
+                "duration_s": event.get("duration_s"),
+            })
         elif etype == "bitlink21_station_error":
             self.station_sdr_id = None
             await self._emit("bitlink21:station_state", {"running": False, "error": event.get("error")})
@@ -375,6 +420,11 @@ class BitLink21Service:
     async def _on_file(self, event: Dict[str, Any]) -> None:
         data = base64.b64decode(event["data_b64"])
         if not envelope.is_envelope(data):
+            assembled = self._collect_part(event["name"], data)
+            if assembled is None:
+                return  # more parts to come
+            event = {**event, "name": assembled[0]}
+            data = assembled[1]
             # Our own plain file coming back through the satellite?
             own_file = await store.find_sent_file(event["name"], len(data))
             if own_file is not None:

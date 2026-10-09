@@ -30,6 +30,10 @@ logger = logging.getLogger("plutosdr-worker")
 # AD9361's LO leakage never reaches the uplink.
 TX_IDLE_GAIN_DB = -89.75
 TX_CHUNK = 1 << 16  # samples per TX DMA buffer
+LBT_CLEAR_S = 2.0     # channel must be quiet this long before we transmit
+LBT_TIMEOUT_S = 60.0  # give up (message fails) if it stays busy
+TX_AHEAD_S = 8.0      # signal synthesised ahead of the DAC
+TX_PREBUFFER_S = 2.0  # buffered before the first sample goes out
 
 
 class BitLink21Runner:
@@ -56,13 +60,20 @@ class BitLink21Runner:
         self.plan = make_plan(self.profile)
         self.fs = float(self.profile.sample_rate_hz)
         self.station = Station(self.profile, self.fs)
-        # ~4 s of buffers: absorbs short CPU spikes (e.g. building a TX burst)
-        self._rx_q: "queue.Queue[np.ndarray]" = queue.Queue(maxsize=64)
+        # 128 buffers (~14 s at 0.6 MS/s, ~4 s at 2 MS/s): absorbs CPU spikes
+        # such as building a TX burst without losing samples
+        self._rx_q: "queue.Queue[np.ndarray]" = queue.Queue(maxsize=128)
         self._drop_times: list = []
         self._stop = threading.Event()
         self.dropped = 0
         self._rx_thread = threading.Thread(target=self._rx_loop, name="bitlink21-rx", daemon=True)
         self._tx_thread = threading.Thread(target=self._tx_loop, name="bitlink21-tx", daemon=True)
+        # TX LO currently set on the Pluto (set once at station start)
+        self._tx_lo: Optional[int] = None
+        try:
+            self._tx_lo = int(sdr.tx_lo)
+        except Exception:
+            pass
 
     def start(self) -> None:
         self._rx_thread.start()
@@ -130,9 +141,33 @@ class BitLink21Runner:
                 continue
             except Exception:
                 continue
-            if not isinstance(request, dict) or "content_b64" not in request:
+            if not isinstance(request, dict) or not ("content_b64" in request or request.get("parts")):
                 continue
             self._transmit(request)
+
+    def _wait_for_clear_channel(self, row) -> bool:
+        """Listen before talk: wait until nothing has been on our channel for
+        LBT_CLEAR_S (another station, or the tail of our own last echo)."""
+        started = time.time()
+        quiet_since = None
+        waiting = False
+        while not self._stop.is_set():
+            now = time.time()
+            if self.station.receiver.channel_busy():
+                quiet_since = None
+                if not waiting:
+                    waiting = True
+                    self._emit({"type": "bitlink21_tx_status", "msg_row": row, "status": "waiting"})
+            else:
+                quiet_since = quiet_since or now
+                if now - quiet_since >= LBT_CLEAR_S:
+                    if waiting:
+                        self._emit({"type": "bitlink21_tx_status", "msg_row": row, "status": "sending"})
+                    return True
+            if now - started > LBT_TIMEOUT_S:
+                return False
+            time.sleep(0.2)
+        raise RuntimeError("station stopped while waiting for a clear channel")
 
     def _transmit(self, request: Dict[str, Any]) -> None:
         row = request.get("msg_row")
@@ -140,26 +175,89 @@ class BitLink21Runner:
         try:
             if not self.plan.tx_allowed or self.plan.tx_lo_hz is None:
                 raise RuntimeError(f"TX blocked: {self.plan.tx_block_reason or 'no uplink frequency'}")
-            content = base64.b64decode(request["content_b64"])
-            burst = self.station.build_tx_burst(request["name"], content)
-            n_chunks = -(-len(burst) // TX_CHUNK)
-            padded = np.zeros(n_chunks * TX_CHUNK, dtype=np.complex64)
-            padded[: len(burst)] = burst
-            padded *= 2 ** 14  # AD9361 DAC full scale is 2^15; leave headroom
+            if not self._wait_for_clear_channel(row):
+                raise RuntimeError(f"Channel stayed busy for {LBT_TIMEOUT_S:.0f} s, not sent")
+            # One request can carry several HSModem files (a large file split
+            # into parts); they go out back to back in one transmission.
+            parts = request.get("parts") or [{"name": request["name"], "content_b64": request["content_b64"]}]
+            streams = [
+                self.station.tx_stream(p["name"], base64.b64decode(p["content_b64"]), lead_in=(i == 0))
+                for i, p in enumerate(parts)
+            ]
+            total = sum(len(s) for s in streams)
+            n_chunks = -(-total // TX_CHUNK)
+            duration = n_chunks * TX_CHUNK / self.fs
+
+            # Producer: synthesise the signal ahead of the radio in TX_CHUNK
+            # pieces (never the whole burst in memory)
+            ahead: "queue.Queue" = queue.Queue(maxsize=max(4, int(TX_AHEAD_S * self.fs / TX_CHUNK)))
+            failure: list = []
+
+            def produce() -> None:
+                try:
+                    pending = np.zeros(0, dtype=np.complex64)
+                    for stream in streams:
+                        for piece in stream:
+                            pending = np.concatenate([pending, piece])
+                            while len(pending) >= TX_CHUNK:
+                                if self._stop.is_set():
+                                    return
+                                ahead.put(pending[:TX_CHUNK] * 2 ** 14)  # DAC full scale 2^15: headroom
+                                pending = pending[TX_CHUNK:]
+                    if len(pending):
+                        last = np.zeros(TX_CHUNK, dtype=np.complex64)
+                        last[: len(pending)] = pending
+                        ahead.put(last * 2 ** 14)
+                except Exception as e:  # reported by the consumer
+                    failure.append(e)
+                finally:
+                    ahead.put(None)
+
+            producer = threading.Thread(target=produce, name="bitlink21-tx-synth", daemon=True)
+            producer.start()
+            # Prebuffer so a slow moment in synthesis cannot starve the DAC
+            prebuffer = min(n_chunks, max(1, int(TX_PREBUFFER_S * self.fs / TX_CHUNK)))
+            while ahead.qsize() < prebuffer and producer.is_alive() and not self._stop.is_set():
+                time.sleep(0.05)
 
             sdr = self.sdr
-            sdr.tx_lo = int(self.plan.tx_lo_hz)
+            # The TX LO is set once when the station starts. Retuning it on every
+            # send (739 MHz -> 2.4 GHz on the first one) makes the AD9361 re-lock
+            # and recalibrate, which can disturb the receiver.
+            lo = int(self.plan.tx_lo_hz)
+            if lo != self._tx_lo:
+                sdr.tx_lo = lo
+                self._tx_lo = lo
             sdr.tx_cyclic_buffer = False
             sdr.tx_hardwaregain_chan0 = float(self.profile.tx_gain_db)
             started = time.time()
-            for i in range(n_chunks):
+            last_progress = 0.0
+
+            def progress() -> None:
+                nonlocal last_progress
+                now = time.time()
+                if now - last_progress >= 0.5:
+                    last_progress = now
+                    self._emit({"type": "bitlink21_tx_progress", "msg_row": row,
+                                "progress": round(min(1.0, (now - started) / duration), 3),
+                                "duration_s": round(duration, 1)})
+
+            while True:
                 if self._stop.is_set():
                     raise RuntimeError("station stopped during TX")
-                sdr.tx(padded[i * TX_CHUNK: (i + 1) * TX_CHUNK])
-            # Let the last DMA buffer drain before attenuating
-            time.sleep(max(0.0, len(padded) / self.fs - (time.time() - started)) + 0.1)
+                chunk = ahead.get()
+                if chunk is None:
+                    break
+                sdr.tx(chunk)
+                progress()
+            if failure:
+                raise failure[0]
+            # Let the queued DMA buffers drain before attenuating
+            while time.time() - started < duration + 0.1:
+                time.sleep(0.1)
+                progress()
             self._emit({"type": "bitlink21_tx_status", "msg_row": row, "status": "sent",
-                        "duration_s": round(len(burst) / self.fs, 2)})
+                        "duration_s": round(total / self.fs, 2)})
         except Exception as e:
             logger.exception(f"BitLink21 TX failed: {e}")
             self._emit({"type": "bitlink21_tx_status", "msg_row": row, "status": "failed", "error": str(e)})
@@ -185,6 +283,9 @@ SAMPLE_RATE_MAX_HZ = 61440000  # 61.44 MSPS with firmware unlock
 
 # Default RX buffer size in samples
 DEFAULT_RX_BUFFER_SIZE = 65536
+# Kernel DMA buffers (libiio default is 4)
+RX_KERNEL_BUFFERS = 16
+TX_KERNEL_BUFFERS = 8
 
 
 def calculate_samples_per_scan(sample_rate: float, fft_size: int) -> int:
@@ -282,6 +383,17 @@ def _configure_pluto(sdr, config: Dict[str, Any]) -> None:
     # RX buffer size
     sdr.rx_buffer_size = int(rx_buffer_size)
     logger.info(f"RX buffer size set to {rx_buffer_size} samples")
+
+    # More kernel (DMA) buffers than libiio's default 4: the Pluto keeps
+    # streaming into them while the host is briefly busy, instead of
+    # overflowing. Must be set before the first rx()/tx() creates a buffer.
+    for dev, count in ((getattr(sdr, "_rxadc", None), RX_KERNEL_BUFFERS), (getattr(sdr, "_txdac", None), TX_KERNEL_BUFFERS)):
+        try:
+            if dev is not None:
+                dev.set_kernel_buffers_count(count)
+        except Exception as e:
+            logger.warning(f"Could not set kernel buffer count: {e}")
+    logger.info(f"Kernel buffers: RX {RX_KERNEL_BUFFERS}, TX {TX_KERNEL_BUFFERS}")
 
     # XO correction (crystal oscillator frequency adjustment)
     xo_correction = config.get("xo_correction", None)
@@ -619,6 +731,8 @@ def plutosdr_worker_process(
                             sdr.gain_control_mode_chan0 = "manual"
                             sdr.rx_hardwaregain_chan0 = float(profile.rx_gain_db)
                             sdr.tx_hardwaregain_chan0 = TX_IDLE_GAIN_DB
+                            if plan.tx_allowed and plan.tx_lo_hz:
+                                sdr.tx_lo = int(plan.tx_lo_hz)  # once, not on every send
                             num_samples = calculate_samples_per_scan(sample_rate, fft_size)
                             bitlink21 = BitLink21Runner(sdr, profile.to_dict(), data_queue, tx_queue)
                             bitlink21.start()

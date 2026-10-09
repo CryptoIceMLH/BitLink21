@@ -4,7 +4,7 @@ name: BitLink21
 tagline: Bitcoin decentralized satellite communication system
 icon: bitlink21-128.png
 category: bitcoin
-version: "4.0.3"
+version: "4.0.4"
 port: 7000
 description: >-
   BitLink21 sends messages, Bitcoin transactions and Lightning invoices over the
@@ -23,6 +23,17 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 dependencies: []
 releaseNotes: >-
+  v4.0.4: Live receiver activity on the Link page (decoding state, recent
+  frames, incoming file progress) and transmit progress. Listen before talk:
+  sending waits while another signal is on your channel. Files up to 500 kB
+  (larger ones go out as parts that BitLink21 stations rejoin); transmit is
+  generated while sending, so long files no longer need gigabytes of memory.
+  Your echo no longer shows as missed when it is heard before the send
+  finishes. The Pluto's transmit frequency is set once at start instead of on
+  every send. Bigger receive and transmit buffers. Faster, lighter UI; no
+  satellite database download at start. Received files can be deleted;
+  classic radio no longer errors on a removed SDR; File Browser removed.
+
   v4.0.3: Receiver no longer falls behind while transmitting (modem and
   beacon tracker about 3x lighter, bigger receive buffer). PlutoSDR
   reconnects automatically after a dropped connection, or says to

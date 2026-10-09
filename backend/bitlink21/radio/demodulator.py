@@ -271,6 +271,33 @@ class HsModemReceiver:
             self._retune(self.nco_b.freq_hz + fine)
         self.state = STATE_ACQUIRED
 
+    # Listen before talk: anything on air inside our SSB channel (another
+    # station's modem, voice, a carrier) counts, not just our own mode.
+    CHANNEL_BW_HZ = 2700.0
+    BUSY_SNR_DB = 6.0
+
+    def channel_occupancy_db(self) -> Optional[float]:
+        """Power inside the channel over the noise around it (dB), from the
+        last 0.5 s of the acquisition buffer; None until enough samples."""
+        n = int(self.fs_a * 0.5)
+        x = self._acq_a
+        if len(x) < n:
+            return None
+        x = x[-n:]
+        nfft = 1 << int(np.ceil(np.log2(self.fs_a / 25)))  # ~25 Hz bins
+        f, p = sps_signal.welch(x, fs=self.fs_a, nperseg=min(nfft, n), return_onesided=False, detrend=False)
+        inband = np.abs(f) <= self.CHANNEL_BW_HZ / 2
+        passband = np.abs(f) <= self.search_span_hz + self.mode.occupied_bw_hz / 2
+        # Low percentile of the passband: robust to neighbouring channels
+        floor = float(np.percentile(p[passband], 25)) + 1e-30
+        excess = float(np.sum(p[inband]) - floor * np.count_nonzero(inband))
+        snr = excess / (floor * np.count_nonzero(inband))
+        return round(float(10 * np.log10(snr)), 1) if snr > 0 else -99.0
+
+    def channel_busy(self) -> bool:
+        level = self.channel_occupancy_db()
+        return bool(level is not None and level >= self.BUSY_SNR_DB)
+
     def _measure_snr(self, update_detect_only: bool = False) -> Optional[float]:
         """PSD-based detection; returns coarse offset (Hz) or None."""
         if len(self._acq_a) < self.fs_a * 0.5:

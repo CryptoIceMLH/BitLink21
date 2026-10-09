@@ -28,6 +28,10 @@ async def sync_satellite_data_job(background_task_manager):
     - Cancellable by users
     - Consistent with manual sync triggers
     """
+    # BitLink21 has no satellite tracking pages: the TLE/transmitter sync from
+    # Ground Station only cost startup time and CPU (and celestrak 404s).
+    logger.info("Satellite data sync skipped (not used by BitLink21)")
+    return
     try:
         logger.info("Running scheduled satellite data synchronization as background task...")
 

@@ -21,15 +21,7 @@ import { store } from '../components/common/store.jsx';
 import { fetchVersionInfo } from "../components/dashboard/version-slice.jsx";
 import { fetchPreferences } from '../components/settings/preferences-slice.jsx';
 import { fetchLocationForUserId } from '../components/settings/location-slice.jsx';
-import { fetchRigs } from '../components/hardware/rig-slice.jsx';
-import { fetchRotators } from '../components/hardware/rotaror-slice.jsx';
-import { fetchCameras } from '../components/hardware/camera-slice.jsx';
 import { fetchSDRs } from '../components/hardware/sdr-slice.jsx';
-import { fetchTLESources } from '../components/satellites/sources-slice.jsx';
-import { fetchSatelliteGroups } from '../components/satellites/groups-slice.jsx';
-import { getTrackingStateFromBackend, getTargetMapSettings } from '../components/target/target-slice.jsx';
-import { getOverviewMapSettings } from '../components/overview/overview-slice.jsx';
-import { fetchScheduledObservations, fetchMonitoredSatellites } from '../components/scheduler/scheduler-slice.jsx';
 import {
     setInitialDataLoading,
     setInitialDataProgress,
@@ -67,17 +59,9 @@ export async function initializeAppData(socket) {
                 }
             },
         },
-        { name: 'rigs', run: () => store.dispatch(fetchRigs({ socket })) },
-        { name: 'rotators', run: () => store.dispatch(fetchRotators({ socket })) },
-        { name: 'cameras', run: () => store.dispatch(fetchCameras({ socket })) },
         { name: 'sdrs', run: () => store.dispatch(fetchSDRs({ socket })) },
-        { name: 'tle_sources', run: () => store.dispatch(fetchTLESources({ socket })) },
-        { name: 'satellite_groups', run: () => store.dispatch(fetchSatelliteGroups({ socket })) },
-        { name: 'tracking_state', run: () => store.dispatch(getTrackingStateFromBackend({ socket })) },
-        { name: 'overview_map', run: () => store.dispatch(getOverviewMapSettings({ socket })) },
-        { name: 'target_map', run: () => store.dispatch(getTargetMapSettings({ socket })) },
-        { name: 'scheduled_observations', run: () => store.dispatch(fetchScheduledObservations({ socket })) },
-        { name: 'monitored_satellites', run: () => store.dispatch(fetchMonitoredSatellites({ socket })) },
+        // Rigs, rotators, cameras, satellites, maps and the scheduler were removed
+        // with their pages; the classic radio only needs the SDR list.
     ];
 
     let completed = 0;

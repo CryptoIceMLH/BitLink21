@@ -127,6 +127,7 @@ import {
     messageUpserted as bitlink21MessageUpserted,
     fileReceived as bitlink21FileReceived,
     settingsChanged as bitlink21SettingsChanged,
+    txProgressReceived as bitlink21TxProgressReceived,
 } from '../components/bitlink21/bitlink21-slice.jsx';
 import ImageIcon from '@mui/icons-material/Image';
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -1069,6 +1070,10 @@ export const useSocketEventHandlers = (socket) => {
             dispatch(bitlink21MessageUpserted(data));
         });
 
+        socket.on('bitlink21:tx_progress', (data) => {
+            dispatch(bitlink21TxProgressReceived(data));
+        });
+
         socket.on('bitlink21:file', (data) => {
             dispatch(bitlink21FileReceived(data));
         });
@@ -1138,6 +1143,7 @@ export const useSocketEventHandlers = (socket) => {
             socket.off("bitlink21:file");
             socket.off("bitlink21:retuned");
             socket.off("bitlink21:settings");
+            socket.off("bitlink21:tx_progress");
         };
     }, [socket, dispatch, t]);
 };

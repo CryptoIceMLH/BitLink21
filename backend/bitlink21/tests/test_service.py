@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import os
 import queue
 
 import pytest
@@ -157,7 +158,8 @@ def test_send_plain_file_and_its_echo_is_confirmed(svc):
         content = b"plain file sent over QO-100\n" * 40
         sent = await svc.send_file("notes.txt", content)
         req = svc.fake_pluto["tx_queue"].get_nowait()
-        assert req["name"] == "notes.txt" and base64.b64decode(req["content_b64"]) == content
+        part = req["parts"][0]
+        assert len(req["parts"]) == 1 and part["name"] == "notes.txt" and base64.b64decode(part["content_b64"]) == content
         # The station hears its own plain file back (no BitLink21 envelope)
         svc.last_status = {"modem": {"offset_hz": 5.0}}
         await svc.handle_worker_event("pluto-1", _file_event(content, "notes.txt"))
@@ -168,6 +170,25 @@ def test_send_plain_file_and_its_echo_is_confirmed(svc):
     assert msgs[0]["status"] == "confirmed" and not files  # echo, not a new received file
 
 
+def test_late_sent_status_does_not_undo_echo(svc):
+    # Live 2026-10-09: the echo decoded mid-burst, then the TX thread's "sent"
+    # overwrote "confirmed" and the UI showed the echo as missed.
+    async def run():
+        await svc.ensure_ready()
+        svc.station_sdr_id = "pluto-1"
+        await svc.update_settings({"tx_enabled": True, "callsign": "dl1abc",
+                                   "profile": {"rx_dial_rf_hz": 10489.600e6}})
+        content = b"echo before the burst ends\n" * 4
+        sent = await svc.send_file("e.txt", content)
+        svc.last_status = {"modem": {"offset_hz": 3.0}}
+        await svc.handle_worker_event("pluto-1", _file_event(content, "e.txt"))
+        await svc.handle_worker_event("pluto-1", {"type": "bitlink21_tx_status", "msg_row": sent["id"], "status": "sent"})
+        return await svc.list_messages()
+
+    msgs = asyncio.run(run())
+    assert msgs[0]["status"] == "confirmed" and msgs[0]["echo_at"]
+
+
 def test_send_file_rejects_bad_input(svc):
     async def run():
         await svc.ensure_ready()
@@ -175,7 +196,7 @@ def test_send_file_rejects_bad_input(svc):
         await svc.update_settings({"tx_enabled": True, "callsign": "dl1abc",
                                    "profile": {"rx_dial_rf_hz": 10489.600e6}})
         for name, data, msg in (("", b"x", "no name"), ("a.bin", b"", "empty"),
-                                ("big.bin", b"x" * (300 * 1024), "too large"), ("bé.txt", b"x", "ASCII")):
+                                ("big.bin", b"x" * (600 * 1024), "too large"), ("bé.txt", b"x", "ASCII")):
             with pytest.raises(ValueError, match=msg):
                 await svc.send_file(name, data)
 
@@ -200,3 +221,39 @@ def test_concurrent_station_starts_launch_one_pluto(svc, monkeypatch):
 
     asyncio.run(run())
     assert len(starts) == 1
+
+
+def test_large_file_goes_out_in_parts_and_is_reassembled(svc):
+    async def run():
+        await svc.ensure_ready()
+        svc.station_sdr_id = "pluto-1"
+        await svc.update_settings({"tx_enabled": True, "callsign": "dl1abc",
+                                   "profile": {"rx_dial_rf_hz": 10489.600e6}})
+        content = os.urandom(450 * 1024)
+        sent = await svc.send_file("holiday-photo.jpg", content)
+        req = svc.fake_pluto["tx_queue"].get_nowait()
+        names = [p["name"] for p in req["parts"]]
+        joined = b"".join(base64.b64decode(p["content_b64"]) for p in req["parts"])
+        # Our own parts come back through the satellite, out of order
+        for p in reversed(req["parts"]):
+            await svc.handle_worker_event("pluto-1", _file_event(base64.b64decode(p["content_b64"]), p["name"]))
+        return sent, names, joined, content, await svc.list_messages(), await svc.list_files()
+
+    sent, names, joined, content, msgs, files = asyncio.run(run())
+    assert names == ["holiday-photo.jpg.part1of3", "holiday-photo.jpg.part2of3", "holiday-photo.jpg.part3of3"]
+    assert joined == content and sent["size"] == len(content)
+    assert msgs[0]["status"] == "confirmed" and not files  # reassembled echo, no stray parts
+
+
+def test_parts_from_another_station_are_reassembled(svc):
+    async def run():
+        await svc.ensure_ready()
+        a, b = os.urandom(1000), os.urandom(500)
+        await svc.handle_worker_event("pluto-1", _file_event(a, "log.txt.part1of2"))
+        mid = await svc.list_files()
+        await svc.handle_worker_event("pluto-1", _file_event(b, "log.txt.part2of2"))
+        return mid, await svc.list_files()
+
+    mid, files = asyncio.run(run())
+    assert mid == []
+    assert len(files) == 1 and files[0]["name"] == "log.txt" and files[0]["size"] == 1500

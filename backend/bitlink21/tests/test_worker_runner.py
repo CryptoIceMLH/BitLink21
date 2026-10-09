@@ -83,3 +83,51 @@ def test_runner_tx_failure_still_attenuates():
         assert sdr.tx_hardwaregain_chan0 == TX_IDLE_GAIN_DB
     finally:
         runner.stop()
+
+
+class RecordingSdr(FakeSdr):
+    def __init__(self):
+        super().__init__()
+        self.samples = []
+
+    def tx(self, data):
+        super().tx(data)
+        self.samples.append(np.array(data, dtype=np.complex64))
+
+
+def test_runner_streams_multi_part_file_that_decodes():
+    """The streamed (piece-by-piece) burst of a 2-part file is a valid
+    HSModem signal: our own receiver gets both parts back intact."""
+    from bitlink21.radio.demodulator import HsModemReceiver
+    from bitlink21.radio.filetransfer import FileReceiver
+    from bitlink21.radio.modes import get_mode
+
+    fs = 240e3
+    profile = SatelliteProfile(sample_rate_hz=fs, rx_dial_rf_hz=10489.6e6, rx_mode=9, tx_gain_db=-20.0)
+    sdr, data_q, tx_q = RecordingSdr(), queue.Queue(), queue.Queue()
+    runner = BitLink21Runner(sdr, profile.to_dict(), data_q, tx_q)
+    runner._wait_for_clear_channel = lambda row: True  # no RX feed in this test
+    runner.start()
+    try:
+        rng = np.random.default_rng(3)
+        parts = [("data.bin.part1of2", rng.bytes(3000)), ("data.bin.part2of2", rng.bytes(1200))]
+        tx_q.put({"msg_row": 9, "parts": [{"name": n, "content_b64": base64.b64encode(d).decode()} for n, d in parts]})
+        events = _drain(data_q, timeout=60, until=lambda e: e.get("type") == "bitlink21_tx_status"
+                        and e.get("status") in ("sent", "failed"))
+        final = [e for e in events if e.get("type") == "bitlink21_tx_status"][-1]
+        assert final["status"] == "sent", final
+        assert any(e.get("type") == "bitlink21_tx_progress" for e in events)
+    finally:
+        runner.stop()
+
+    x = np.concatenate(sdr.samples) / 2 ** 14
+    plan = runner.plan
+    rx = HsModemReceiver(fs, get_mode(plan.tx_mode), channel_offset_hz=plan.tx_channel_offset_hz, search_span_hz=3000)
+    files = FileReceiver()
+    got = {}
+    for i in range(0, len(x), 16384):
+        for frame in rx.process(x[i: i + 16384]):
+            f = files.push(frame)
+            if f is not None:
+                got[f.name] = f.data
+    assert got == dict(parts)

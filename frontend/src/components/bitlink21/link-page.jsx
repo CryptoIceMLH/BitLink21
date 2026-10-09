@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Alert, Box, Button, Grid, Stack, Typography } from '@mui/material';
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
@@ -9,6 +9,7 @@ import {
     stopStation, updateSettings,
 } from './bitlink21-slice.jsx';
 import LinkStatus, { linkSteps } from './link-status.jsx';
+import LinkActivity from './link-activity.jsx';
 import LinkChannel from './link-channel.jsx';
 import LinkComposer from './link-composer.jsx';
 import LinkFeed from './link-feed.jsx';
@@ -19,7 +20,7 @@ export default function LinkPage() {
     const dispatch = useDispatch();
     const { socket } = useSocket();
     const bl = useSelector((state) => state.bitlink21);
-    const { loaded, settings, plan, modes, stationRunning, status, messages, files, busy, lastError, stationError } = bl;
+    const { loaded, settings, plan, modes, stationRunning, status, messages, files, txProgress, busy, lastError, stationError } = bl;
     const [advancedOpen, setAdvancedOpen] = useState(false);
     const [sending, setSending] = useState(false);
     const autoStarted = useRef(false);
@@ -70,7 +71,10 @@ export default function LinkPage() {
         if (!res.error) toast.success('Saved');
     };
 
-    const downloadFile = (file) => {
+    const onDeleteMessage = useCallback((id) => dispatch(deleteMessage({ socket, id })), [dispatch, socket]);
+    const onDeleteFile = useCallback((id) => dispatch(deleteFile({ socket, id })), [dispatch, socket]);
+
+    const downloadFile = useCallback((file) => {
         socket.emit('data_request', 'bitlink21:get_file', { id: file.id }, (res) => {
             if (!res?.success) {
                 toast.error(res?.error || 'Download failed');
@@ -84,9 +88,13 @@ export default function LinkPage() {
             a.click();
             URL.revokeObjectURL(url);
         });
-    };
+    }, [socket]);
 
+    const sendingMsg = messages.find((m) => m.direction === 'tx' && m.status === 'sending');
     const steps = linkSteps({ stationRunning, status, settings, plan, busy, stationError });
+    // Same object while the state is unchanged, so the composer does not
+    // re-render on every receiver status
+    const readyState = useMemo(() => steps.ready, [steps.ready.state, steps.ready.detail]);
 
     if (!loaded) {
         return <Box sx={{ p: 4 }}><Typography color="text.secondary">Connecting…</Typography></Box>;
@@ -111,6 +119,12 @@ export default function LinkPage() {
 
             <LinkStatus stationRunning={stationRunning} status={status} settings={settings} plan={plan} busy={busy} stationError={stationError} />
 
+            {stationRunning && (
+                <Box sx={{ mt: 2 }}>
+                    <LinkActivity status={status} transmitting={!!sendingMsg} txProgress={sendingMsg ? txProgress[sendingMsg.id] : null} />
+                </Box>
+            )}
+
             {plan?.warnings?.length > 0 && (
                 <Alert severity="warning" variant="outlined" sx={{ mt: 2 }}>{plan.warnings.join(' ')}</Alert>
             )}
@@ -123,7 +137,7 @@ export default function LinkPage() {
                             settings={settings}
                             modes={modes}
                             profile={settings?.profile}
-                            readyState={steps.ready}
+                            readyState={readyState}
                             sending={sending}
                             onSend={send}
                             onSendFile={sendFileCb}
@@ -135,9 +149,10 @@ export default function LinkPage() {
                         <LinkFeed
                             messages={messages}
                             files={files}
-                            onDelete={(id) => dispatch(deleteMessage({ socket, id }))}
+                            txProgress={txProgress}
+                            onDelete={onDeleteMessage}
                             onDownloadFile={downloadFile}
-                            onDeleteFile={(id) => dispatch(deleteFile({ socket, id }))}
+                            onDeleteFile={onDeleteFile}
                         />
                     </Box>
                 </Grid>

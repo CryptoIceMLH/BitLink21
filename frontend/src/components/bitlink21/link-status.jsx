@@ -47,8 +47,10 @@ export function linkSteps({ stationRunning, status, settings, plan, busy, statio
         lock = { state: 'ok', detail: `LNB ${formatHz(status.correction_hz)}${drift}` };
     } else lock = { state: 'busy', detail: 'Finding the QO-100 beacon…' };
 
+    const traffic = status?.channel;
     let channel;
     if (lock.state !== 'ok') channel = { state: 'wait', detail: 'Waiting for satellite lock' };
+    else if (traffic?.busy && modem?.state !== 'locked') channel = { state: 'busy', detail: `Busy · another signal on air (+${traffic.level_db} dB)` };
     else if (modem?.state === 'locked') channel = { state: 'ok', detail: `Receiving · SNR ${modem.snr_db ?? '—'} dB` };
     else if (modem?.signal_detected) channel = { state: 'busy', detail: 'Signal found, syncing…' };
     else channel = { state: 'ok', detail: 'Listening · channel is quiet' };
@@ -58,6 +60,7 @@ export function linkSteps({ stationRunning, status, settings, plan, busy, statio
     else if (!settings?.callsign) ready = { state: 'error', detail: 'Set your callsign' };
     else if (plan && !plan.tx_allowed) ready = { state: 'error', detail: plan.tx_block_reason };
     else if (channel.state === 'wait') ready = { state: 'wait', detail: 'Waiting for the channel' };
+    else if (traffic?.busy) ready = { state: 'ok', detail: 'Channel busy · sending waits until it is clear' };
     else ready = { state: 'ok', detail: 'Press send' };
 
     return { radio, lock, channel, ready };

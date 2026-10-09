@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import {
-    Badge, Box, Chip, CircularProgress, IconButton, Link, Paper, Stack, Tab, Tabs, Tooltip, Typography,
+    Badge, Box, Chip, CircularProgress, IconButton, LinearProgress, Link, Paper, Stack, Tab, Tabs, Tooltip, Typography,
 } from '@mui/material';
 import ScheduleRoundedIcon from '@mui/icons-material/ScheduleRounded';
 import DoneRoundedIcon from '@mui/icons-material/DoneRounded';
@@ -20,7 +20,7 @@ const TYPE_LABEL = { 1: 'Bitcoin TX', 2: 'Lightning', 3: 'Data' };
 const NO_ECHO_AFTER_S = 60;
 
 // Delivery track for something we sent
-function DeliveryTrack({ msg }) {
+function DeliveryTrack({ msg, tx }) {
     const [, tick] = useState(0);
     useEffect(() => {
         if (msg.status !== 'sent') return undefined;
@@ -39,11 +39,25 @@ function DeliveryTrack({ msg }) {
             />
         );
     }
+    if (msg.status === 'sending' && tx?.progress !== undefined && tx?.progress !== null) {
+        const left = Math.max(0, Math.ceil((1 - tx.progress) * (tx.duration_s || 0)));
+        return (
+            <Box sx={{ minWidth: 200 }}>
+                <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                    Transmitting {Math.round(tx.progress * 100)}%{left ? ` · ${left} s left` : ''}
+                </Typography>
+                <LinearProgress variant="determinate" value={tx.progress * 100} color="inherit" sx={{ height: 5, borderRadius: 3, mt: 0.3 }} />
+            </Box>
+        );
+    }
     if (msg.status === 'failed') {
         return <Chip size="small" icon={<ErrorOutlineRoundedIcon />} color="error" label={msg.error || 'Failed'} />;
     }
-    const steps = { queued: 'Queued', sending: 'Transmitting…', sent: 'On air · waiting for the echo' };
-    const icon = { queued: <ScheduleRoundedIcon />, sending: <CircularProgress size={14} color="inherit" />, sent: <DoneRoundedIcon /> }[msg.status];
+    const steps = { queued: 'Queued', waiting: 'Channel busy · waiting to send', sending: 'Transmitting…', sent: 'On air · waiting for the echo' };
+    const icon = {
+        queued: <ScheduleRoundedIcon />, waiting: <HourglassBottomRoundedIcon />,
+        sending: <CircularProgress size={14} color="inherit" />, sent: <DoneRoundedIcon />,
+    }[msg.status];
     const late = msg.status === 'sent' && Date.now() / 1000 - msg.created_at > NO_ECHO_AFTER_S;
     return (
         <Tooltip title={late ? 'Your station has not decoded its own signal yet. Check the TX level and that the channel is free.' : ''}>
@@ -136,7 +150,9 @@ function Header({ out, who, when, chips, onDelete }) {
     );
 }
 
-function MessageItem({ msg, onDelete }) {
+// Memoised: the page re-renders on every receiver status (2x/s); a message
+// only re-renders when it, its TX progress or the minute tick changes.
+const MessageItem = memo(function MessageItem({ msg, tx, onDelete }) {
     const out = msg.direction === 'tx';
     const chips = (
         <>
@@ -165,13 +181,13 @@ function MessageItem({ msg, onDelete }) {
                 }}
             >
                 <MessageBody msg={msg} />
-                {out && <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}><DeliveryTrack msg={msg} /></Box>}
+                {out && <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}><DeliveryTrack msg={msg} tx={tx} /></Box>}
             </Paper>
         </Stack>
     );
-}
+});
 
-function ReceivedFileItem({ file, onDownload, onDelete }) {
+const ReceivedFileItem = memo(function ReceivedFileItem({ file, onDownload, onDelete }) {
     return (
         <Stack alignItems="flex-start" sx={{ '&:hover .bl21-del': { opacity: 1 } }}>
             <Header
@@ -196,10 +212,18 @@ function ReceivedFileItem({ file, onDownload, onDelete }) {
             </Paper>
         </Stack>
     );
-}
+});
 
-export default function LinkFeed({ messages, files, onDelete, onDownloadFile, onDeleteFile }) {
+const NO_PROGRESS = {};
+
+function LinkFeed({ messages, files, txProgress = NO_PROGRESS, onDelete, onDownloadFile, onDeleteFile }) {
     const [tab, setTab] = useState('all');
+    // Refresh the "x min ago" labels twice a minute
+    const [minute, setMinute] = useState(0);
+    useEffect(() => {
+        const t = setInterval(() => setMinute((m) => m + 1), 30000);
+        return () => clearInterval(t);
+    }, []);
 
     const items = useMemo(() => {
         const all = [
@@ -246,10 +270,12 @@ export default function LinkFeed({ messages, files, onDelete, onDownloadFile, on
             ) : (
                 <Stack spacing={2}>
                     {shown.map((i) => (i.kind === 'msg'
-                        ? <MessageItem key={i.key} msg={i.m} onDelete={onDelete} />
-                        : <ReceivedFileItem key={i.key} file={i.f} onDownload={onDownloadFile} onDelete={onDeleteFile} />))}
+                        ? <MessageItem key={i.key} msg={i.m} tx={txProgress[i.m.id]} onDelete={onDelete} minute={minute} />
+                        : <ReceivedFileItem key={i.key} file={i.f} onDownload={onDownloadFile} onDelete={onDeleteFile} minute={minute} />))}
                 </Stack>
             )}
         </Box>
     );
 }
+
+export default memo(LinkFeed);

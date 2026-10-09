@@ -123,3 +123,24 @@ def test_station_end_to_end_with_beacon_lock():
         files += [e for e in st.process(x[i: i + 65536]) if e["type"] == "bitlink21_file"]
     assert st.beacon.locked and abs(st.correction_hz - lnb[-1]) < 10
     assert len(files) == 1 and files[0]["is_envelope"]
+
+
+@pytest.mark.parametrize("case,busy", [("quiet", False), ("in_channel", True), ("neighbour", False), ("weak_in_channel", True)])
+def test_channel_busy_detection(case, busy):
+    """Listen before talk: a signal inside our 2.7 kHz channel is busy; a
+    strong station in the next channel (3 kHz away) is not."""
+    fs = 600e3
+    mode = get_mode(2)  # QPSK 3000: the widest common neighbour
+    rng = np.random.default_rng(5)
+    blocks = [framing.pack_frame(rng.bytes(219), 5, 1, i) for i in range(4)]
+    chan = 20e3
+    sig_offset = {"in_channel": chan + 150, "weak_in_channel": chan - 300, "neighbour": chan + 3000}.get(case)
+    amp = {"in_channel": 0.5, "weak_in_channel": 0.1, "neighbour": 1.0}.get(case, 0.0)
+    s = modulate_blocks(blocks, mode, fs, sig_offset or 0.0) if sig_offset else np.zeros(int(fs * 2), np.complex64)
+    n = min(len(s), int(fs * 2))
+    x = amp * s[:n] / (np.sqrt(np.mean(np.abs(s[:n]) ** 2)) + 1e-12)
+    x = x + 0.05 * (rng.standard_normal(n) + 1j * rng.standard_normal(n))
+    rx = HsModemReceiver(fs, get_mode(0), channel_offset_hz=chan, search_span_hz=3000)
+    for i in range(0, n, 65536):
+        rx.process(x[i: i + 65536].astype(np.complex64))
+    assert rx.channel_busy() is busy, rx.channel_occupancy_db()

@@ -78,6 +78,10 @@ async def run_initial_sync(background_task_manager):
     Args:
         background_task_manager: BackgroundTaskManager instance
     """
+    # BitLink21 has no satellite tracking pages: the TLE/transmitter sync from
+    # Ground Station only cost startup time and CPU (and celestrak 404s).
+    logger.info("Satellite data sync skipped (not used by BitLink21)")
+    return
     try:
         logger.info("Waiting 5 seconds before starting initial synchronization...")
         await asyncio.sleep(5)

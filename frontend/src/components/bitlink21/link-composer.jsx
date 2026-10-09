@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import {
     Box, Button, CircularProgress, FormControlLabel, Paper, Stack, Switch, Tab, Tabs, TextField, Tooltip, Typography,
 } from '@mui/material';
@@ -7,7 +7,9 @@ import LockRoundedIcon from '@mui/icons-material/LockRounded';
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded';
 import { PAYLOAD_TYPES, bodyByteLength, estimateAirtime, parseInvoice } from './link-utils.js';
 
-const MAX_FILE_BYTES = 200 * 1024;
+const MAX_FILE_BYTES = 500 * 1024;
+// Above one HSModem transfer (~224 kB) a file goes out as consecutive parts
+const PART_BYTES = 200 * 1024;
 
 const PLACEHOLDER = {
     text: 'Write a message…',
@@ -19,7 +21,7 @@ function validate(type, body, file) {
     if (type === 'file') {
         if (!file) return 'empty';
         if (file.size === 0) return 'The file is empty';
-        if (file.size > MAX_FILE_BYTES) return `Too large for one transfer (max ${MAX_FILE_BYTES / 1024} kB)`;
+        if (file.size > MAX_FILE_BYTES) return `Too large (max ${MAX_FILE_BYTES / 1024} kB)`;
         if (!/^[\x20-\x7e]+$/.test(file.name)) return 'Rename the file to plain ASCII characters (HSModem limitation)';
         return null;
     }
@@ -41,7 +43,7 @@ const readAsBase64 = (file) => new Promise((resolve, reject) => {
     reader.readAsDataURL(file);
 });
 
-export default function LinkComposer({ settings, modes, profile, readyState, sending, onSend, onSendFile }) {
+function LinkComposer({ settings, modes, profile, readyState, sending, onSend, onSendFile }) {
     const [type, setType] = useState('text');
     const [body, setBody] = useState('');
     const [file, setFile] = useState(null);
@@ -99,7 +101,9 @@ export default function LinkComposer({ settings, modes, profile, readyState, sen
                         {file ? 'Choose another file' : 'Choose a file'}
                     </Button>
                     <Typography variant="body2" sx={{ mt: 1.5 }} color={file ? 'text.primary' : 'text.secondary'}>
-                        {file ? `${file.name} · ${(file.size / 1024).toFixed(1)} kB` : 'or drop it here · sent as a normal HSModem file any station can open'}
+                        {file
+                            ? `${file.name} · ${(file.size / 1024).toFixed(1)} kB${file.size > PART_BYTES ? ` · sent in ${Math.ceil(file.size / PART_BYTES)} parts (BitLink21 stations rejoin them)` : ''}`
+                            : `or drop it here · up to ${MAX_FILE_BYTES / 1024} kB, sent as normal HSModem files any station can open`}
                     </Typography>
                     {problem && problem !== 'empty' && <Typography variant="caption" color="error">{problem}</Typography>}
                 </Box>
@@ -159,3 +163,5 @@ export default function LinkComposer({ settings, modes, profile, readyState, sen
         </Paper>
     );
 }
+
+export default memo(LinkComposer);

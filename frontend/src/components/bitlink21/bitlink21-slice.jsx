@@ -64,6 +64,7 @@ const bitlink21Slice = createSlice({
         status: null,          // live bitlink21_status from the worker
         messages: [],
         files: [],
+        txProgress: {},        // message id -> { progress 0..1, duration_s }
         lastError: null,
     },
     reducers: {
@@ -78,8 +79,13 @@ const bitlink21Slice = createSlice({
             if (plan) state.plan = plan;
             if (!running) state.status = null;
         },
+        txProgressReceived(state, action) {
+            const { id, progress, duration_s: durationS } = action.payload || {};
+            if (id !== null && id !== undefined) state.txProgress[id] = { progress, duration_s: durationS };
+        },
         messageUpserted(state, action) {
             const msg = action.payload;
+            if (msg.status !== 'sending') delete state.txProgress[msg.id];
             const idx = state.messages.findIndex((m) => m.id === msg.id);
             if (idx >= 0) state.messages[idx] = msg;
             else state.messages.unshift(msg);
@@ -129,6 +135,7 @@ export const {
     statusReceived,
     stationStateChanged,
     messageUpserted,
+    txProgressReceived,
     fileReceived,
     settingsChanged,
     clearError,
