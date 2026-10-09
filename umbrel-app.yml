@@ -4,7 +4,7 @@ name: BitLink21
 tagline: Bitcoin decentralized satellite communication system
 icon: bitlink21-128.png
 category: bitcoin
-version: "4.0.5"
+version: "4.0.6"
 port: 7000
 description: >-
   BitLink21 sends messages, Bitcoin transactions and Lightning invoices over the
@@ -23,6 +23,13 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 dependencies: []
 releaseNotes: >-
+  v4.0.6: Beacon lock and modem now follow a fast-drifting receive
+  frequency (20-40 Hz/s, as when the station transmits): no more beacon
+  unlock after every message, and long BPSK messages decode through the
+  drift. The modem uses the beacon-measured drift to stay on frequency.
+  Wideband (DVB-S2) tab removed (a faster narrowband mode is planned
+  instead); smaller image. Fixed garbled characters in the activity panel.
+
   v4.0.5: Wideband (DVB-S2) receiver fixed: it was built for the build
   machine's CPU and crashed straight away on the Umbrel ("Broken pipe"); it
   now runs on any x86-64, and if it ever stops the reason is shown. Stop

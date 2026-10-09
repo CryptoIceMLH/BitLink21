@@ -30,7 +30,7 @@ from bitlink21.plugins.bitcoin_tx import BitcoinTxPlugin
 from bitlink21.plugins.generic_data import GenericDataPlugin
 from bitlink21.plugins.lightning_invoice import LightningInvoicePlugin, parse_bolt11_hrp
 from bitlink21 import diagnostics
-from bitlink21.radio import envelope, filetransfer, wideband
+from bitlink21.radio import envelope, filetransfer
 from bitlink21.radio.modes import SPEED_MODES
 from bitlink21.radio.profile import PRESETS, SatelliteProfile, make_plan
 from bitlink21.store import store
@@ -69,15 +69,11 @@ def _default_settings() -> Dict[str, Any]:
         "lightning": {
             "lnd_rest_url": os.environ.get("LND_REST_URL") or "",
         },
-        # "narrowband" (HSModem on the NB transponder) or "wideband"
-        # (experimental: DVB-S2 on the WB transponder, same messages/files)
-        "link_mode": "narrowband",
-        "wideband": wideband.WidebandProfile().to_dict(),
-        # Receive-chain error last measured on the NB beacon; wideband mode
-        # cannot see that beacon, so it starts from this
+        # Receive-chain error at the last beacon lock: a restart starts the
+        # beacon tracker from it instead of searching
         "last_lnb_correction_hz": 0.0,
         "last_lnb_locked_at": None,
-        # Detailed logs (radio worker, modem, beacon, wideband, TX) for the
+        # Detailed logs (radio worker, modem, beacon, TX) for the
         # diagnostics bundle
         "verbose_logging": False,
     }
@@ -120,7 +116,8 @@ class BitLink21Service:
             self.settings = merged
             diagnostics.install_file_logging("server")
             diagnostics.set_verbose(bool(self.settings.get("verbose_logging")))
-            self.settings.pop("auto_tx_correction", None)
+            for gone in ("auto_tx_correction", "link_mode", "wideband"):  # removed features
+                self.settings.pop(gone, None)
             # 4.0.5: auto TX correction removed; undo whatever it had applied
             if not self.settings.get("tx_correction_reset_405"):
                 self.settings["profile"] = {**self.settings["profile"], "tx_correction_hz": 0.0}
@@ -158,27 +155,11 @@ class BitLink21Service:
             s["bitcoin"]["rpc_pass"] = "********"
         return s
 
-    def _wideband(self) -> bool:
-        return self.settings.get("link_mode") == "wideband"
-
-    def _wb_plan(self) -> "wideband.WidebandPlan":
-        return wideband.make_wb_plan(
-            wideband.WidebandProfile.from_dict(self.settings["wideband"]),
-            SatelliteProfile.from_dict(self.settings["profile"]),
-            self.settings.get("last_lnb_correction_hz") or 0.0,
-        )
-
     def get_state(self) -> Dict[str, Any]:
         profile = SatelliteProfile.from_dict(self.settings["profile"])
-        try:
-            wb_plan = self._wb_plan().to_dict()
-        except ValueError as e:
-            wb_plan = {"error": str(e)}
         return {
             "settings": self.public_settings(),
             "plan": make_plan(profile).to_dict(),
-            "wideband_plan": wb_plan,
-            "wideband_options": {"symbol_rates": list(wideband.SYMBOL_RATES), "modcods": list(wideband.MODCODS)},
             "modes": [m.to_dict() for m in SPEED_MODES],
             "presets": {k: v.to_dict() for k, v in PRESETS.items()},
             "station_running": self.station_sdr_id is not None,
@@ -194,10 +175,6 @@ class BitLink21Service:
                 continue
             if key == "encryption" and value not in (ENCRYPTION_CLEAR, ENCRYPTION_PASSPHRASE):
                 raise ValueError("encryption must be 'clear' or 'passphrase'")
-            if key == "link_mode" and value not in ("narrowband", "wideband"):
-                raise ValueError("link_mode must be 'narrowband' or 'wideband'")
-            if key == "wideband":
-                value = wideband.WidebandProfile.from_dict({**self.settings["wideband"], **value}).to_dict()
             if key == "profile":
                 SatelliteProfile.from_dict(value)  # validates field names / types
                 merged = dict(self.settings["profile"])
@@ -222,11 +199,9 @@ class BitLink21Service:
             logger.info(f"Verbose logging {'on' if verbose else 'off'}")
         if "passphrase" in changed and self.settings["passphrase"]:
             await self._unlock_messages()
-        if self.station_sdr_id and ("link_mode" in changed or "wideband" in changed):
-            await self.start_station()  # different station: restart
-        elif self.station_sdr_id and "profile" in changed:
+        if self.station_sdr_id and "profile" in changed:
             pluto = self._find_pluto()
-            if self._wideband() or pluto is None or pluto["config_queue"] is None:
+            if pluto is None or pluto["config_queue"] is None:
                 await self.start_station()
             else:
                 # Channel/speed change: the worker retunes in place and keeps the
@@ -306,16 +281,11 @@ class BitLink21Service:
         profile = SatelliteProfile.from_dict(self.settings["profile"])
         command: Dict[str, Any] = {"bitlink21_start": profile.to_dict(),
                                    "bitlink21_verbose": bool(self.settings.get("verbose_logging"))}
-        if self._wideband():
-            plan_dict = self._wb_plan().to_dict()  # validates the channel first
-            command["bitlink21_wideband"] = self.settings["wideband"]
-            command["bitlink21_rx_lnb_correction_hz"] = self.settings.get("last_lnb_correction_hz") or 0.0
-        else:
-            plan_dict = make_plan(profile).to_dict()
-            # Start from the last beacon lock (if recent) instead of searching
-            locked_at = self.settings.get("last_lnb_locked_at")
-            if locked_at and time.time() - locked_at < 24 * 3600:
-                command["bitlink21_beacon_seed_hz"] = self.settings.get("last_lnb_correction_hz") or 0.0
+        plan_dict = make_plan(profile).to_dict()
+        # Start from the last beacon lock (if recent) instead of searching
+        locked_at = self.settings.get("last_lnb_locked_at")
+        if locked_at and time.time() - locked_at < 24 * 3600:
+            command["bitlink21_beacon_seed_hz"] = self.settings.get("last_lnb_correction_hz") or 0.0
         pluto["config_queue"].put(command)
         self.station_sdr_id = pluto["sdr_id"]
         await self._emit("bitlink21:station_state", {"running": True, "plan": plan_dict})
@@ -399,16 +369,15 @@ class BitLink21Service:
             name.encode("ascii")
         except UnicodeEncodeError:
             raise ValueError("Use a plain ASCII file name (HSModem limitation)")
-        if len(data) <= PART_BYTES or self._wideband():  # DVB-S2 objects have no 1024-frame cap
+        if len(data) <= PART_BYTES:
             name = name[:50]
             parts = [(name, data)]
         else:
             n = -(-len(data) // PART_BYTES)
             name = name[:50 - len(f".part{n}of{n}")]
             parts = [(f"{name}.part{k + 1}of{n}", data[k * PART_BYTES:(k + 1) * PART_BYTES]) for k in range(n)]
-        if not self._wideband():
-            for part_name, part in parts:
-                filetransfer.build_file_frames(part_name, part)  # validates the HSModem frame-count limit
+        for part_name, part in parts:
+            filetransfer.build_file_frames(part_name, part)  # validates the HSModem frame-count limit
         row_id = await store.add_message(
             direction="tx", msg_id=os.urandom(8).hex(), payload_type=envelope.TYPE_BINARY,
             callsign=self.settings["callsign"], body=data, encrypted=0, status="queued",
@@ -464,7 +433,7 @@ class BitLink21Service:
         return await store.get_message(row_id)
 
     def _check_tx_plan(self) -> None:
-        plan = self._wb_plan() if self._wideband() else make_plan(SatelliteProfile.from_dict(self.settings["profile"]))
+        plan = make_plan(SatelliteProfile.from_dict(self.settings["profile"]))
         if not plan.tx_allowed:
             raise RuntimeError(f"Can't transmit on this channel: {plan.tx_block_reason}.")
 
@@ -513,10 +482,10 @@ class BitLink21Service:
             pass  # frame-level detail is already summarised in the status
 
     async def _remember_lnb_correction(self, status: Dict[str, Any]) -> None:
-        """Keep the NB-beacon-measured receive error for wideband mode (saved
+        """Keep the beacon-measured receive error as the start for the next run (saved
         at most once a minute)."""
         beacon = status.get("beacon") or {}
-        if status.get("mode") == "wideband" or not beacon.get("locked"):
+        if not beacon.get("locked"):
             return
         now = time.time()
         self.settings["last_lnb_correction_hz"] = float(status.get("correction_hz") or 0.0)

@@ -254,42 +254,6 @@ RUN git clone --depth=1 https://github.com/daniestevez/gr-satellites.git && \
 RUN /app/venv/bin/python3 -c "from satellites.satyaml.satyaml import SatYAML; print('✓ gr-satellites satyaml module available')" || \
     (echo "ERROR: satyaml not properly installed!" && exit 1)
 
-# Compile gr-dvbs2rx (DVB-S2 receiver for BitLink21's experimental wideband
-# link; its dvbs2-rx app takes IQ on stdin and outputs MPEG-TS on stdout).
-# NATIVE_OPTIMIZATIONS=OFF: its default -march=native targets the build
-# machine's CPU (AVX2/FMA here) and crashed with an illegal instruction on the
-# Umbrel; it still picks SIMD code paths at runtime.
-WORKDIR /src
-ARG DVBS2RX_REF=master
-RUN apt-get update && apt-get install -y --no-install-recommends libgmp-dev && rm -rf /var/lib/apt/lists/* && \
-    git clone --depth=1 --branch=${DVBS2RX_REF} --recursive --shallow-submodules https://github.com/igorauad/gr-dvbs2rx.git && \
-    cd gr-dvbs2rx && \
-    mkdir build && \
-    cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release \
-          -DENABLE_DOXYGEN=OFF \
-          -DNATIVE_OPTIMIZATIONS=OFF \
-          -DCMAKE_INSTALL_PREFIX=/usr/local \
-          -DPYTHON_EXECUTABLE=/app/venv/bin/python3 \
-          -DGR_PYTHON_DIR=/app/venv/lib/python3.12/site-packages \
-          -DPYTHON_INCLUDE_DIR=/usr/include/python3.12 \
-          -DPYTHON_LIBRARY=/usr/lib/x86_64-linux-gnu/libpython3.12.so .. && \
-    make -j$(nproc) && \
-    sudo make install && \
-    sudo ldconfig
-# dvbs2-rx imports PyQt5 (GUI) and gr-uhd (USRP) at the top, but uses them
-# only with --gui / --source usrp. This image has neither (GNU Radio is built
-# without Qt GUI, no UHD), so make both imports optional for headless use.
-RUN sed -i \
-      -e 's/^from PyQt5 import Qt, QtCore$/try:\n    from PyQt5 import Qt, QtCore\nexcept ImportError:  # headless\n    class Qt:\n        QWidget = object\n    QtCore = None/' \
-      -e 's/^    import sip$/    sip = None/' \
-      -e 's/^from gnuradio import analog, blocks, digital, dvbs2rx, eng_notation, gr, uhd$/from gnuradio import analog, blocks, digital, dvbs2rx, eng_notation, gr\ntry:\n    from gnuradio import uhd\nexcept ImportError:  # no UHD in this image\n    uhd = None/' \
-      /usr/local/bin/dvbs2-rx && \
-    grep -q "except ImportError:  # headless" /usr/local/bin/dvbs2-rx && \
-    grep -q "uhd = None" /usr/local/bin/dvbs2-rx
-RUN /app/venv/bin/python3 -c "import gnuradio.dvbs2rx, gnuradio.dtv; print('gr-dvbs2rx + gr-dtv available')" && \
-    /app/venv/bin/python3 /usr/local/bin/dvbs2-rx --help > /dev/null && echo "dvbs2-rx runs"
-
 # Compile SatDump (without GUI, using system libvolk-dev and libnng-dev)
 # Pin to a specific commit to avoid upstream CLI/behavior changes breaking decoding.
 WORKDIR /src

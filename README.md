@@ -112,17 +112,6 @@ speed and send.
 **Advanced** shows beacon lock, modem state, frequency plan and calibration. The
 classic radio view (waterfall, VFOs, decoders) is under **Radio (classic)**.
 
-## Experimental: wideband DVB-S2
-
-The **Experimental · Wideband DVB-S2** tab on the Link page sends the same
-messages and files over DVB-S2 on the QO-100 wideband transponder instead of
-HSModem on the narrowband one: much faster (125, 250 or 333 kS/s, roughly 100
-to 600 kbit/s depending on the DVB-S2 mode), at the cost of much more uplink
-power. You choose the frequency; there are no band limits. The narrowband station pauses while this mode is on, and the receiver
-starts from the LNB correction last measured on the narrowband beacon.
-Receiving uses [gr-dvbs2rx](https://github.com/igorauad/gr-dvbs2rx), and
-transmitting uses GNU Radio's DVB-S2 encoder.
-
 ## Bitcoin and Lightning
 
 - **Bitcoin TX**: paste a signed raw transaction and send it. A receiving station with

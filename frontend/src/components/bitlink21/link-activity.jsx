@@ -47,11 +47,8 @@ function secondsAgo(t, now) {
 
 export default function LinkActivity({ status, transmitting, txProgress, onStop }) {
     const modem = status?.modem;
-    const wb = status?.wideband;
     const progress = status?.file_progress;
-    const counters = wb
-        ? { ok: Math.max(0, (wb.fec_frames || 0) - (wb.fec_errors || 0)), bad: wb.fec_errors || 0 }
-        : modem ? { ok: modem.frames_ok || 0, bad: modem.frames_failed || 0 } : null;
+    const counters = modem ? { ok: modem.frames_ok || 0, bad: modem.frames_failed || 0 } : null;
     const { frames, lastAt } = useFrameHistory(counters);
     const [now, setNow] = useState(Date.now());
 
@@ -63,9 +60,9 @@ export default function LinkActivity({ status, transmitting, txProgress, onStop 
     if (!status) return null;
 
     const recent = lastAt && now - lastAt < 5000;
-    const mode = wb ? `DVB-S2 ${(wb.profile?.modcod || '').toUpperCase()}` : modem?.mode?.name || '';
-    const locked = wb ? wb.lock : modem?.state === 'locked';
-    const snr = wb ? (wb.snr_db !== null && wb.snr_db !== undefined ? wb.snr_db.toFixed(1) : null) : modem?.snr_db;
+    const mode = modem?.mode?.name || '';
+    const locked = modem?.state === 'locked';
+    const snr = modem?.snr_db;
     let state;
     if (transmitting) {
         const p = txProgress?.progress;
@@ -73,12 +70,12 @@ export default function LinkActivity({ status, transmitting, txProgress, onStop 
         state = {
             color: 'error.main',
             title: p !== undefined && p !== null ? `Transmitting ${Math.round(p * 100)}%` : 'Transmitting',
-            detail: left ? `${left} s left Â· listening for your echo` : 'Listening for your echo',
+            detail: left ? `${left} s left · listening for your echo` : 'Listening for your echo',
         };
     }
     else if (recent) state = { color: 'success.main', title: 'Data arriving', detail: `Decoding ${mode}` };
     else if (locked) state = { color: 'success.main', title: 'Decoding', detail: `Locked to a ${mode} signal, waiting for frames` };
-    else if (!wb && modem?.signal_detected) state = { color: 'warning.main', title: 'Signal found', detail: `Syncing to ${mode}â€¦` };
+    else if (modem?.signal_detected) state = { color: 'warning.main', title: 'Signal found', detail: `Syncing to ${mode}…` };
     else state = { color: 'text.disabled', title: 'Listening', detail: 'No modem signal on this channel' };
     const live = transmitting || recent || locked;
 
@@ -122,7 +119,7 @@ export default function LinkActivity({ status, transmitting, txProgress, onStop 
                     </Tooltip>
                     <Stack direction="row" spacing={2} sx={{ mt: 0.5 }}>
                         <Typography variant="caption" color="text.secondary">
-                            {frames.length ? `${ok} ok Â· ${frames.length - ok} bad (last ${frames.length})` : 'No frames yet'}
+                            {frames.length ? `${ok} ok · ${frames.length - ok} bad (last ${frames.length})` : 'No frames yet'}
                         </Typography>
                         {lastAt && <Typography variant="caption" color="text.secondary">last frame {secondsAgo(lastAt, now)}</Typography>}
                         {status.channel && (
@@ -132,9 +129,6 @@ export default function LinkActivity({ status, transmitting, txProgress, onStop 
                         )}
                         {snr !== null && snr !== undefined && (
                             <Typography variant="caption" color="text.secondary">SNR {snr} dB</Typography>
-                        )}
-                        {wb && (
-                            <Typography variant="caption" color="text.secondary">{Math.round((wb.net_bitrate || 0) / 1000)} kbit/s</Typography>
                         )}
                     </Stack>
                 </Box>

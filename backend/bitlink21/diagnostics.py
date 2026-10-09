@@ -103,7 +103,6 @@ def system_info() -> Dict[str, Any]:
         info["gnuradio"] = gr.version()
     except Exception as e:
         info["gnuradio"] = f"unavailable ({e.__class__.__name__})"
-    info["dvbs2_rx"] = shutil.which("dvbs2-rx")
     return info
 
 

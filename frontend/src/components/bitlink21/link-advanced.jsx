@@ -274,7 +274,7 @@ export default function LinkAdvanced({
                         label="Verbose logging (dev mode)"
                     />
                     <Typography variant="caption" color="text.secondary">
-                        Detailed logs from the radio, modem, beacon tracker, wideband receiver and transmitter. Takes effect at once;
+                        Detailed logs from the radio, modem, beacon tracker and transmitter. Takes effect at once;
                         leave off normally.
                     </Typography>
                     <Button variant="outlined" startIcon={<DownloadRoundedIcon />} href="/api/bitlink21/diagnostics">

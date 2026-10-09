@@ -41,8 +41,6 @@ const applyState = (state, data) => {
     if (!data) return;
     state.settings = data.settings;
     state.plan = data.plan;
-    state.widebandPlan = data.wideband_plan || null;
-    state.widebandOptions = data.wideband_options || state.widebandOptions;
     state.modes = data.modes || state.modes;
     state.presets = data.presets || state.presets;
     state.stationRunning = data.station_running;
@@ -58,8 +56,6 @@ const bitlink21Slice = createSlice({
         loaded: false,
         settings: null,
         plan: null,
-        widebandPlan: null,     // experimental DVB-S2 link plan (or { error })
-        widebandOptions: null,  // symbol rates, MODCODs, band edges
         modes: [],
         presets: {},
         stationRunning: false,
@@ -81,9 +77,7 @@ const bitlink21Slice = createSlice({
             const { running, error, plan } = action.payload || {};
             state.stationRunning = !!running;
             state.stationError = error || null;
-            // A wideband (DVB-S2) plan carries net_bitrate; keep the two apart
-            if (plan && plan.net_bitrate !== undefined) state.widebandPlan = plan;
-            else if (plan) state.plan = plan;
+            if (plan) state.plan = plan;
             if (!running) state.status = null;
         },
         txProgressReceived(state, action) {
