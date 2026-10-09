@@ -19,7 +19,6 @@ function LinkChannel({ profile, plan, modes, busy, onApply }) {
 
     if (!profile) return null;
 
-    const band = profile.downlink_band_hz || [10489.5e6, 10490e6];
     const currentMode = modes.find((m) => m.index === profile.rx_mode);
     const parsed = parseFrequency(freqText);
     const changed = parsed && Math.abs(parsed - profile.rx_dial_rf_hz) > 0.5;
@@ -27,10 +26,6 @@ function LinkChannel({ profile, plan, modes, busy, onApply }) {
     const tune = (hz = parsed) => {
         if (!hz) {
             setError('Enter a frequency, e.g. 10489.600');
-            return;
-        }
-        if (hz < band[0] || hz > band[1]) {
-            setError(`QO-100 NB downlink is ${formatMHz(band[0], 3)}–${formatMHz(band[1], 3)} MHz`);
             return;
         }
         setError(null);

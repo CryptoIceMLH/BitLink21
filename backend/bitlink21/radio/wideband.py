@@ -24,12 +24,6 @@ import numpy as np
 from .modulator import SymbolStream
 from .profile import SatelliteProfile
 
-# QO-100 wideband transponder (AMSAT-DL band plan)
-WB_DOWNLINK_HZ = (10491.0e6, 10499.0e6)
-# Keep clear of the 1.5 MS/s DVB-S2 beacon at 10491.5 MHz
-WB_TX_ALLOWED_DL_HZ = (10492.5e6, 10499.0e6)
-WB_UPLINK_HZ = (2401.5e6, 2409.5e6)
-
 SYMBOL_RATES = (125e3, 250e3, 333e3)
 MODCODS = ("qpsk1/2", "qpsk2/3", "qpsk3/4", "qpsk4/5", "qpsk5/6", "8psk2/3", "8psk3/4", "8psk5/6")
 ROLLOFF = 0.35
@@ -145,26 +139,16 @@ class WidebandPlan:
 def make_wb_plan(wb: WidebandProfile, p: SatelliteProfile, rx_lnb_correction_hz: float = 0.0) -> WidebandPlan:
     """Frequencies for wideband mode. ``rx_lnb_correction_hz`` is the receive
     chain error last measured on the NB beacon (the WB channel is out of reach
-    of the NB beacon at this sample rate, so it is carried over)."""
+    of the NB beacon at this sample rate, so it is carried over). No band
+    limits: the operator picks the frequency."""
     bw = wb.sym_rate * (1 + ROLLOFF)
-    lo, hi = WB_DOWNLINK_HZ
-    if not lo + bw / 2 <= wb.dl_rf_hz <= hi - bw / 2:
-        raise ValueError(f"Channel must be inside the wideband transponder ({lo / 1e6:.1f}-{hi / 1e6:.1f} MHz)")
 
     nominal_if = wb.dl_rf_hz - p.lnb_lo_hz if p.lnb_lo_hz < wb.dl_rf_hz else p.lnb_lo_hz - wb.dl_rf_hz
     off = if_offset(wb.sym_rate)
     rx_lo = float(round(nominal_if - off))
     rx_off = nominal_if - rx_lo + p.rx_correction_hz + rx_lnb_correction_hz
 
-    reason = None
-    tlo, thi = WB_TX_ALLOWED_DL_HZ
-    if not tlo + bw / 2 <= wb.dl_rf_hz <= thi - bw / 2:
-        reason = (f"Transmit only between {tlo / 1e6:.1f} and {thi / 1e6:.1f} MHz "
-                  "(clear of the wideband beacon)")
     ul = wb.dl_rf_hz - p.translation_hz
-    ulo, uhi = WB_UPLINK_HZ
-    if reason is None and not ulo + bw / 2 <= ul <= uhi - bw / 2:
-        reason = "Uplink outside the wideband uplink band"
     tx_rf = ul + p.tx_correction_hz
     tx_if = tx_rf - p.uplink_lo_hz if p.uplink_lo_hz else tx_rf
     tx_lo = float(round(tx_if - off))
@@ -173,7 +157,7 @@ def make_wb_plan(wb: WidebandProfile, p: SatelliteProfile, rx_lnb_correction_hz:
         tx_lo_hz=tx_lo, tx_channel_offset_hz=tx_if - tx_lo,
         dl_rf_hz=wb.dl_rf_hz, ul_rf_hz=ul, occupied_bw_hz=bw,
         net_bitrate=net_bitrate(wb), sample_rate_hz=sample_rate(wb.sym_rate),
-        tx_allowed=reason is None, tx_block_reason=reason,
+        tx_allowed=True, tx_block_reason=None,
     )
 
 

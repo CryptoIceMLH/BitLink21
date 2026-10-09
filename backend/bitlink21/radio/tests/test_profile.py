@@ -12,9 +12,15 @@ def test_tx_follows_rx_channel_through_transponder():
 
 
 @pytest.mark.parametrize("dial", [10489.4995e6, 10489.7485e6, 10489.9933e6, 10490.1e6])
-def test_tx_blocked_on_beacons_and_outside_transponder(dial):
+def test_no_frequency_limits(dial):
+    # The operator picks the channel: beacons or outside the band, TX is allowed
     plan = make_plan(SatelliteProfile(rx_dial_rf_hz=dial))
-    assert not plan.tx_allowed and plan.tx_block_reason
+    assert plan.tx_allowed and plan.tx_block_reason is None
+
+
+def test_tx_blocked_only_without_uplink_frequency():
+    plan = make_plan(SatelliteProfile(tx_follow_rx=False, tx_dial_rf_hz=None))
+    assert not plan.tx_allowed and plan.tx_block_reason == "No uplink frequency set"
 
 
 @pytest.mark.parametrize("dial", [10489.55e6, 10489.70e6, 10489.95e6])

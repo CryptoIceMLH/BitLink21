@@ -103,9 +103,6 @@ def test_tx_is_refused_until_enabled_then_queued(svc):
         with pytest.raises(RuntimeError, match="Transmit is switched off"):
             await svc.send_message(envelope.TYPE_TEXT, b"hi")
         await svc.update_settings({"tx_enabled": True, "callsign": "dl1abc"})
-        # Default channel is the multimedia beacon: TX must be refused there
-        with pytest.raises(RuntimeError, match="beacon segment"):
-            await svc.send_message(envelope.TYPE_TEXT, b"hi")
         await svc.update_settings({"profile": {"rx_dial_rf_hz": 10489.600e6}})
         return await svc.send_message(envelope.TYPE_TEXT, b"hi")
 
@@ -286,15 +283,15 @@ def test_wideband_mode_starts_dvbs2_station_and_sends_whole_files(svc):
     assert sent["filename"] == "big.bin"
 
 
-def test_wideband_rejects_channel_outside_transponder(svc):
+def test_wideband_any_frequency_is_accepted(svc):
     async def run():
         await svc.ensure_ready()
         with pytest.raises(ValueError):
-            await svc.update_settings({"wideband": {"sym_rate": 2e6}})
+            await svc.update_settings({"wideband": {"sym_rate": 2e6}})  # above what the receiver handles
         await svc.update_settings({"link_mode": "wideband", "wideband": {"dl_rf_hz": 10491.5e6}})
         await svc.update_settings({"tx_enabled": True, "callsign": "dl1abc"})
         svc.station_sdr_id = "pluto-1"
-        with pytest.raises(RuntimeError, match="beacon"):
-            await svc.send_message(envelope.TYPE_TEXT, b"hi")
+        await svc.send_message(envelope.TYPE_TEXT, b"hi")
+        return svc.fake_pluto["tx_queue"].get_nowait()
 
-    asyncio.run(run())
+    assert asyncio.run(run())["content_b64"]

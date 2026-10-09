@@ -71,7 +71,7 @@ def test_runner_rx_emits_status_and_tx_streams_burst():
 
 
 def test_runner_tx_failure_still_attenuates():
-    profile = SatelliteProfile(sample_rate_hz=240e3)  # default channel = beacon segment: TX blocked
+    profile = SatelliteProfile(sample_rate_hz=240e3, tx_follow_rx=False, tx_dial_rf_hz=None)  # no uplink: TX blocked
     sdr, data_q, tx_q = FakeSdr(), queue.Queue(), queue.Queue()
     runner = BitLink21Runner(sdr, profile.to_dict(), data_q, tx_q)
     runner.start()

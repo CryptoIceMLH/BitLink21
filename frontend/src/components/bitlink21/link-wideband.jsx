@@ -34,18 +34,12 @@ function LinkWideband({ wideband, plan, options, correctionHz, busy, onApply }) 
 
     if (!wideband || !options) return null;
 
-    const [bandLo, bandHi] = options.downlink_hz;
-    const [txLo, txHi] = options.tx_allowed_downlink_hz;
     const parsed = parseFrequency(freqText);
     const changed = parsed && Math.abs(parsed - wideband.dl_rf_hz) > 0.5;
 
     const tune = () => {
         if (!parsed) {
             setError('Enter a frequency, e.g. 10494.750');
-            return;
-        }
-        if (parsed < bandLo || parsed > bandHi) {
-            setError(`QO-100 WB downlink is ${formatMHz(bandLo, 1)}–${formatMHz(bandHi, 1)} MHz`);
             return;
         }
         setError(null);
@@ -64,7 +58,7 @@ function LinkWideband({ wideband, plan, options, correctionHz, busy, onApply }) 
                     onChange={(e) => { setFreqText(e.target.value); setError(null); }}
                     onKeyDown={(e) => { if (e.key === 'Enter') tune(); }}
                     error={!!error}
-                    helperText={error || `Downlink centre frequency · transmit ${formatMHz(txLo, 1)}–${formatMHz(txHi, 1)} MHz (clear of the WB beacon)`}
+                    helperText={error || 'Downlink centre frequency of the DVB-S2 signal'}
                     placeholder="10494.750"
                     inputProps={{ inputMode: 'decimal', style: { fontSize: 32, fontWeight: 700, letterSpacing: 1 } }}
                     InputProps={{ endAdornment: <InputAdornment position="end">MHz</InputAdornment> }}
@@ -124,9 +118,6 @@ function LinkWideband({ wideband, plan, options, correctionHz, busy, onApply }) 
                     <Typography variant="body2" color="text.secondary">LNB correction</Typography>
                     <Typography variant="body2">{formatHz(correctionHz)} (last narrowband beacon lock)</Typography>
                 </Box>
-            )}
-            {plan && !plan.error && !plan.tx_allowed && (
-                <Alert severity="warning" variant="outlined" sx={{ mt: 2 }}>{plan.tx_block_reason}</Alert>
             )}
             <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 2 }}>
                 Messages and files go out as DVB-S2 (short frames, pilots, roll-off 0.35); any BitLink21 station on the same

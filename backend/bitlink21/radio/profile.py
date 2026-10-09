@@ -44,14 +44,6 @@ class SatelliteProfile:
     tx_mode: int = 4
     tx_gain_db: float = -30.0
     tx_correction_hz: float = 0.0  # uplink frequency correction (auto from echoes)
-    # Downlink segments we must never land a transmission on (QO-100 NB
-    # bandplan: CW beacon, PSK beacon, multimedia + upper beacon).
-    downlink_band_hz: List[float] = field(default_factory=lambda: [10489.500e6, 10490.000e6])
-    tx_forbidden_dl_hz: List[List[float]] = field(default_factory=lambda: [
-        [10489.4975e6, 10489.5050e6],
-        [10489.7450e6, 10489.7550e6],
-        [10489.9850e6, 10490.0050e6],
-    ])
     # SDR
     sample_rate_hz: float = 1.0e6
     rx_gain_db: float = 30.0
@@ -128,29 +120,16 @@ def make_plan(p: SatelliteProfile) -> FrequencyPlan:
     tx_dial = (p.rx_dial_rf_hz - p.translation_hz) if p.tx_follow_rx else p.tx_dial_rf_hz
     tx_block = None
     tx_lo = tx_off = tx_rf = None
+    # No band limits: the operator picks the frequency. The only block is
+    # having no uplink frequency at all.
     if not tx_dial:
         tx_block = "No uplink frequency set"
     else:
         mode = get_mode(tx_mode_idx)
         half_bw = mode.symbol_rate * (1 + RRC_ROLLOFF) / 2
-        # Where our signal will appear on the downlink
-        dl_centre = tx_dial + AUDIO_CARRIER_HZ + p.translation_hz
-        dl_lo, dl_hi = dl_centre - half_bw, dl_centre + half_bw
-        band_dl_lo, band_dl_hi = p.downlink_band_hz
-        if dl_lo < band_dl_lo or dl_hi > band_dl_hi:
-            tx_block = "Channel is outside the transponder"
-        for seg_lo, seg_hi in p.tx_forbidden_dl_hz:
-            if dl_lo < seg_hi and dl_hi > seg_lo:
-                tx_block = (
-                    f"Channel overlaps a beacon segment ({seg_lo / 1e6:.4f}-{seg_hi / 1e6:.4f} MHz); "
-                    "pick a free channel"
-                )
-
         tx_rf = tx_dial + AUDIO_CARRIER_HZ + p.tx_correction_hz
         tx_if = tx_rf - p.uplink_lo_hz if p.uplink_lo_hz else tx_rf
         band_lo, band_hi = p.uplink_band_hz
-        if not band_lo <= tx_rf <= band_hi:
-            tx_block = tx_block or "TX frequency is outside the uplink band"
         # Put the TX LO (and its leakage / IQ image) just outside the uplink
         # band, on whichever side is closer, so nothing but our signal lands
         # on the transponder.

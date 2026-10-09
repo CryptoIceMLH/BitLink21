@@ -22,12 +22,13 @@ def test_plan_tunes_channel_and_uplink():
     assert 450e3 < plan.net_bitrate < 480e3  # QPSK 3/4, short frames, pilots
 
 
-def test_plan_keeps_tx_off_the_wideband_beacon():
+def test_plan_has_no_band_limits():
+    # The operator picks the frequency: anything goes, TX always allowed
     p = SatelliteProfile()
-    plan = wbm.make_wb_plan(wbm.WidebandProfile(dl_rf_hz=10491.6e6, sym_rate=125e3), p)
-    assert not plan.tx_allowed and "beacon" in plan.tx_block_reason
-    with pytest.raises(ValueError):
-        wbm.make_wb_plan(wbm.WidebandProfile(dl_rf_hz=10500.0e6), p)
+    for f in (10491.5e6, 10489.0e6, 10500.0e6):
+        plan = wbm.make_wb_plan(wbm.WidebandProfile(dl_rf_hz=f, sym_rate=125e3), p)
+        assert plan.tx_allowed and plan.tx_block_reason is None
+        assert plan.ul_rf_hz == pytest.approx(f - p.translation_hz)
 
 
 @pytest.mark.parametrize("rs,fs", [(333e3, 1.332e6), (250e3, 1.0e6), (125e3, 1.0e6)])
