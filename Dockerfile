@@ -273,6 +273,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgmp-dev && r
     make -j$(nproc) && \
     sudo make install && \
     sudo ldconfig
+# dvbs2-rx imports PyQt5 (GUI) and gr-uhd (USRP) at the top, but uses them
+# only with --gui / --source usrp. This image has neither (GNU Radio is built
+# without Qt GUI, no UHD), so make both imports optional for headless use.
+RUN sed -i \
+      -e 's/^from PyQt5 import Qt, QtCore$/try:\n    from PyQt5 import Qt, QtCore\nexcept ImportError:  # headless\n    class Qt:\n        QWidget = object\n    QtCore = None/' \
+      -e 's/^    import sip$/    sip = None/' \
+      -e 's/^from gnuradio import analog, blocks, digital, dvbs2rx, eng_notation, gr, uhd$/from gnuradio import analog, blocks, digital, dvbs2rx, eng_notation, gr\ntry:\n    from gnuradio import uhd\nexcept ImportError:  # no UHD in this image\n    uhd = None/' \
+      /usr/local/bin/dvbs2-rx && \
+    grep -q "except ImportError:  # headless" /usr/local/bin/dvbs2-rx && \
+    grep -q "uhd = None" /usr/local/bin/dvbs2-rx
 RUN /app/venv/bin/python3 -c "import gnuradio.dvbs2rx, gnuradio.dtv; print('gr-dvbs2rx + gr-dtv available')" && \
     /app/venv/bin/python3 /usr/local/bin/dvbs2-rx --help > /dev/null && echo "dvbs2-rx runs"
 
