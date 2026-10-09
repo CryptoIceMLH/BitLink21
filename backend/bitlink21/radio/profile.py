@@ -8,10 +8,10 @@ Frequencies are in Hz. "RF" means at the satellite (downlink or uplink),
 "IF" means at the SDR after the LNB / before the upconverter.
 """
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import List, Optional
 
-from .modes import AUDIO_CARRIER_HZ, RRC_ROLLOFF, get_mode
+from .modes import AUDIO_CARRIER_HZ
 
 
 @dataclass
@@ -34,7 +34,6 @@ class SatelliteProfile:
     # Uplink (transponder translation: downlink = uplink + translation)
     translation_hz: float = 8089.500e6
     uplink_lo_hz: float = 0.0  # upconverter LO, 0 = SDR transmits on RF directly
-    uplink_band_hz: List[float] = field(default_factory=lambda: [2400.000e6, 2400.500e6])
     # "Link" mode: transmit on the same channel we listen to (uplink derived
     # from the transponder translation, same speed mode). Our own signal then
     # comes back through the satellite, which confirms delivery and measures
@@ -83,6 +82,9 @@ class FrequencyPlan:
         return asdict(self)
 
 
+TX_LO_OFFSET_HZ = 100e3
+
+
 def _rf_to_if(rf: float, lo: float) -> float:
     return abs(rf - lo)
 
@@ -125,24 +127,11 @@ def make_plan(p: SatelliteProfile) -> FrequencyPlan:
     if not tx_dial:
         tx_block = "No uplink frequency set"
     else:
-        mode = get_mode(tx_mode_idx)
-        half_bw = mode.symbol_rate * (1 + RRC_ROLLOFF) / 2
         tx_rf = tx_dial + AUDIO_CARRIER_HZ + p.tx_correction_hz
         tx_if = tx_rf - p.uplink_lo_hz if p.uplink_lo_hz else tx_rf
-        band_lo, band_hi = p.uplink_band_hz
-        # Put the TX LO (and its leakage / IQ image) just outside the uplink
-        # band, on whichever side is closer, so nothing but our signal lands
-        # on the transponder.
-        shift = p.uplink_lo_hz if p.uplink_lo_hz else 0.0
-        below = band_lo - shift - 50e3
-        above = band_hi - shift + 50e3
-        tx_lo = below if abs(tx_if - below) <= abs(above - tx_if) else above
-        if abs(tx_if - tx_lo) + half_bw > usable:
-            tx_lo = tx_if - 100e3
-            warnings.append(
-                "TX LO could not be placed outside the uplink band at this sample rate; "
-                "LO leakage may appear on the transponder. Increase the sample rate."
-            )
+        # The SDR's TX LO sits a fixed distance below our signal (keeps the
+        # LO/DC spur out of the signal itself); no band is involved
+        tx_lo = tx_if - TX_LO_OFFSET_HZ
         tx_off = tx_if - tx_lo
 
     return FrequencyPlan(

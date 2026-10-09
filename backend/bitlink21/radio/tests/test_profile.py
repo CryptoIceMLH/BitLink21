@@ -23,14 +23,12 @@ def test_tx_blocked_only_without_uplink_frequency():
     assert not plan.tx_allowed and plan.tx_block_reason == "No uplink frequency set"
 
 
-@pytest.mark.parametrize("dial", [10489.55e6, 10489.70e6, 10489.95e6])
-def test_tx_lo_stays_outside_uplink_band(dial):
+@pytest.mark.parametrize("dial", [10489.55e6, 10489.70e6, 10489.95e6, 10495.0e6])
+def test_tx_lo_fixed_offset_below_signal(dial):
     p = SatelliteProfile(rx_dial_rf_hz=dial)
     plan = make_plan(p)
-    lo, hi = p.uplink_band_hz
-    assert not lo <= plan.tx_lo_hz <= hi
-    assert abs(plan.tx_channel_offset_hz) < 0.45 * p.sample_rate_hz
-    assert not plan.warnings
+    assert plan.tx_channel_offset_hz == pytest.approx(100e3)
+    assert plan.tx_lo_hz + plan.tx_channel_offset_hz == pytest.approx(plan.tx_channel_rf_hz)
 
 
 def test_rx_offsets_in_sdr_bandwidth_and_away_from_dc():
