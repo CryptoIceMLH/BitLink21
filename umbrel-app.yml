@@ -4,7 +4,7 @@ name: BitLink21
 tagline: Bitcoin decentralized satellite communication system
 icon: bitlink21-128.png
 category: bitcoin
-version: "4.0.2"
+version: "4.0.3"
 port: 7000
 description: >-
   BitLink21 sends messages, Bitcoin transactions and Lightning invoices over the
@@ -23,6 +23,14 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 dependencies: []
 releaseNotes: >-
+  v4.0.3: Receiver no longer falls behind while transmitting (modem and
+  beacon tracker about 3x lighter, bigger receive buffer). PlutoSDR
+  reconnects automatically after a dropped connection, or says to
+  power-cycle it. The radio can no longer be started twice. Send plain
+  files (up to 200 kB, readable by any HSModem station). New message view
+  with All / Received / Sent / Files tabs; your own messages show clearly
+  when they were heard back via the satellite.
+
   v4.0.2: Fix QO-100 beacon lock for LNB errors beyond 16.7 kHz (it could
   lock on a false frequency, so nothing was received). Calibration only from
   a steady lock. Lighter UI: tracking, scheduler, rigs, rotators and

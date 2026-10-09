@@ -9,7 +9,7 @@ services:
       args:
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
         BUILD_DATE: ${BUILD_DATE:-unknown}
-        BUILD_VERSION: ${BUILD_VERSION:-4.0.2}
+        BUILD_VERSION: ${BUILD_VERSION:-4.0.3}
     container_name: bitlink21
     environment:
       # PlutoSDR configuration
