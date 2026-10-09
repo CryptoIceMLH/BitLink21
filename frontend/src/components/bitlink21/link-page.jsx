@@ -5,7 +5,7 @@ import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import { useSocket } from '../common/socket.jsx';
 import { toast } from '../../utils/toast-with-timestamp.jsx';
 import {
-    calibrateRx, clearError, deleteMessage, fetchFiles, fetchMessages, fetchState, sendFile, sendMessage, startStation,
+    calibrateRx, clearError, deleteFile, deleteMessage, fetchFiles, fetchMessages, fetchState, sendFile, sendMessage, startStation,
     stopStation, updateSettings,
 } from './bitlink21-slice.jsx';
 import LinkStatus, { linkSteps } from './link-status.jsx';
@@ -137,6 +137,7 @@ export default function LinkPage() {
                             files={files}
                             onDelete={(id) => dispatch(deleteMessage({ socket, id }))}
                             onDownloadFile={downloadFile}
+                            onDeleteFile={(id) => dispatch(deleteFile({ socket, id }))}
                         />
                     </Box>
                 </Grid>

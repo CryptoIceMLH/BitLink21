@@ -171,10 +171,16 @@ function MessageItem({ msg, onDelete }) {
     );
 }
 
-function ReceivedFileItem({ file, onDownload }) {
+function ReceivedFileItem({ file, onDownload, onDelete }) {
     return (
-        <Stack alignItems="flex-start">
-            <Header out={false} who="Received file (off air)" when={timeAgo(file.created_at)} chips={<Chip size="small" label="File" sx={{ height: 18, fontSize: 11 }} />} />
+        <Stack alignItems="flex-start" sx={{ '&:hover .bl21-del': { opacity: 1 } }}>
+            <Header
+                out={false}
+                who="Received file (off air)"
+                when={timeAgo(file.created_at)}
+                chips={<Chip size="small" label="File" sx={{ height: 18, fontSize: 11 }} />}
+                onDelete={() => onDelete(file.id)}
+            />
             <Paper elevation={0} sx={{ px: 2, py: 1.2, maxWidth: { xs: '92%', md: '78%' }, borderRadius: 3, borderTopLeftRadius: 4, bgcolor: 'action.hover', borderLeft: 3, borderColor: 'info.main' }}>
                 <Stack direction="row" spacing={1} alignItems="center">
                     <InsertDriveFileOutlinedIcon />
@@ -183,13 +189,16 @@ function ReceivedFileItem({ file, onDownload }) {
                     <Tooltip title="Download">
                         <IconButton size="small" onClick={() => onDownload(file)}><DownloadRoundedIcon fontSize="small" /></IconButton>
                     </Tooltip>
+                    <Tooltip title="Delete">
+                        <IconButton size="small" onClick={() => onDelete(file.id)}><DeleteOutlineRoundedIcon fontSize="small" /></IconButton>
+                    </Tooltip>
                 </Stack>
             </Paper>
         </Stack>
     );
 }
 
-export default function LinkFeed({ messages, files, onDelete, onDownloadFile }) {
+export default function LinkFeed({ messages, files, onDelete, onDownloadFile, onDeleteFile }) {
     const [tab, setTab] = useState('all');
 
     const items = useMemo(() => {
@@ -238,7 +247,7 @@ export default function LinkFeed({ messages, files, onDelete, onDownloadFile }) 
                 <Stack spacing={2}>
                     {shown.map((i) => (i.kind === 'msg'
                         ? <MessageItem key={i.key} msg={i.m} onDelete={onDelete} />
-                        : <ReceivedFileItem key={i.key} file={i.f} onDownload={onDownloadFile} />))}
+                        : <ReceivedFileItem key={i.key} file={i.f} onDownload={onDownloadFile} onDelete={onDeleteFile} />))}
                 </Stack>
             )}
         </Box>

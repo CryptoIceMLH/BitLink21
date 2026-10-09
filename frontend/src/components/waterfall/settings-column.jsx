@@ -215,13 +215,20 @@ const WaterfallSettings = forwardRef(function WaterfallSettings({ playbackRemain
     }, [centerFrequency, dbRange, fftSize, sampleRate, gain, colorMap, autoDBRange]);
 
     useEffect(() => {
-        // Only run once on mount if selectedSDRId exists and we haven't initialized yet
-        if (selectedSDRId && !hasInitializedRef.current) {
-            hasInitializedRef.current = true;
-            handleSDRChange({target: {value: selectedSDRId}});
+        // Once the SDR list is loaded (it always contains SigMF playback), restore the
+        // remembered SDR. A remembered id that no longer exists (SDR deleted or
+        // re-added) falls back to the first PlutoSDR instead of erroring.
+        if (hasInitializedRef.current || sdrs.length === 0) return;
+        hasInitializedRef.current = true;
+        const known = sdrs.some((sdr) => sdr.id === selectedSDRId);
+        const pick = known ? selectedSDRId : (sdrs.find((sdr) => sdr.type === 'plutosdr')?.id || 'none');
+        if (pick !== 'none') {
+            handleSDRChange({target: {value: pick}});
+        } else if (selectedSDRId && selectedSDRId !== 'none') {
+            dispatch(setSelectedSDRId('none'));
         }
         // No cleanup function - let the ref stay true to prevent any subsequent calls for StrictMode
-    }, []);
+    }, [sdrs]);
 
     const handleAccordionChange = (panel) => (event, isExpanded) => {
         const updateExpandedPanels = (expandedPanels) => {
