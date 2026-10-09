@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Box, LinearProgress, Paper, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Button, LinearProgress, Paper, Stack, Tooltip, Typography } from '@mui/material';
+import StopCircleRoundedIcon from '@mui/icons-material/StopCircleRounded';
 import { keyframes } from '@mui/system';
 
 // Live view of what the receiver is doing: decoding state, a strip of the
@@ -44,7 +45,7 @@ function secondsAgo(t, now) {
     return s < 60 ? `${s} s ago` : `${Math.floor(s / 60)} min ago`;
 }
 
-export default function LinkActivity({ status, transmitting, txProgress }) {
+export default function LinkActivity({ status, transmitting, txProgress, onStop }) {
     const modem = status?.modem;
     const wb = status?.wideband;
     const progress = status?.file_progress;
@@ -141,7 +142,14 @@ export default function LinkActivity({ status, transmitting, txProgress }) {
 
             {transmitting && txProgress?.progress !== undefined && (
                 <Box sx={{ mt: 1.5 }}>
-                    <Typography variant="caption" sx={{ fontWeight: 700 }}>Sending</Typography>
+                    <Stack direction="row" alignItems="center" justifyContent="space-between">
+                        <Typography variant="caption" sx={{ fontWeight: 700 }}>Sending</Typography>
+                        {onStop && (
+                            <Button size="small" color="error" variant="outlined" startIcon={<StopCircleRoundedIcon />} onClick={onStop}>
+                                Stop
+                            </Button>
+                        )}
+                    </Stack>
                     <LinearProgress variant="determinate" color="error" value={Math.min(100, txProgress.progress * 100)} sx={{ height: 6, borderRadius: 3, mt: 0.5 }} />
                 </Box>
             )}

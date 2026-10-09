@@ -3,6 +3,7 @@ import concurrent.futures
 import os
 import queue
 import tempfile
+import time
 import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -197,7 +198,7 @@ app = FastAPI(
     lifespan=lifespan,
     title="BitLink21 API",
     description="Bitcoin decentralized communication system — satellite tracking, SDR control, HSModem satellite modem, Bitcoin/Lightning relay",
-    version="4.0.4",
+    version="4.0.5",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
@@ -305,6 +306,23 @@ async def download_decoded_folder(foldername: str, background_tasks: BackgroundT
         media_type="application/zip",
         filename=f"{foldername}.zip",
         background=background_tasks,
+    )
+
+
+@app.get("/api/bitlink21/diagnostics")
+async def download_bitlink21_diagnostics():
+    """Logs + version/system info + redacted settings + radio state (zip)."""
+    from fastapi.responses import Response
+
+    from bitlink21.service import service as bitlink21_service
+
+    await bitlink21_service.ensure_ready(sio)
+    data = await bitlink21_service.diagnostics_bundle()
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="bitlink21-diagnostics-{stamp}.zip"'},
     )
 
 

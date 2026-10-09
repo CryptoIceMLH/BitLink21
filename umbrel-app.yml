@@ -4,7 +4,7 @@ name: BitLink21
 tagline: Bitcoin decentralized satellite communication system
 icon: bitlink21-128.png
 category: bitcoin
-version: "4.0.4"
+version: "4.0.5"
 port: 7000
 description: >-
   BitLink21 sends messages, Bitcoin transactions and Lightning invoices over the
@@ -23,6 +23,17 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 dependencies: []
 releaseNotes: >-
+  v4.0.5: Wideband (DVB-S2) receiver fixed: it was built for the build
+  machine's CPU and crashed straight away on the Umbrel ("Broken pipe"); it
+  now runs on any x86-64, and if it ever stops the reason is shown. Stop
+  button to end a transmission (queued, waiting or on air). Beacon lock stays
+  locked when you change channel or speed, and picks up from the last lock
+  after a restart. TX frequency is never moved automatically any more (the
+  echo-based auto correction is gone and its value reset to 0). Your echoed
+  file is kept in the Files tab ("Echo of your file"); sent and received
+  files can be opened and downloaded. Diagnostics: verbose logging switch and
+  a downloadable diagnostics zip (logs, version, system info, radio status).
+
   v4.0.4: New Experimental tab: send the same messages and files over
   DVB-S2 on the QO-100 wideband transponder (125-333 kS/s, up to ~600
   kbit/s, e.g. 100 kB in a few seconds). No frequency limits: transmit on

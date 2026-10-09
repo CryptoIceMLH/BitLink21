@@ -14,13 +14,26 @@ import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutl
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import CallReceivedRoundedIcon from '@mui/icons-material/CallReceivedRounded';
 import CallMadeRoundedIcon from '@mui/icons-material/CallMadeRounded';
+import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
+import StopCircleRoundedIcon from '@mui/icons-material/StopCircleRounded';
+import BlockRoundedIcon from '@mui/icons-material/BlockRounded';
 import { formatHz, parseInvoice, timeAgo } from './link-utils.js';
 
 const TYPE_LABEL = { 1: 'Bitcoin TX', 2: 'Lightning', 3: 'Data' };
 const NO_ECHO_AFTER_S = 60;
 
 // Delivery track for something we sent
-function DeliveryTrack({ msg, tx }) {
+function StopButton({ msg, onStop }) {
+    return (
+        <Tooltip title="Stop sending">
+            <IconButton size="small" onClick={() => onStop(msg.id)} sx={{ color: 'inherit', ml: 0.5 }}>
+                <StopCircleRoundedIcon fontSize="small" />
+            </IconButton>
+        </Tooltip>
+    );
+}
+
+function DeliveryTrack({ msg, tx, onStop }) {
     const [, tick] = useState(0);
     useEffect(() => {
         if (msg.status !== 'sent') return undefined;
@@ -42,13 +55,20 @@ function DeliveryTrack({ msg, tx }) {
     if (msg.status === 'sending' && tx?.progress !== undefined && tx?.progress !== null) {
         const left = Math.max(0, Math.ceil((1 - tx.progress) * (tx.duration_s || 0)));
         return (
-            <Box sx={{ minWidth: 200 }}>
-                <Typography variant="caption" sx={{ fontWeight: 700 }}>
-                    Transmitting {Math.round(tx.progress * 100)}%{left ? ` · ${left} s left` : ''}
-                </Typography>
-                <LinearProgress variant="determinate" value={tx.progress * 100} color="inherit" sx={{ height: 5, borderRadius: 3, mt: 0.3 }} />
-            </Box>
+            <Stack direction="row" alignItems="center">
+                <Box sx={{ minWidth: 200 }}>
+                    <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                        Transmitting {Math.round(tx.progress * 100)}%{left ? ` · ${left} s left` : ''}
+                    </Typography>
+                    <LinearProgress variant="determinate" value={tx.progress * 100} color="inherit" sx={{ height: 5, borderRadius: 3, mt: 0.3 }} />
+                </Box>
+                <StopButton msg={msg} onStop={onStop} />
+            </Stack>
         );
+    }
+    if (msg.status === 'stopped') {
+        return <Chip size="small" icon={<BlockRoundedIcon />} variant="outlined" label="Stopped"
+            sx={{ color: 'inherit', borderColor: 'currentColor', '& .MuiChip-icon': { color: 'inherit' } }} />;
     }
     if (msg.status === 'failed') {
         return <Chip size="small" icon={<ErrorOutlineRoundedIcon />} color="error" label={msg.error || 'Failed'} />;
@@ -59,26 +79,46 @@ function DeliveryTrack({ msg, tx }) {
         sending: <CircularProgress size={14} color="inherit" />, sent: <DoneRoundedIcon />,
     }[msg.status];
     const late = msg.status === 'sent' && Date.now() / 1000 - msg.created_at > NO_ECHO_AFTER_S;
+    const stoppable = ['queued', 'waiting', 'sending'].includes(msg.status);
     return (
-        <Tooltip title={late ? 'Your station has not decoded its own signal yet. Check the TX level and that the channel is free.' : ''}>
-            <Chip
-                size="small"
-                icon={late ? <HourglassBottomRoundedIcon /> : icon}
-                label={late ? 'Sent · no echo heard yet' : (steps[msg.status] || msg.status)}
-                variant="outlined"
-                sx={{ color: 'inherit', borderColor: 'currentColor', '& .MuiChip-icon': { color: 'inherit' } }}
-            />
-        </Tooltip>
+        <Stack direction="row" alignItems="center">
+            <Tooltip title={late ? 'Your station has not decoded its own signal yet. Check the TX level and that the channel is free.' : ''}>
+                <Chip
+                    size="small"
+                    icon={late ? <HourglassBottomRoundedIcon /> : icon}
+                    label={late ? 'Sent · no echo heard yet' : (steps[msg.status] || msg.status)}
+                    variant="outlined"
+                    sx={{ color: 'inherit', borderColor: 'currentColor', '& .MuiChip-icon': { color: 'inherit' } }}
+                />
+            </Tooltip>
+            {stoppable && <StopButton msg={msg} onStop={onStop} />}
+        </Stack>
     );
 }
 
-function MessageBody({ msg }) {
+function FileActions({ onOpen, onDownload, color }) {
+    return (
+        <>
+            <Tooltip title="Open">
+                <IconButton size="small" onClick={onOpen} sx={{ color }}><OpenInNewRoundedIcon fontSize="small" /></IconButton>
+            </Tooltip>
+            <Tooltip title="Download">
+                <IconButton size="small" onClick={onDownload} sx={{ color }}><DownloadRoundedIcon fontSize="small" /></IconButton>
+            </Tooltip>
+        </>
+    );
+}
+
+function MessageBody({ msg, onSentFile }) {
     if (msg.filename) {
         return (
             <Stack direction="row" spacing={1} alignItems="center">
                 <InsertDriveFileOutlinedIcon />
                 <Typography sx={{ fontWeight: 700 }}>{msg.filename}</Typography>
                 <Typography variant="caption" sx={{ opacity: 0.85 }}>{((msg.size || 0) / 1024).toFixed(1)} kB</Typography>
+                {onSentFile && msg.direction === 'tx' && (
+                    <FileActions color="inherit" onOpen={() => onSentFile(msg, 'open')} onDownload={() => onSentFile(msg, 'download')} />
+                )}
             </Stack>
         );
     }
@@ -152,7 +192,7 @@ function Header({ out, who, when, chips, onDelete }) {
 
 // Memoised: the page re-renders on every receiver status (2x/s); a message
 // only re-renders when it, its TX progress or the minute tick changes.
-const MessageItem = memo(function MessageItem({ msg, tx, onDelete }) {
+const MessageItem = memo(function MessageItem({ msg, tx, onDelete, onStop, onSentFile }) {
     const out = msg.direction === 'tx';
     const chips = (
         <>
@@ -180,21 +220,27 @@ const MessageItem = memo(function MessageItem({ msg, tx, onDelete }) {
                     borderLeft: out ? 0 : 3, borderColor: 'info.main',
                 }}
             >
-                <MessageBody msg={msg} />
-                {out && <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}><DeliveryTrack msg={msg} tx={tx} /></Box>}
+                <MessageBody msg={msg} onSentFile={onSentFile} />
+                {out && <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}><DeliveryTrack msg={msg} tx={tx} onStop={onStop} /></Box>}
             </Paper>
         </Stack>
     );
 });
 
-const ReceivedFileItem = memo(function ReceivedFileItem({ file, onDownload, onDelete }) {
+const ReceivedFileItem = memo(function ReceivedFileItem({ file, onDownload, onOpen, onDelete }) {
+    const echo = !!file.echo_of;
     return (
         <Stack alignItems="flex-start" sx={{ '&:hover .bl21-del': { opacity: 1 } }}>
             <Header
                 out={false}
-                who="Received file (off air)"
+                who={echo ? 'Echo of your file (heard back via QO-100)' : 'Received file (off air)'}
                 when={timeAgo(file.created_at)}
-                chips={<Chip size="small" label="File" sx={{ height: 18, fontSize: 11 }} />}
+                chips={(
+                    <>
+                        <Chip size="small" label="File" sx={{ height: 18, fontSize: 11 }} />
+                        {echo && <Chip size="small" color="success" label="Echo" sx={{ height: 18, fontSize: 11 }} />}
+                    </>
+                )}
                 onDelete={() => onDelete(file.id)}
             />
             <Paper elevation={0} sx={{ px: 2, py: 1.2, maxWidth: { xs: '92%', md: '78%' }, borderRadius: 3, borderTopLeftRadius: 4, bgcolor: 'action.hover', borderLeft: 3, borderColor: 'info.main' }}>
@@ -202,9 +248,7 @@ const ReceivedFileItem = memo(function ReceivedFileItem({ file, onDownload, onDe
                     <InsertDriveFileOutlinedIcon />
                     <Typography sx={{ fontWeight: 700 }}>{file.name}</Typography>
                     <Typography variant="caption" color="text.secondary">{(file.size / 1024).toFixed(1)} kB</Typography>
-                    <Tooltip title="Download">
-                        <IconButton size="small" onClick={() => onDownload(file)}><DownloadRoundedIcon fontSize="small" /></IconButton>
-                    </Tooltip>
+                    <FileActions onOpen={() => onOpen(file)} onDownload={() => onDownload(file)} />
                     <Tooltip title="Delete">
                         <IconButton size="small" onClick={() => onDelete(file.id)}><DeleteOutlineRoundedIcon fontSize="small" /></IconButton>
                     </Tooltip>
@@ -216,7 +260,9 @@ const ReceivedFileItem = memo(function ReceivedFileItem({ file, onDownload, onDe
 
 const NO_PROGRESS = {};
 
-function LinkFeed({ messages, files, txProgress = NO_PROGRESS, onDelete, onDownloadFile, onDeleteFile }) {
+function LinkFeed({
+    messages, files, txProgress = NO_PROGRESS, onDelete, onDownloadFile, onOpenFile, onDeleteFile, onStop, onSentFile,
+}) {
     const [tab, setTab] = useState('all');
     // Refresh the "x min ago" labels twice a minute
     const [minute, setMinute] = useState(0);
@@ -270,8 +316,8 @@ function LinkFeed({ messages, files, txProgress = NO_PROGRESS, onDelete, onDownl
             ) : (
                 <Stack spacing={2}>
                     {shown.map((i) => (i.kind === 'msg'
-                        ? <MessageItem key={i.key} msg={i.m} tx={txProgress[i.m.id]} onDelete={onDelete} minute={minute} />
-                        : <ReceivedFileItem key={i.key} file={i.f} onDownload={onDownloadFile} onDelete={onDeleteFile} minute={minute} />))}
+                        ? <MessageItem key={i.key} msg={i.m} tx={txProgress[i.m.id]} onDelete={onDelete} onStop={onStop} onSentFile={onSentFile} minute={minute} />
+                        : <ReceivedFileItem key={i.key} file={i.f} onDownload={onDownloadFile} onOpen={onOpenFile} onDelete={onDeleteFile} minute={minute} />))}
                 </Stack>
             )}
         </Box>

@@ -255,7 +255,10 @@ RUN /app/venv/bin/python3 -c "from satellites.satyaml.satyaml import SatYAML; pr
     (echo "ERROR: satyaml not properly installed!" && exit 1)
 
 # Compile gr-dvbs2rx (DVB-S2 receiver for BitLink21's experimental wideband
-# link; its dvbs2-rx app takes IQ on stdin and outputs MPEG-TS on stdout)
+# link; its dvbs2-rx app takes IQ on stdin and outputs MPEG-TS on stdout).
+# NATIVE_OPTIMIZATIONS=OFF: its default -march=native targets the build
+# machine's CPU (AVX2/FMA here) and crashed with an illegal instruction on the
+# Umbrel; it still picks SIMD code paths at runtime.
 WORKDIR /src
 ARG DVBS2RX_REF=master
 RUN apt-get update && apt-get install -y --no-install-recommends libgmp-dev && rm -rf /var/lib/apt/lists/* && \
@@ -265,6 +268,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgmp-dev && r
     cd build && \
     cmake -DCMAKE_BUILD_TYPE=Release \
           -DENABLE_DOXYGEN=OFF \
+          -DNATIVE_OPTIMIZATIONS=OFF \
           -DCMAKE_INSTALL_PREFIX=/usr/local \
           -DPYTHON_EXECUTABLE=/app/venv/bin/python3 \
           -DGR_PYTHON_DIR=/app/venv/lib/python3.12/site-packages \

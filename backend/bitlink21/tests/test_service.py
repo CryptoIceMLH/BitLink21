@@ -9,6 +9,7 @@ import pytest
 
 from bitlink21 import service as service_mod
 from bitlink21.radio import envelope, filetransfer, framing
+from bitlink21.radio.profile import SatelliteProfile
 from bitlink21.store import Store
 
 
@@ -114,7 +115,7 @@ def test_tx_is_refused_until_enabled_then_queued(svc):
     assert envelope.decode(content).body == b"hi"
 
 
-def test_own_message_heard_back_is_confirmed_and_corrects_tx(svc):
+def test_own_message_heard_back_is_confirmed_and_never_moves_tx(svc):
     async def run():
         await svc.ensure_ready()
         svc.station_sdr_id = "pluto-1"
@@ -131,13 +132,37 @@ def test_own_message_heard_back_is_confirmed_and_corrects_tx(svc):
     sent, msgs = asyncio.run(run())
     assert len(msgs) == 1  # no duplicate rx copy of our own message
     assert msgs[0]["id"] == sent["id"] and msgs[0]["status"] == "confirmed"
-    assert msgs[0]["echo_offset_hz"] == 120.0
-    assert svc.settings["profile"]["tx_correction_hz"] == -120.0
+    assert msgs[0]["echo_offset_hz"] == 120.0  # shown as information
+    assert svc.settings["profile"]["tx_correction_hz"] == 0.0  # TX untouched
     commands = []
     while not svc.fake_pluto["config_queue"].empty():
         commands.append(svc.fake_pluto["config_queue"].get_nowait())
-    updates = [c["bitlink21_tx_update"] for c in commands if "bitlink21_tx_update" in c]
-    assert updates and updates[-1]["tx_correction_hz"] == -120.0
+    assert not [c for c in commands if "bitlink21_tx_update" in c]
+
+
+def test_old_auto_tx_correction_is_reset_once(tmp_path, monkeypatch):
+    async def run():
+        st = Store(str(tmp_path / "old.db"))
+        await st.open()
+        await st.set_settings({"auto_tx_correction": True,
+                               "profile": {**SatelliteProfile().to_dict(), "tx_correction_hz": 1018.2}})
+        monkeypatch.setattr(service_mod, "store", st)
+        s = service_mod.BitLink21Service()
+        s._find_pluto = lambda: None
+        await s.ensure_ready()
+        first = s.settings["profile"]["tx_correction_hz"], "auto_tx_correction" in s.settings
+        # A deliberate manual value after the reset is kept across restarts
+        await s.update_settings({"profile": {"tx_correction_hz": 15.0}})
+        s2 = service_mod.BitLink21Service()
+        s2._find_pluto = lambda: None
+        await s2.ensure_ready()
+        second = s2.settings["profile"]["tx_correction_hz"]
+        await st.close()
+        return first, second
+
+    (corr, has_auto), second = asyncio.run(run())
+    assert corr == 0.0 and not has_auto
+    assert second == 15.0
 
 
 def test_lightning_invoice_validation():
@@ -164,7 +189,9 @@ def test_send_plain_file_and_its_echo_is_confirmed(svc):
 
     sent, msgs, files = asyncio.run(run())
     assert sent["filename"] == "notes.txt" and sent["size"] == 1120 and sent["body_hex"] is None
-    assert msgs[0]["status"] == "confirmed" and not files  # echo, not a new received file
+    assert msgs[0]["status"] == "confirmed"
+    # The echoed copy is kept, marked as the echo of our message
+    assert len(files) == 1 and files[0]["echo_of"] == msgs[0]["id"] and files[0]["size"] == 1120
 
 
 def test_late_sent_status_does_not_undo_echo(svc):
@@ -239,7 +266,8 @@ def test_large_file_goes_out_in_parts_and_is_reassembled(svc):
     sent, names, joined, content, msgs, files = asyncio.run(run())
     assert names == ["holiday-photo.jpg.part1of3", "holiday-photo.jpg.part2of3", "holiday-photo.jpg.part3of3"]
     assert joined == content and sent["size"] == len(content)
-    assert msgs[0]["status"] == "confirmed" and not files  # reassembled echo, no stray parts
+    assert msgs[0]["status"] == "confirmed"
+    assert len(files) == 1 and files[0]["echo_of"] == msgs[0]["id"]  # one reassembled echo copy, no stray parts
 
 
 def test_parts_from_another_station_are_reassembled(svc):
@@ -295,3 +323,77 @@ def test_wideband_any_frequency_is_accepted(svc):
         return svc.fake_pluto["tx_queue"].get_nowait()
 
     assert asyncio.run(run())["content_b64"]
+
+
+def test_stop_sending(svc):
+    async def run():
+        await svc.ensure_ready()
+        svc.station_sdr_id = "pluto-1"
+        await svc.update_settings({"tx_enabled": True, "callsign": "dl1abc",
+                                   "profile": {"rx_dial_rf_hz": 10489.600e6}})
+        sent = await svc.send_message(envelope.TYPE_TEXT, b"long one")
+        await svc.handle_worker_event("pluto-1", {"type": "bitlink21_tx_status", "msg_row": sent["id"], "status": "sending"})
+        stopped = await svc.cancel_tx(sent["id"])
+        cmds = []
+        while not svc.fake_pluto["config_queue"].empty():
+            cmds.append(svc.fake_pluto["config_queue"].get_nowait())
+        # A late "sent" from the worker must not undo the stop
+        await svc.handle_worker_event("pluto-1", {"type": "bitlink21_tx_status", "msg_row": sent["id"], "status": "sent"})
+        return stopped, cmds, await svc.list_messages()
+
+    stopped, cmds, msgs = asyncio.run(run())
+    assert stopped["status"] == "stopped"
+    assert {"bitlink21_tx_cancel": stopped["id"]} in cmds
+    assert msgs[0]["status"] == "stopped"
+
+
+def test_channel_change_retunes_in_place(svc):
+    async def run():
+        await svc.ensure_ready()
+        svc.station_sdr_id = "pluto-1"
+        await svc.update_settings({"profile": {"rx_dial_rf_hz": 10489.65e6, "rx_mode": 2}})
+        cmds = []
+        while not svc.fake_pluto["config_queue"].empty():
+            cmds.append(svc.fake_pluto["config_queue"].get_nowait())
+        return cmds
+
+    cmds = asyncio.run(run())
+    assert any("bitlink21_retune" in c for c in cmds)
+    assert not any("bitlink21_start" in c for c in cmds)  # no restart, beacon lock kept
+
+
+def test_diagnostics_bundle_and_verbose(svc, tmp_path, monkeypatch):
+    import io
+    import json
+    import logging
+    import zipfile
+
+    from bitlink21 import diagnostics
+
+    monkeypatch.setattr(diagnostics, "LOG_DIR", str(tmp_path / "logs"))
+
+    async def run():
+        await svc.ensure_ready()
+        diagnostics.install_file_logging("server")
+        await svc.update_settings({"passphrase": "very secret words", "verbose_logging": True,
+                                   "bitcoin": {"rpc_pass": "hunter2"}})
+        logging.getLogger("bitlink21.service").debug("a debug line")
+        cmds = []
+        while not svc.fake_pluto["config_queue"].empty():
+            cmds.append(svc.fake_pluto["config_queue"].get_nowait())
+        return await svc.diagnostics_bundle(), cmds
+
+    data, cmds = asyncio.run(run())
+    assert {"bitlink21_verbose": True} in cmds
+    z = zipfile.ZipFile(io.BytesIO(data))
+    names = set(z.namelist())
+    assert {"version.json", "system.json", "state.json", "logs/server.log"} <= names
+    everything = b"".join(z.read(n) for n in names)
+    assert b"very secret words" not in everything and b"hunter2" not in everything
+    assert b"a debug line" in z.read("logs/server.log")
+    assert "cpu_simd" in json.loads(z.read("system.json"))
+    for h in list(logging.getLogger().handlers):
+        if getattr(h, "_bitlink21_file", False):
+            logging.getLogger().removeHandler(h)
+            h.close()
+    diagnostics.set_verbose(False)

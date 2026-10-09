@@ -60,6 +60,30 @@ export const bodyByteLength = (type, body) => {
     return new TextEncoder().encode(body).length;
 };
 
+const MIME = {
+    txt: 'text/plain', log: 'text/plain', csv: 'text/csv', json: 'application/json', html: 'text/html', htm: 'text/html',
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
+    svg: 'image/svg+xml', pdf: 'application/pdf', mp3: 'audio/mpeg', wav: 'audio/wav', mp4: 'video/mp4',
+};
+
+export const mimeFor = (name) => MIME[(name || '').split('.').pop().toLowerCase()] || 'application/octet-stream';
+
+// Save or open (new tab) a file the server sent as base64
+export function deliverFile(name, dataB64, mode = 'download') {
+    const bytes = Uint8Array.from(atob(dataB64), (c) => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: mimeFor(name) }));
+    if (mode === 'open') {
+        window.open(url, '_blank', 'noopener');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        return;
+    }
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
 export function timeAgo(epochSeconds) {
     if (!epochSeconds) return '';
     const s = Math.max(0, Date.now() / 1000 - epochSeconds);

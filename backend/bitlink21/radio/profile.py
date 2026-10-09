@@ -89,7 +89,9 @@ def _rf_to_if(rf: float, lo: float) -> float:
     return abs(rf - lo)
 
 
-def make_plan(p: SatelliteProfile) -> FrequencyPlan:
+def make_plan(p: SatelliteProfile, centre_if_hz: Optional[float] = None) -> FrequencyPlan:
+    """Frequencies for a profile. ``centre_if_hz`` keeps the SDR where it is
+    (retuning the channel without moving the LO)."""
     warnings: List[str] = []
     fs = p.sample_rate_hz
     usable = 0.4 * fs  # keep signals inside +-40% of the sample rate
@@ -106,6 +108,8 @@ def make_plan(p: SatelliteProfile) -> FrequencyPlan:
     # Keep the SDR's DC spur away from the data channel
     if abs(rx_if - centre_if) < 20e3:
         centre_if = rx_if - 50e3
+    if centre_if_hz is not None:
+        centre_if = float(centre_if_hz)
     beacon_off = beacon_if - centre_if
     rx_off = rx_if - centre_if
     if p.beacon_lock and abs(beacon_off) > usable:

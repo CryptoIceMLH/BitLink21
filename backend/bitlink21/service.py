@@ -29,6 +29,7 @@ from bitlink21.plugins import PluginLoader
 from bitlink21.plugins.bitcoin_tx import BitcoinTxPlugin
 from bitlink21.plugins.generic_data import GenericDataPlugin
 from bitlink21.plugins.lightning_invoice import LightningInvoicePlugin, parse_bolt11_hrp
+from bitlink21 import diagnostics
 from bitlink21.radio import envelope, filetransfer, wideband
 from bitlink21.radio.modes import SPEED_MODES
 from bitlink21.radio.profile import PRESETS, SatelliteProfile, make_plan
@@ -56,8 +57,6 @@ def _default_settings() -> Dict[str, Any]:
         "profile": PRESETS["qo100-nb"].to_dict(),
         "auto_start": True,
         "pluto_host": (os.environ.get("PLUTO_URI") or "ip:192.168.1.200").replace("ip:", ""),
-        # Correct our uplink frequency automatically from our own echoes
-        "auto_tx_correction": True,
         # Master TX switch. Off by default: nothing is transmitted until the
         # operator deliberately enables it (amp, uplink frequency, licence).
         "tx_enabled": False,
@@ -77,6 +76,10 @@ def _default_settings() -> Dict[str, Any]:
         # Receive-chain error last measured on the NB beacon; wideband mode
         # cannot see that beacon, so it starts from this
         "last_lnb_correction_hz": 0.0,
+        "last_lnb_locked_at": None,
+        # Detailed logs (radio worker, modem, beacon, wideband, TX) for the
+        # diagnostics bundle
+        "verbose_logging": False,
     }
 
 
@@ -115,6 +118,14 @@ class BitLink21Service:
                 else:
                     merged[key] = value
             self.settings = merged
+            diagnostics.install_file_logging("server")
+            diagnostics.set_verbose(bool(self.settings.get("verbose_logging")))
+            self.settings.pop("auto_tx_correction", None)
+            # 4.0.5: auto TX correction removed; undo whatever it had applied
+            if not self.settings.get("tx_correction_reset_405"):
+                self.settings["profile"] = {**self.settings["profile"], "tx_correction_hz": 0.0}
+                self.settings["tx_correction_reset_405"] = True
+                await store.set_settings({"profile": self.settings["profile"], "tx_correction_reset_405": True})
             self._build_router()
             self._ready = True
 
@@ -202,10 +213,28 @@ class BitLink21Service:
             await store.set_settings(changed)
         if "bitcoin" in changed or "lightning" in changed:
             self._build_router()
+        if "verbose_logging" in changed:
+            verbose = bool(self.settings["verbose_logging"])
+            diagnostics.set_verbose(verbose)
+            pluto = self._find_pluto()
+            if pluto and pluto["config_queue"] is not None:
+                pluto["config_queue"].put({"bitlink21_verbose": verbose})
+            logger.info(f"Verbose logging {'on' if verbose else 'off'}")
         if "passphrase" in changed and self.settings["passphrase"]:
             await self._unlock_messages()
-        if ("profile" in changed or "link_mode" in changed or "wideband" in changed) and self.station_sdr_id:
-            await self.start_station()  # restart with the new plan
+        if self.station_sdr_id and ("link_mode" in changed or "wideband" in changed):
+            await self.start_station()  # different station: restart
+        elif self.station_sdr_id and "profile" in changed:
+            pluto = self._find_pluto()
+            if self._wideband() or pluto is None or pluto["config_queue"] is None:
+                await self.start_station()
+            else:
+                # Channel/speed change: the worker retunes in place and keeps the
+                # beacon lock (or restarts from it when the SDR has to move)
+                pluto["config_queue"].put({"bitlink21_retune": self.settings["profile"]})
+                await self._emit("bitlink21:station_state", {
+                    "running": True,
+                    "plan": make_plan(SatelliteProfile.from_dict(self.settings["profile"])).to_dict()})
         return self.get_state()
 
     # ------------------------------------------------------------ station control
@@ -275,13 +304,18 @@ class BitLink21Service:
         if pluto is None or pluto["config_queue"] is None:
             pluto = await self._start_pluto()
         profile = SatelliteProfile.from_dict(self.settings["profile"])
-        command: Dict[str, Any] = {"bitlink21_start": profile.to_dict()}
+        command: Dict[str, Any] = {"bitlink21_start": profile.to_dict(),
+                                   "bitlink21_verbose": bool(self.settings.get("verbose_logging"))}
         if self._wideband():
             plan_dict = self._wb_plan().to_dict()  # validates the channel first
             command["bitlink21_wideband"] = self.settings["wideband"]
             command["bitlink21_rx_lnb_correction_hz"] = self.settings.get("last_lnb_correction_hz") or 0.0
         else:
             plan_dict = make_plan(profile).to_dict()
+            # Start from the last beacon lock (if recent) instead of searching
+            locked_at = self.settings.get("last_lnb_locked_at")
+            if locked_at and time.time() - locked_at < 24 * 3600:
+                command["bitlink21_beacon_seed_hz"] = self.settings.get("last_lnb_correction_hz") or 0.0
         pluto["config_queue"].put(command)
         self.station_sdr_id = pluto["sdr_id"]
         await self._emit("bitlink21:station_state", {"running": True, "plan": plan_dict})
@@ -406,6 +440,29 @@ class BitLink21Service:
         del self._parts[(base, n)]
         return base, b"".join(entry["parts"][i] for i in range(1, n + 1))
 
+    async def diagnostics_bundle(self) -> bytes:
+        """Zip for troubleshooting. Settings are the public (redacted) ones;
+        message contents are left out."""
+        state = self.get_state()
+        state["last_status"] = self.last_status
+        messages = [{k: v for k, v in m.items() if k not in ("body_text", "body_hex")}
+                    for m in await store.list_messages(limit=100)]
+        return diagnostics.build_bundle(state, messages, await store.list_files(limit=100))
+
+    async def cancel_tx(self, row_id: int) -> Dict[str, Any]:
+        """Stop sending a message: queued, waiting for a clear channel or on air."""
+        msg = await store.get_message(row_id)
+        if not msg or msg["direction"] != "tx":
+            raise ValueError("No such outgoing message")
+        if msg["status"] in ("queued", "waiting", "sending"):
+            pluto = self._find_pluto()
+            if pluto and pluto["config_queue"] is not None:
+                pluto["config_queue"].put({"bitlink21_tx_cancel": row_id})
+            await store.update_message(row_id, status="stopped", error=None)
+            await self._emit_message(row_id)
+            logger.info(f"BitLink21 TX of message {row_id} stopped by the operator")
+        return await store.get_message(row_id)
+
     def _check_tx_plan(self) -> None:
         plan = self._wb_plan() if self._wideband() else make_plan(SatelliteProfile.from_dict(self.settings["profile"]))
         if not plan.tx_allowed:
@@ -439,6 +496,8 @@ class BitLink21Service:
                 current = await store.get_message(row)
                 if current and current.get("status") == "confirmed" and event.get("status") != "failed":
                     return
+                if current and current.get("status") == "stopped":
+                    return  # the operator stopped it; late worker reports don't revive it
                 await store.update_message(row, status=event.get("status"), error=event.get("error"))
                 await self._emit_message(row)
         elif etype == "bitlink21_tx_progress":
@@ -459,11 +518,13 @@ class BitLink21Service:
         beacon = status.get("beacon") or {}
         if status.get("mode") == "wideband" or not beacon.get("locked"):
             return
-        self.settings["last_lnb_correction_hz"] = float(status.get("correction_hz") or 0.0)
         now = time.time()
+        self.settings["last_lnb_correction_hz"] = float(status.get("correction_hz") or 0.0)
+        self.settings["last_lnb_locked_at"] = now
         if now - getattr(self, "_lnb_saved_at", 0.0) > 60:
             self._lnb_saved_at = now
-            await store.set_settings({"last_lnb_correction_hz": self.settings["last_lnb_correction_hz"]})
+            await store.set_settings({"last_lnb_correction_hz": self.settings["last_lnb_correction_hz"],
+                                      "last_lnb_locked_at": now})
 
     async def _on_file(self, event: Dict[str, Any]) -> None:
         data = base64.b64decode(event["data_b64"])
@@ -475,7 +536,12 @@ class BitLink21Service:
             data = assembled[1]
             # Our own plain file coming back through the satellite?
             own_file = await store.find_sent_file(event["name"], len(data))
-            if own_file is not None:
+            if own_file is not None and bytes(own_file.get("body") or b"") == data:
+                # Our own file, received back byte-exact: keep that copy too
+                # (Files tab, "Echo of your file") and confirm the message
+                if not own_file.get("echo_at"):
+                    info = await store.add_file(event["name"], event["frame_type"], data, echo_of=own_file["id"])
+                    await self._emit("bitlink21:file", info)
                 await self._on_echo(own_file)
                 return
             info = await store.add_file(event["name"], event["frame_type"], data)
@@ -527,16 +593,11 @@ class BitLink21Service:
         offset = modem.get("offset_hz")
         await store.update_message(own["id"], status="confirmed", echo_at=time.time(), echo_offset_hz=offset)
         await self._emit_message(own["id"])
-        if offset is not None and self.settings.get("auto_tx_correction") and abs(offset) > 20:
-            profile = dict(self.settings["profile"])
-            profile["tx_correction_hz"] = round(profile.get("tx_correction_hz", 0.0) - offset, 1)
-            logger.info(f"Echo showed uplink {offset:+.0f} Hz off; TX correction now {profile['tx_correction_hz']} Hz")
-            self.settings["profile"] = profile
-            await store.set_settings({"profile": profile})
-            await self._emit("bitlink21:settings", self.public_settings())
-            pluto = self._find_pluto()
-            if pluto and self.station_sdr_id:
-                pluto["config_queue"].put({"bitlink21_tx_update": profile})
+        # The measured offset is shown on the message only: nothing ever moves
+        # the TX frequency automatically (the operator's TX is GPS-locked;
+        # chasing modem estimates moved it 1 kHz off, live 2026-10-09)
+        if offset is not None:
+            logger.info(f"Echo heard {offset:+.0f} Hz from nominal (information only)")
 
     async def _relay(self, row_id: int, msg: envelope.Message) -> None:
         """Hand the payload to the matching plugin (Bitcoin relay is opt-in)."""

@@ -144,3 +144,53 @@ def test_channel_busy_detection(case, busy):
     for i in range(0, n, 65536):
         rx.process(x[i: i + 65536].astype(np.complex64))
     assert rx.channel_busy() is busy, rx.channel_occupancy_db()
+
+
+def _beacon_signal(fs, beacon_off, err, dur, seed=4):
+    rng = np.random.default_rng(seed)
+    n = int(fs * dur)
+    bits = rng.integers(0, 2, int(400 * dur) + 2) * 2 - 1
+    bb = signal.lfilter(signal.firwin(301, 400, fs=fs), 1, np.repeat(bits, int(fs / 400))[:n])
+    x = 3 * bb * np.exp(2j * np.pi * (beacon_off + err) * np.arange(n) / fs)
+    return (x + 0.05 * (rng.standard_normal(n) + 1j * rng.standard_normal(n))).astype(np.complex64)
+
+
+def test_station_retune_keeps_beacon_lock():
+    fs = 1e6
+    prof = SatelliteProfile(sample_rate_hz=fs, rx_dial_rf_hz=10489.6e6, rx_mode=4)
+    st = Station(prof, fs)
+    x = _beacon_signal(fs, st.plan.beacon_offset_hz, 2500.0, 6)
+    for i in range(0, len(x), 65536):
+        st.process(x[i: i + 65536])
+    assert st.beacon.locked
+    before = st.correction_hz
+    # Change channel and speed: modem retunes, SDR and beacon tracker stay
+    assert st.retune(SatelliteProfile(sample_rate_hz=fs, rx_dial_rf_hz=10489.65e6, rx_mode=2))
+    assert st.beacon.locked and st.correction_hz == before
+    assert st.receiver.mode.index == 2
+    y = _beacon_signal(fs, st.plan.beacon_offset_hz, 2500.0, 2, seed=5)
+    for i in range(0, len(y), 65536):
+        st.process(y[i: i + 65536])
+    assert st.beacon.locked and abs(st.correction_hz - 2500.0) < 10
+
+
+def test_seeded_beacon_is_locked_at_once_and_confirmed():
+    fs = 1e6
+    prof = SatelliteProfile(sample_rate_hz=fs, rx_dial_rf_hz=10489.6e6)
+    st = Station(prof, fs, beacon_seed_hz=2510.0)
+    assert st.beacon.locked and st.correction_hz == 2510.0  # before any sample
+    x = _beacon_signal(fs, st.plan.beacon_offset_hz, 2500.0, 2.5)
+    for i in range(0, len(x), 65536):
+        st.process(x[i: i + 65536])
+        assert st.beacon.locked  # never drops while confirming
+    assert abs(st.correction_hz - 2500.0) < 10
+
+
+def test_wrong_seed_falls_back_to_search():
+    fs = 1e6
+    prof = SatelliteProfile(sample_rate_hz=fs, rx_dial_rf_hz=10489.6e6)
+    st = Station(prof, fs, beacon_seed_hz=-8000.0)  # LNB drifted a lot while off
+    x = _beacon_signal(fs, st.plan.beacon_offset_hz, 2500.0, 10)
+    for i in range(0, len(x), 65536):
+        st.process(x[i: i + 65536])
+    assert st.beacon.locked and abs(st.correction_hz - 2500.0) < 10

@@ -5,11 +5,12 @@ import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import { useSocket } from '../common/socket.jsx';
 import { toast } from '../../utils/toast-with-timestamp.jsx';
 import {
-    calibrateRx, clearError, deleteFile, deleteMessage, fetchFiles, fetchMessages, fetchState, sendFile, sendMessage, startStation,
+    calibrateRx, cancelTx, clearError, deleteFile, deleteMessage, fetchFiles, fetchMessages, fetchState, sendFile, sendMessage, startStation,
     stopStation, updateSettings,
 } from './bitlink21-slice.jsx';
 import LinkStatus, { linkSteps } from './link-status.jsx';
 import LinkActivity from './link-activity.jsx';
+import { deliverFile } from './link-utils.js';
 import LinkChannel from './link-channel.jsx';
 import LinkWideband from './link-wideband.jsx';
 import LinkComposer from './link-composer.jsx';
@@ -88,21 +89,20 @@ export default function LinkPage() {
     const onDeleteMessage = useCallback((id) => dispatch(deleteMessage({ socket, id })), [dispatch, socket]);
     const onDeleteFile = useCallback((id) => dispatch(deleteFile({ socket, id })), [dispatch, socket]);
 
-    const downloadFile = useCallback((file) => {
-        socket.emit('data_request', 'bitlink21:get_file', { id: file.id }, (res) => {
+    // Files: received ones (bitlink21:get_file) and ones we sent (bitlink21:get_message_file)
+    const fetchFile = useCallback((command, id, mode) => {
+        socket.emit('data_request', command, { id }, (res) => {
             if (!res?.success) {
-                toast.error(res?.error || 'Download failed');
+                toast.error(res?.error || 'Could not load the file');
                 return;
             }
-            const bytes = Uint8Array.from(atob(res.data.data_b64), (c) => c.charCodeAt(0));
-            const url = URL.createObjectURL(new Blob([bytes]));
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = res.data.name;
-            a.click();
-            URL.revokeObjectURL(url);
+            deliverFile(res.data.name, res.data.data_b64, mode);
         });
     }, [socket]);
+    const downloadFile = useCallback((file) => fetchFile('bitlink21:get_file', file.id, 'download'), [fetchFile]);
+    const openFile = useCallback((file) => fetchFile('bitlink21:get_file', file.id, 'open'), [fetchFile]);
+    const sentFile = useCallback((msg, mode) => fetchFile('bitlink21:get_message_file', msg.id, mode), [fetchFile]);
+    const stopTx = useCallback((id) => dispatch(cancelTx({ socket, id })), [dispatch, socket]);
 
     const sendingMsg = messages.find((m) => m.direction === 'tx' && m.status === 'sending');
     const steps = linkSteps({ stationRunning, status, settings, plan, busy, stationError });
@@ -144,7 +144,12 @@ export default function LinkPage() {
 
             {stationRunning && (
                 <Box sx={{ mt: 2 }}>
-                    <LinkActivity status={status} transmitting={!!sendingMsg} txProgress={sendingMsg ? txProgress[sendingMsg.id] : null} />
+                    <LinkActivity
+                        status={status}
+                        transmitting={!!sendingMsg}
+                        txProgress={sendingMsg ? txProgress[sendingMsg.id] : null}
+                        onStop={sendingMsg ? () => stopTx(sendingMsg.id) : null}
+                    />
                 </Box>
             )}
 
@@ -187,6 +192,9 @@ export default function LinkPage() {
                             txProgress={txProgress}
                             onDelete={onDeleteMessage}
                             onDownloadFile={downloadFile}
+                            onOpenFile={openFile}
+                            onSentFile={sentFile}
+                            onStop={stopTx}
                             onDeleteFile={onDeleteFile}
                         />
                     </Box>

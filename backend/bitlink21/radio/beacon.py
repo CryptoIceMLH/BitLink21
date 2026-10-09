@@ -66,6 +66,7 @@ class BeaconTracker:
         self._misses = 0
         self._stream_t = 0.0  # seconds of input seen
         self._locked_since: Optional[float] = None
+        self._seeded = False
         self.spectrum: list = []
         self.spectrum_span_hz = 2000.0
         self.spectrum_centre_hz = 0.0
@@ -78,6 +79,26 @@ class BeaconTracker:
     def nominal_offset_hz(self, value: float) -> None:
         self.channel.offset_hz = value
         self.reset()
+
+    def seed(self, offset_hz: float) -> None:
+        """Start from a known beacon offset (the last lock before a restart):
+        treated as locked straight away and confirmed by the next measurements.
+        If the beacon is not there any more (> 300 Hz away), the misses unlock
+        the tracker and it searches the whole span as usual."""
+        self.offset_hz = float(offset_hz)
+        self.rate_hz_s = 0.0
+        self.locked = True
+        self._locked_since = None  # counts once a measurement confirms it
+        self._misses = 0
+        self._residuals.clear()
+        self._seeded = True
+
+    def retarget(self, offset_hz: float) -> None:
+        """Move the channel (SDR retuned / new plan) without losing the lock:
+        the beacon's error relative to nominal is unchanged."""
+        self.channel.offset_hz = offset_hz
+        self._buf = np.zeros(0, dtype=np.complex64)
+        self._since_update = 0.0
 
     def reset(self) -> None:
         self._buf = np.zeros(0, dtype=np.complex64)
@@ -198,8 +219,13 @@ class BeaconTracker:
         raw = float(freqs[k] + delta * bin_hz) + self.rate_hz_s * self.integration_s / 2
         self.raw_offset_hz = raw
 
+        if self._seeded and predicted is not None and abs(raw - predicted) <= 100:
+            # Seed confirmed by a real measurement: keep the lock
+            self._seeded = False
+            self._residuals.extend([0.0, 0.0])
         if self.offset_hz is None or abs(raw - predicted) > 100:
             # First fix or a jump: restart the tracker
+            self._seeded = False
             self.offset_hz = raw
             self.rate_hz_s = 0.0
             self._residuals.clear()
@@ -210,7 +236,7 @@ class BeaconTracker:
             self.offset_hz = predicted + 0.5 * r
             self.rate_hz_s += 0.15 * r / dt
             self._residuals.append(abs(r))
-        self.locked = len(self._residuals) >= 3 and max(self._residuals) < 15.0
+        self.locked = (len(self._residuals) >= 3 and max(self._residuals) < 15.0) or self._seeded
         if self.locked and self._locked_since is None:
             self._locked_since = self._stream_t
         elif not self.locked:

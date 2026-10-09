@@ -25,10 +25,11 @@ STATUS_INTERVAL_S = 0.5
 
 
 class Station:
-    def __init__(self, profile: SatelliteProfile, fs: float):
+    def __init__(self, profile: SatelliteProfile, fs: float, beacon_seed_hz: Optional[float] = None,
+                 centre_if_hz: Optional[float] = None):
         self.profile = profile
         self.fs = float(fs)
-        self.plan = make_plan(profile)
+        self.plan = make_plan(profile, centre_if_hz=centre_if_hz)
         self.rx_mode = get_mode(profile.rx_mode)
         self.receiver = HsModemReceiver(
             self.fs, self.rx_mode, self.plan.rx_channel_offset_hz, profile.search_span_hz
@@ -40,6 +41,31 @@ class Station:
         self.correction_hz = 0.0
         self._last_status = 0.0
         self._events: List[dict] = []
+        if self.beacon is not None and beacon_seed_hz is not None:
+            # Restarted: carry on from the last beacon lock instead of searching
+            self.beacon.seed(beacon_seed_hz)
+            self.correction_hz = float(beacon_seed_hz)
+            self.receiver.set_nominal(self.plan.rx_channel_offset_hz + self.correction_hz)
+
+    def retune(self, profile: SatelliteProfile) -> bool:
+        """New channel / speed with the SDR left where it is: only the modem
+        retunes; the beacon tracker keeps its lock. Returns False when the new
+        channel does not fit the current SDR tuning (a restart is needed)."""
+        plan = make_plan(profile, centre_if_hz=self.plan.rx_center_if_hz)
+        usable = 0.4 * self.fs
+        if (profile.sample_rate_hz != self.profile.sample_rate_hz or profile.beacon_lock != self.profile.beacon_lock
+                or profile.lnb_lo_hz != self.profile.lnb_lo_hz or profile.beacon_rf_hz != self.profile.beacon_rf_hz
+                or abs(plan.rx_channel_offset_hz) > usable or plan.warnings
+                or abs(plan.rx_channel_offset_hz - profile.rx_correction_hz) < 20e3):  # DC spur
+            return False
+        self.profile, self.plan = profile, plan
+        self.rx_mode = get_mode(profile.rx_mode)
+        self.receiver = HsModemReceiver(self.fs, self.rx_mode, plan.rx_channel_offset_hz, profile.search_span_hz)
+        self.receiver.set_nominal(plan.rx_channel_offset_hz + self.correction_hz)
+        if self.beacon is not None and abs(self.beacon.nominal_offset_hz - plan.beacon_offset_hz) > 0.5:
+            self.beacon.retarget(plan.beacon_offset_hz)  # rx_correction changed
+        self.files = filetransfer.FileReceiver()
+        return True
 
     # ------------------------------------------------------------------ RX
 

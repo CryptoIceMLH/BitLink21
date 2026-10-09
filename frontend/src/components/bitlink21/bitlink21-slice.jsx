@@ -34,6 +34,7 @@ export const fetchMessages = request('data_request', 'get_messages');
 export const deleteMessage = request('data_submission', 'delete_message');
 export const fetchFiles = request('data_request', 'get_files');
 export const deleteFile = request('data_submission', 'delete_file');
+export const cancelTx = request('data_submission', 'cancel_tx');
 export const testBitcoinConnection = request('data_submission', 'bitcoin_test_connection');
 
 const applyState = (state, data) => {
@@ -129,6 +130,11 @@ const bitlink21Slice = createSlice({
             .addCase(fetchMessages.fulfilled, (state, action) => { state.messages = action.payload || []; })
             .addCase(deleteMessage.fulfilled, (state, action) => {
                 state.messages = state.messages.filter((m) => m.id !== action.meta.arg.id);
+            })
+            .addCase(cancelTx.fulfilled, (state, action) => {
+                const msg = action.payload;
+                const idx = msg ? state.messages.findIndex((m) => m.id === msg.id) : -1;
+                if (idx >= 0) state.messages[idx] = msg;
             })
             .addCase(fetchFiles.fulfilled, (state, action) => { state.files = action.payload || []; })
             .addCase(deleteFile.fulfilled, (state, action) => {

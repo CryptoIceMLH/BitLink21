@@ -4,6 +4,7 @@ import {
     ToggleButton, ToggleButtonGroup, Typography,
 } from '@mui/material';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
+import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import { formatHz, formatMHz } from './link-utils.js';
 
 function useCanvas(draw, deps) {
@@ -91,7 +92,6 @@ export default function LinkAdvanced({
             pluto_host: settings.pluto_host,
             encryption: settings.encryption,
             tx_enabled: settings.tx_enabled,
-            auto_tx_correction: settings.auto_tx_correction,
             lnb_lo_mhz: profile.lnb_lo_hz / 1e6,
             rx_correction_hz: profile.rx_correction_hz,
             beacon_lock: profile.beacon_lock,
@@ -112,7 +112,7 @@ export default function LinkAdvanced({
         if (!settings) return {};
         const out = {};
         const num = (v) => parseFloat(v);
-        for (const k of ['callsign', 'pluto_host', 'encryption', 'tx_enabled', 'auto_tx_correction']) {
+        for (const k of ['callsign', 'pluto_host', 'encryption', 'tx_enabled']) {
             if (form[k] !== undefined && form[k] !== settings[k]) out[k] = k === 'callsign' ? String(form[k]).trim().toUpperCase() : form[k];
         }
         const p = {};
@@ -248,8 +248,6 @@ export default function LinkAdvanced({
                     </Box>
                     <TextField label="TX correction" size="small" type="number" value={form.tx_correction_hz ?? ''} onChange={set('tx_correction_hz')}
                         InputProps={{ endAdornment: <Typography variant="caption">Hz</Typography> }} />
-                    <FormControlLabel control={<Switch checked={!!form.auto_tx_correction} onChange={set('auto_tx_correction')} />}
-                        label="Auto-correct TX from my own echoes" />
                     <TextField label="Upconverter LO" size="small" type="number" value={form.uplink_lo_mhz ?? ''} onChange={set('uplink_lo_mhz')}
                         helperText="0 when the PlutoSDR transmits directly on 2.4 GHz"
                         InputProps={{ endAdornment: <Typography variant="caption">MHz</Typography> }} />
@@ -263,6 +261,29 @@ export default function LinkAdvanced({
                     <TextField label={settings.passphrase_set ? 'Change shared passphrase' : 'Shared passphrase'} size="small" type="password"
                         value={passphrase} onChange={(e) => setPassphrase(e.target.value)}
                         helperText="Stations with the same passphrase can read each other's encrypted messages. Check your licence: encryption is usually not allowed on amateur bands." />
+                </Section>
+                <Section title="Diagnostics">
+                    <FormControlLabel
+                        control={(
+                            <Switch
+                                checked={!!settings.verbose_logging}
+                                disabled={busy}
+                                onChange={(e) => onSave({ verbose_logging: e.target.checked })}
+                            />
+                        )}
+                        label="Verbose logging (dev mode)"
+                    />
+                    <Typography variant="caption" color="text.secondary">
+                        Detailed logs from the radio, modem, beacon tracker, wideband receiver and transmitter. Takes effect at once;
+                        leave off normally.
+                    </Typography>
+                    <Button variant="outlined" startIcon={<DownloadRoundedIcon />} href="/api/bitlink21/diagnostics">
+                        Download diagnostics
+                    </Button>
+                    <Typography variant="caption" color="text.secondary">
+                        Zip with the logs, version, system info (CPU, memory, disk), radio status and settings. Your passphrase,
+                        RPC password and message contents are not included.
+                    </Typography>
                 </Section>
             </Stack>
             <Box sx={{ mt: 'auto', p: 2, borderTop: 1, borderColor: 'divider' }}>

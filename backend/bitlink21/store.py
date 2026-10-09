@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS files (
     name TEXT NOT NULL,
     frame_type INTEGER NOT NULL,
     size INTEGER NOT NULL,
-    path TEXT NOT NULL
+    path TEXT NOT NULL,
+    echo_of INTEGER                     -- our sent message this is the echo of
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -87,6 +88,9 @@ class Store:
                           ("filename", "TEXT"), ("size", "INTEGER")):
             if col not in have:
                 await db.execute(f"ALTER TABLE messages ADD COLUMN {col} {decl}")
+        cur = await db.execute("PRAGMA table_info(files)")
+        if "echo_of" not in {row[1] for row in await cur.fetchall()}:
+            await db.execute("ALTER TABLE files ADD COLUMN echo_of INTEGER")
         await db.commit()
         # Publish the connection only once the schema exists
         self.db = db
@@ -157,6 +161,12 @@ class Store:
         row = await cur.fetchone()
         return dict(row) if row else None
 
+    async def message_file(self, row_id: int) -> Optional[Dict[str, Any]]:
+        """Name and content of a file we sent."""
+        cur = await self.db.execute("SELECT filename, body FROM messages WHERE id = ? AND filename IS NOT NULL", (row_id,))
+        row = await cur.fetchone()
+        return {"name": row["filename"], "data": bytes(row["body"] or b"")} if row else None
+
     async def locked_messages(self) -> List[Dict[str, Any]]:
         cur = await self.db.execute("SELECT * FROM messages WHERE locked = 1")
         return [dict(r) for r in await cur.fetchall()]
@@ -194,22 +204,23 @@ class Store:
 
     # ------------------------------------------------------------ files
 
-    async def add_file(self, name: str, frame_type: int, data: bytes) -> Dict[str, Any]:
+    async def add_file(self, name: str, frame_type: int, data: bytes, echo_of: Optional[int] = None) -> Dict[str, Any]:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         path = os.path.join(self.files_dir, f"{stamp}_{_safe_name(name)}")
         with open(path, "wb") as f:
             f.write(data)
         now = time.time()
         cur = await self.db.execute(
-            "INSERT INTO files (created_at, name, frame_type, size, path) VALUES (?, ?, ?, ?, ?)",
-            (now, name, frame_type, len(data), path),
+            "INSERT INTO files (created_at, name, frame_type, size, path, echo_of) VALUES (?, ?, ?, ?, ?, ?)",
+            (now, name, frame_type, len(data), path, echo_of),
         )
         await self.db.commit()
-        return {"id": cur.lastrowid, "created_at": now, "name": name, "frame_type": frame_type, "size": len(data)}
+        return {"id": cur.lastrowid, "created_at": now, "name": name, "frame_type": frame_type, "size": len(data),
+                "echo_of": echo_of}
 
     async def list_files(self, limit: int = 100) -> List[Dict[str, Any]]:
         cur = await self.db.execute(
-            "SELECT id, created_at, name, frame_type, size FROM files ORDER BY created_at DESC LIMIT ?",
+            "SELECT id, created_at, name, frame_type, size, echo_of FROM files ORDER BY created_at DESC LIMIT ?",
             (limit,),
         )
         return [dict(r) for r in await cur.fetchall()]

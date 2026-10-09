@@ -131,3 +131,25 @@ def test_runner_streams_multi_part_file_that_decodes():
             if f is not None:
                 got[f.name] = f.data
     assert got == dict(parts)
+
+
+def test_runner_stop_mid_transmission():
+    profile = SatelliteProfile(sample_rate_hz=240e3, rx_dial_rf_hz=10489.6e6, rx_mode=0, tx_gain_db=-20.0)
+    sdr, data_q, tx_q = FakeSdr(), queue.Queue(), queue.Queue()
+    runner = BitLink21Runner(sdr, profile.to_dict(), data_q, tx_q)
+    runner._wait_for_clear_channel = lambda row: True
+    runner.start()
+    try:
+        big = np.random.default_rng(1).bytes(20000)  # ~2.5 min at BPSK 1200
+        tx_q.put({"msg_row": 5, "parts": [{"name": "big.bin", "content_b64": base64.b64encode(big).decode()}]})
+        _drain(data_q, timeout=30, until=lambda e: e.get("type") == "bitlink21_tx_progress")
+        t0 = time.time()
+        runner.cancel(5)
+        events = _drain(data_q, timeout=10, until=lambda e: e.get("type") == "bitlink21_tx_status"
+                        and e.get("status") in ("stopped", "sent", "failed"))
+        final = [e for e in events if e.get("type") == "bitlink21_tx_status"][-1]
+        assert final["status"] == "stopped", final
+        assert time.time() - t0 < 2.0
+        assert sdr.tx_hardwaregain_chan0 == TX_IDLE_GAIN_DB
+    finally:
+        runner.stop()

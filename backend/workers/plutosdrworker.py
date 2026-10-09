@@ -36,6 +36,10 @@ TX_AHEAD_S = 8.0      # signal synthesised ahead of the DAC
 TX_PREBUFFER_S = 2.0  # buffered before the first sample goes out
 
 
+class _TxStopped(Exception):
+    """The operator pressed Stop on this transmission."""
+
+
 class _StationStarted(Exception):
     """Control flow: the wideband branch finished starting the station."""
 
@@ -53,17 +57,19 @@ class BitLink21Runner:
     attenuated at all other times.
     """
 
-    def __init__(self, sdr, profile_dict: Dict[str, Any], data_queue, tx_queue):
-        from bitlink21.radio.profile import SatelliteProfile, make_plan
+    def __init__(self, sdr, profile_dict: Dict[str, Any], data_queue, tx_queue,
+                 beacon_seed_hz: Optional[float] = None):
+        from bitlink21.radio.profile import SatelliteProfile
         from bitlink21.radio.station import Station
 
         self.sdr = sdr
         self.data_queue = data_queue
         self.tx_queue = tx_queue
         self.profile = SatelliteProfile.from_dict(profile_dict)
-        self.plan = make_plan(self.profile)
         self.fs = float(self.profile.sample_rate_hz)
-        self.station = Station(self.profile, self.fs)
+        self.station = Station(self.profile, self.fs, beacon_seed_hz=beacon_seed_hz)
+        self.plan = self.station.plan
+        self._station_lock = threading.Lock()  # RX thread vs in-place retune
         # 128 buffers (~14 s at 0.6 MS/s, ~4 s at 2 MS/s): absorbs CPU spikes
         # such as building a TX burst without losing samples
         self._rx_q: "queue.Queue[np.ndarray]" = queue.Queue(maxsize=128)
@@ -72,6 +78,7 @@ class BitLink21Runner:
         self.dropped = 0
         self._rx_thread = threading.Thread(target=self._rx_loop, name="bitlink21-rx", daemon=True)
         self._tx_thread = threading.Thread(target=self._tx_loop, name="bitlink21-tx", daemon=True)
+        self._cancelled: set = set()  # message rows the operator stopped
         # TX LO currently set on the Pluto (set once at station start)
         self._tx_lo: Optional[int] = None
         try:
@@ -93,6 +100,23 @@ class BitLink21Runner:
         self.profile, self.plan = profile, plan
         self.station.profile, self.station.plan = profile, plan
 
+    def retune(self, profile_dict: Dict[str, Any]) -> bool:
+        """Change channel/speed without restarting (beacon lock kept).
+        False: the SDR has to move, so the caller restarts the station."""
+        from bitlink21.radio.profile import SatelliteProfile
+
+        profile = SatelliteProfile.from_dict(profile_dict)
+        with self._station_lock:
+            if not self.station.retune(profile):
+                return False
+            self.profile, self.plan = profile, self.station.plan
+        return True
+
+    def beacon_offset(self) -> Optional[float]:
+        """Current beacon correction if locked (seed for a restart)."""
+        b = self.station.beacon
+        return self.station.correction_hz if b is not None and b.locked else None
+
     def stop(self) -> None:
         self._stop.set()
         self._rx_thread.join(timeout=1.5)
@@ -110,6 +134,26 @@ class BitLink21Runner:
             self._drop_times.append(time.time())
             self._rx_q.put_nowait(samples)
 
+    @staticmethod
+    def _log_status(ev: Dict[str, Any]) -> None:
+        b = ev.get("beacon") or {}
+        m = ev.get("modem") or {}
+        c = ev.get("channel") or {}
+        logger.debug(
+            f"NB status: beacon locked={b.get('locked')} off={b.get('offset_hz')} raw={b.get('raw_offset_hz')} "
+            f"snr={b.get('snr_db')} rate={b.get('rate_hz_s')} | modem {m.get('state')} {(m.get('mode') or {}).get('name')} "
+            f"snr={m.get('snr_db')} off={m.get('offset_hz')} ok/bad={m.get('frames_ok')}/{m.get('frames_failed')} | "
+            f"channel {c.get('level_db')} dB busy={c.get('busy')} | drops recent={ev.get('rx_dropped_recent')} "
+            f"total={ev.get('rx_dropped_buffers')}")
+
+    def cancel(self, row) -> None:
+        """Stop a queued or running transmission (checked every TX buffer)."""
+        self._cancelled.add(row)
+
+    def _check_cancel(self, row) -> None:
+        if row in self._cancelled:
+            raise _TxStopped()
+
     def _emit(self, event: Dict[str, Any]) -> None:
         try:
             self.data_queue.put(event)
@@ -123,12 +167,17 @@ class BitLink21Runner:
             except queue.Empty:
                 continue
             try:
-                for event in self.station.process(samples):
+                with self._station_lock:
+                    events = self.station.process(samples)
+                for event in events:
                     if event["type"] == "bitlink21_status":
                         now = time.time()
                         self._drop_times = [t for t in self._drop_times if now - t < 10.0]
                         event["rx_dropped_buffers"] = self.dropped
                         event["rx_dropped_recent"] = len(self._drop_times)  # last 10 s
+                        if logger.isEnabledFor(logging.DEBUG) and now - getattr(self, "_last_log", 0.0) >= 5.0:
+                            self._last_log = now
+                            self._log_status(event)
                     self._emit(event)
             except Exception as e:
                 logger.exception(f"BitLink21 station error: {e}")
@@ -165,6 +214,7 @@ class BitLink21Runner:
         quiet_since = None
         waiting = False
         while not self._stop.is_set():
+            self._check_cancel(row)
             now = time.time()
             if self._channel_busy():
                 quiet_since = None
@@ -184,6 +234,11 @@ class BitLink21Runner:
 
     def _transmit(self, request: Dict[str, Any]) -> None:
         row = request.get("msg_row")
+        if row in self._cancelled:
+            self._cancelled.discard(row)
+            self._emit({"type": "bitlink21_tx_status", "msg_row": row, "status": "stopped"})
+            return
+        abort = None
         self._emit({"type": "bitlink21_tx_status", "msg_row": row, "status": "sending"})
         try:
             if not self.plan.tx_allowed or self.plan.tx_lo_hz is None:
@@ -202,6 +257,16 @@ class BitLink21Runner:
             # pieces (never the whole burst in memory)
             ahead: "queue.Queue" = queue.Queue(maxsize=max(4, int(TX_AHEAD_S * self.fs / TX_CHUNK)))
             failure: list = []
+            abort = threading.Event()  # consumer gone (stopped/failed)
+
+            def put(item) -> bool:
+                while not abort.is_set():
+                    try:
+                        ahead.put(item, timeout=0.2)
+                        return True
+                    except queue.Full:
+                        continue
+                return False
 
             def produce() -> None:
                 try:
@@ -210,18 +275,17 @@ class BitLink21Runner:
                         for piece in stream:
                             pending = np.concatenate([pending, piece])
                             while len(pending) >= TX_CHUNK:
-                                if self._stop.is_set():
+                                if self._stop.is_set() or not put(pending[:TX_CHUNK] * 2 ** 14):  # DAC full scale 2^15
                                     return
-                                ahead.put(pending[:TX_CHUNK] * 2 ** 14)  # DAC full scale 2^15: headroom
                                 pending = pending[TX_CHUNK:]
                     if len(pending):
                         last = np.zeros(TX_CHUNK, dtype=np.complex64)
                         last[: len(pending)] = pending
-                        ahead.put(last * 2 ** 14)
+                        put(last * 2 ** 14)
                 except Exception as e:  # reported by the consumer
                     failure.append(e)
                 finally:
-                    ahead.put(None)
+                    put(None)
 
             producer = threading.Thread(target=produce, name="bitlink21-tx-synth", daemon=True)
             producer.start()
@@ -240,6 +304,9 @@ class BitLink21Runner:
                 self._tx_lo = lo
             sdr.tx_cyclic_buffer = False
             sdr.tx_hardwaregain_chan0 = float(self.profile.tx_gain_db)
+            logger.info(
+                f"TX message {row}: {len(parts)} part(s), {duration:.1f} s, LO {lo / 1e6:.6f} MHz, "
+                f"offset {self.plan.tx_channel_offset_hz / 1e3:.1f} kHz, gain {self.profile.tx_gain_db} dB")
             started = time.time()
             last_progress = 0.0
 
@@ -255,6 +322,7 @@ class BitLink21Runner:
             while True:
                 if self._stop.is_set():
                     raise RuntimeError("station stopped during TX")
+                self._check_cancel(row)
                 chunk = ahead.get()
                 if chunk is None:
                     break
@@ -264,14 +332,21 @@ class BitLink21Runner:
                 raise failure[0]
             # Let the queued DMA buffers drain before attenuating
             while time.time() - started < duration + 0.1:
+                self._check_cancel(row)
                 time.sleep(0.1)
                 progress()
             self._emit({"type": "bitlink21_tx_status", "msg_row": row, "status": "sent",
                         "duration_s": round(total / self.fs, 2)})
+        except _TxStopped:
+            logger.info(f"BitLink21 TX of message {row} stopped by the operator")
+            self._emit({"type": "bitlink21_tx_status", "msg_row": row, "status": "stopped"})
         except Exception as e:
             logger.exception(f"BitLink21 TX failed: {e}")
             self._emit({"type": "bitlink21_tx_status", "msg_row": row, "status": "failed", "error": str(e)})
         finally:
+            if abort is not None:
+                abort.set()
+            self._cancelled.discard(row)
             try:
                 self.sdr.tx_hardwaregain_chan0 = TX_IDLE_GAIN_DB
                 self.sdr.tx_destroy_buffer()
@@ -317,6 +392,7 @@ class WidebandRunner(BitLink21Runner):
         self.dropped = 0
         self._rx_thread = threading.Thread(target=self._rx_loop, name="bitlink21-wb-rx", daemon=True)
         self._tx_thread = threading.Thread(target=self._tx_loop, name="bitlink21-wb-tx", daemon=True)
+        self._cancelled: set = set()
         self._tx_lo: Optional[int] = None
         try:
             self._tx_lo = int(sdr.tx_lo)
@@ -328,6 +404,9 @@ class WidebandRunner(BitLink21Runner):
         self._level_db: Optional[float] = None
         self._recent = np.zeros(0, dtype=np.complex64)
         self._proc = None
+        self._feed_q: "queue.Queue[bytes]" = queue.Queue(maxsize=256)
+        self._feed_dropped = 0
+        self._log_tail: list = []
 
     # ------------------------------------------------------------ RX
 
@@ -353,6 +432,7 @@ class WidebandRunner(BitLink21Runner):
         self._ts_out = os.fdopen(ts_r, "rb", buffering=0)
         threading.Thread(target=self._ts_reader, name="bitlink21-wb-ts", daemon=True).start()
         threading.Thread(target=self._metrics_reader, name="bitlink21-wb-log", daemon=True).start()
+        threading.Thread(target=self._feeder, name="bitlink21-wb-feed", daemon=True).start()
         super().start()
         logger.info(f"Wideband station: {' '.join(args)}")
 
@@ -378,27 +458,71 @@ class WidebandRunner(BitLink21Runner):
         self.profile = SatelliteProfile.from_dict(profile_dict)
         self.plan = self.wb_mod.make_wb_plan(self.wb, self.profile, self.rx_lnb_correction_hz)
 
+    def _exit_reason(self) -> str:
+        """Why dvbs2-rx ended (e.g. killed by the CPU: illegal instruction)."""
+        import signal as sig
+
+        rc = self._proc.poll() if self._proc else None
+        if rc is None:
+            return "receiver stopped reading"
+        if rc < 0:
+            try:
+                name = sig.Signals(-rc).name
+            except ValueError:
+                name = f"signal {-rc}"
+            hint = " (this CPU lacks an instruction the receiver was built for)" if name == "SIGILL" else ""
+            return f"killed by {name}{hint}"
+        tail = " | ".join(self._log_tail[-3:])
+        return f"exited with code {rc}" + (f": {tail}" if tail else "")
+
     def _rx_loop(self) -> None:
         last_status = 0.0
+        last_log = 0.0
         while not self._stop.is_set():
             try:
                 samples = self._rx_q.get(timeout=0.5)
             except queue.Empty:
-                continue
-            try:
+                samples = None
+            if samples is not None:
                 y = self.channel.process(samples)
                 if len(y):
                     self._recent = np.concatenate([self._recent, y])[-int(self.channel.fs_out * 0.5):]
-                    self._proc.stdin.write(y.astype(np.complex64).tobytes())
-            except (BrokenPipeError, ValueError, OSError) as e:
-                if not self._stop.is_set():
-                    self._emit({"type": "bitlink21_station_error", "error": f"DVB-S2 receiver stopped: {e}"})
+                    try:
+                        self._feed_q.put_nowait(y.astype(np.complex64).tobytes())
+                    except queue.Full:
+                        # The decoder is slower than real time: drop, never stall
+                        self._feed_dropped += 1
+            if self._proc is not None and self._proc.poll() is not None and not self._stop.is_set():
+                reason = self._exit_reason()
+                logger.error(f"DVB-S2 receiver ended: {reason}")
+                self._emit({"type": "bitlink21_station_error", "error": f"DVB-S2 receiver stopped: {reason}"})
                 return
             now = time.time()
             if now - last_status >= 0.5:
                 last_status = now
                 self._level_db = self._occupancy_db()
-                self._emit(self._status(now))
+                status = self._status(now)
+                self._emit(status)
+                if now - last_log >= (5.0 if logger.isEnabledFor(logging.DEBUG) else 60.0):
+                    last_log = now
+                    w = status["wideband"]
+                    logger.info(
+                        f"WB status: lock={w['lock']} snr={w['snr_db']} foff={w['freq_offset_hz']} "
+                        f"fec={w['fec_frames']}/{w['fec_errors']} ts={w['ts_packets']} objects={w['objects']} "
+                        f"level={self._level_db} feed_dropped={self._feed_dropped} rx_dropped={self.dropped}")
+
+    def _feeder(self) -> None:
+        """Pipe channel samples into dvbs2-rx (own thread: a slow or dead
+        decoder can never stall the status/RX thread)."""
+        while not self._stop.is_set():
+            try:
+                chunk = self._feed_q.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            try:
+                self._proc.stdin.write(chunk)
+            except (BrokenPipeError, ValueError, OSError):
+                return  # reported by _rx_loop with the exit reason
 
     def _ts_reader(self) -> None:
         from bitlink21.radio import envelope, framing
@@ -424,7 +548,8 @@ class WidebandRunner(BitLink21Runner):
             start = line.find("{")
             if start < 0:
                 if line:
-                    logger.debug(f"dvbs2-rx: {line}")
+                    self._log_tail = (self._log_tail + [line])[-20:]
+                    logger.info(f"dvbs2-rx: {line}")
                 continue
             try:
                 self._metrics = json.loads(line[start:])
@@ -659,6 +784,12 @@ def plutosdr_worker_process(
     config = {}
 
     logger.info("PlutoSDR worker process started")
+    try:
+        from bitlink21 import diagnostics
+
+        diagnostics.install_file_logging("radio")
+    except Exception as e:
+        logger.warning(f"No radio log file: {e}")
 
     try:
         # Import adi here so import errors are caught gracefully in-process
@@ -928,6 +1059,29 @@ def plutosdr_worker_process(
                         bitlink21.update_tx(new_config["bitlink21_tx_update"])
                         logger.info(f"BitLink21 TX plan updated: {bitlink21.plan.tx_channel_rf_hz}")
 
+                    if "bitlink21_verbose" in new_config:
+                        from bitlink21 import diagnostics
+
+                        diagnostics.set_verbose(bool(new_config["bitlink21_verbose"]))
+                        logger.info(f"Verbose logging {'on' if new_config['bitlink21_verbose'] else 'off'}")
+
+                    if "bitlink21_retune" in new_config:
+                        nb = bitlink21 if (isinstance(bitlink21, BitLink21Runner)
+                                           and not isinstance(bitlink21, WidebandRunner)) else None
+                        if nb is not None and nb.retune(new_config["bitlink21_retune"]):
+                            logger.info("BitLink21 retuned in place (beacon lock kept)")
+                            data_queue.put({"type": "bitlink21_retuned", "center_freq": center_freq,
+                                            "sample_rate": sample_rate, "plan": nb.plan.to_dict()})
+                        else:
+                            # The SDR has to move: restart, starting from the current beacon lock
+                            seed = nb.beacon_offset() if nb is not None else None
+                            new_config["bitlink21_start"] = new_config["bitlink21_retune"]
+                            if seed is not None and new_config.get("bitlink21_beacon_seed_hz") is None:
+                                new_config["bitlink21_beacon_seed_hz"] = seed
+
+                    if "bitlink21_tx_cancel" in new_config and bitlink21 is not None:
+                        bitlink21.cancel(new_config["bitlink21_tx_cancel"])
+
                     if "bitlink21_stop" in new_config and bitlink21 is not None:
                         bitlink21.stop()
                         bitlink21 = None
@@ -981,7 +1135,8 @@ def plutosdr_worker_process(
                             if plan.tx_allowed and plan.tx_lo_hz:
                                 sdr.tx_lo = int(plan.tx_lo_hz)  # once, not on every send
                             num_samples = calculate_samples_per_scan(sample_rate, fft_size)
-                            bitlink21 = BitLink21Runner(sdr, profile.to_dict(), data_queue, tx_queue)
+                            bitlink21 = BitLink21Runner(sdr, profile.to_dict(), data_queue, tx_queue,
+                                                        beacon_seed_hz=new_config.get("bitlink21_beacon_seed_hz"))
                             bitlink21.start()
                             data_queue.put({
                                 "type": "bitlink21_retuned",

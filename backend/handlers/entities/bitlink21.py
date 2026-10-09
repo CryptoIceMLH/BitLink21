@@ -145,6 +145,26 @@ async def get_file(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Res
         return _fail(logger, "get_file", e)
 
 
+async def get_message_file(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Result:
+    """Content of a file we sent (download/open from the Sent bubble)."""
+    try:
+        await service.ensure_ready(sio)
+        row = await store.message_file(int((data or {})["id"]))
+        if not row:
+            return {"success": False, "error": "File not found"}
+        return {"success": True, "data": {"name": row["name"], "data_b64": base64.b64encode(row["data"]).decode("ascii")}}
+    except Exception as e:
+        return _fail(logger, "get_message_file", e)
+
+
+async def cancel_tx(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Result:
+    try:
+        await service.ensure_ready(sio)
+        return {"success": True, "data": await service.cancel_tx(int((data or {})["id"]))}
+    except Exception as e:
+        return _fail(logger, "cancel_tx", e)
+
+
 async def delete_file(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Result:
     try:
         await service.ensure_ready(sio)
@@ -196,6 +216,8 @@ def register_handlers(registry):
             "bitlink21:get_files": (get_files, "data_request"),
             "bitlink21:get_file": (get_file, "data_request"),
             "bitlink21:delete_file": (delete_file, "data_submission"),
+            "bitlink21:cancel_tx": (cancel_tx, "data_submission"),
+            "bitlink21:get_message_file": (get_message_file, "data_request"),
             "bitlink21:bitcoin_test_connection": (bitcoin_test_connection, "data_submission"),
         }
     )
