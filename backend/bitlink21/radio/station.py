@@ -18,10 +18,15 @@ from . import envelope, filetransfer, framing
 from .beacon import BeaconTracker
 from .demodulator import HsModemReceiver
 from .modes import get_mode
-from .modulator import ModulatorStream, modulate_blocks
+from . import hyperlink
+from .modulator import ModulatorStream, ResampledStream, modulate_blocks
 from .profile import SatelliteProfile, make_plan
 
 STATUS_INTERVAL_S = 0.5
+# How far from nominal the beacon is searched. The user's LNB error ranged
+# -4..-25.5 kHz; at +-25 kHz the true line fell outside the search and the
+# tracker locked a side line 400 Hz inside it (live, 2026-10-10).
+BEACON_SPAN_HZ = 40000.0
 
 
 class Station:
@@ -30,13 +35,11 @@ class Station:
         self.profile = profile
         self.fs = float(fs)
         self.plan = make_plan(profile, centre_if_hz=centre_if_hz)
-        self.rx_mode = get_mode(profile.rx_mode)
-        self.receiver = HsModemReceiver(
-            self.fs, self.rx_mode, self.plan.rx_channel_offset_hz, profile.search_span_hz
-        )
+        self.receiver = self._make_receiver(profile, self.plan)
         self.beacon: Optional[BeaconTracker] = None
         if profile.beacon_lock:
-            self.beacon = BeaconTracker(self.fs, self.plan.beacon_offset_hz, kind=profile.beacon_kind)
+            self.beacon = BeaconTracker(self.fs, self.plan.beacon_offset_hz, kind=profile.beacon_kind,
+                                        span_hz=BEACON_SPAN_HZ)
         self.files = filetransfer.FileReceiver()
         self.correction_hz = 0.0
         self._last_status = 0.0
@@ -46,6 +49,15 @@ class Station:
             self.beacon.seed(beacon_seed_hz)
             self.correction_hz = float(beacon_seed_hz)
             self.receiver.set_nominal(self.plan.rx_channel_offset_hz + self.correction_hz)
+
+    def _make_receiver(self, profile: SatelliteProfile, plan):
+        if profile.rx_mode == hyperlink.HYPERLINK_MODE:
+            return hyperlink.HyperLinkReceiver(self.fs, plan.rx_channel_offset_hz)
+        return HsModemReceiver(self.fs, get_mode(profile.rx_mode), plan.rx_channel_offset_hz, profile.search_span_hz)
+
+    @property
+    def hyperlink(self) -> bool:
+        return isinstance(self.receiver, hyperlink.HyperLinkReceiver)
 
     def retune(self, profile: SatelliteProfile) -> bool:
         """New channel / speed with the SDR left where it is: only the modem
@@ -59,8 +71,7 @@ class Station:
                 or abs(plan.rx_channel_offset_hz - profile.rx_correction_hz) < 20e3):  # DC spur
             return False
         self.profile, self.plan = profile, plan
-        self.rx_mode = get_mode(profile.rx_mode)
-        self.receiver = HsModemReceiver(self.fs, self.rx_mode, plan.rx_channel_offset_hz, profile.search_span_hz)
+        self.receiver = self._make_receiver(profile, plan)
         self.receiver.set_nominal(plan.rx_channel_offset_hz + self.correction_hz)
         if self.beacon is not None and abs(self.beacon.nominal_offset_hz - plan.beacon_offset_hz) > 0.5:
             self.beacon.retarget(plan.beacon_offset_hz)  # rx_correction changed
@@ -77,8 +88,12 @@ class Station:
                 self.receiver.set_nominal(self.plan.rx_channel_offset_hz + self.correction_hz)
             self.receiver.drift_hz_s = self.beacon.rate_hz_s if self.beacon.locked else 0.0
 
-        for frame in self.receiver.process(iq):
-            self._on_frame(frame)
+        if self.hyperlink:
+            for name, data in self.receiver.process(iq):
+                self._emit_file(name, framing.TYPE_BINARY_FILE, 0, data)
+        else:
+            for frame in self.receiver.process(iq):
+                self._on_frame(frame)
 
         now = time.time()
         if now - self._last_status >= STATUS_INTERVAL_S:
@@ -117,14 +132,17 @@ class Station:
         received = self.files.push(frame)
         if received is None:
             return
+        self._emit_file(received.name, received.frame_type, received.file_id, received.data)
+
+    def _emit_file(self, name: str, frame_type: int, file_id: int, data: bytes) -> None:
         self._events.append({
             "type": "bitlink21_file",
             "timestamp": time.time(),
-            "name": received.name,
-            "frame_type": received.frame_type,
-            "file_id": received.file_id,
-            "data_b64": base64.b64encode(received.data).decode("ascii"),
-            "is_envelope": envelope.is_envelope(received.data),
+            "name": name,
+            "frame_type": frame_type,
+            "file_id": file_id,
+            "data_b64": base64.b64encode(data).decode("ascii"),
+            "is_envelope": envelope.is_envelope(data),
         })
 
     # ------------------------------------------------------------------ TX
@@ -144,6 +162,9 @@ class Station:
         (a large file at a slow speed would not fit in memory)."""
         if not self.plan.tx_allowed or self.plan.tx_channel_offset_hz is None:
             raise RuntimeError(f"TX blocked: {self.plan.tx_block_reason or 'no uplink frequency'}")
+        if self.plan.tx_mode == hyperlink.HYPERLINK_MODE:
+            return ResampledStream(hyperlink.burst(name, content), hyperlink.TX_RATE, self.fs,
+                                   self.plan.tx_channel_offset_hz)
         mode = get_mode(self.plan.tx_mode)
         blocks = filetransfer.build_file_frames(name, content, frame_type)
         lead = int(mode.symbol_rate * 1.5) if lead_in else 0
