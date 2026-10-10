@@ -28,8 +28,8 @@ from bitlink21.payload_router import InboundPayload, PayloadRouter
 from bitlink21.plugins import PluginLoader
 from bitlink21.plugins.bitcoin_tx import BitcoinTxPlugin
 from bitlink21.plugins.generic_data import GenericDataPlugin
-from bitlink21.plugins.lightning_invoice import LightningInvoicePlugin, parse_bolt11_hrp
-from bitlink21 import diagnostics
+from bitlink21.plugins.lightning_invoice import parse_bolt11_hrp
+from bitlink21 import diagnostics, lnd
 from bitlink21.radio import envelope, filetransfer, hyperlink
 from bitlink21.radio.modes import SPEED_MODES
 from bitlink21.radio.profile import PRESETS, SatelliteProfile, make_plan
@@ -68,6 +68,8 @@ def _default_settings() -> Dict[str, Any]:
         },
         "lightning": {
             "lnd_rest_url": os.environ.get("LND_REST_URL") or "",
+            "macaroon_hex": "",
+            "cert_pem": "",  # pinned LND TLS certificate (from the lndconnect link)
         },
         # Receive-chain error at the last beacon lock: a restart starts the
         # beacon tracker from it instead of searching
@@ -124,6 +126,7 @@ class BitLink21Service:
                 self.settings["tx_correction_reset_405"] = True
                 await store.set_settings({"profile": self.settings["profile"], "tx_correction_reset_405": True})
             self._build_router()
+            self._invoice_watch = asyncio.create_task(self._watch_invoices())
             self._ready = True
 
     def _build_router(self) -> None:
@@ -132,10 +135,7 @@ class BitLink21Service:
         loader.register_plugin(envelope.TYPE_BITCOIN_TX, BitcoinTxPlugin({
             "rpc_url": btc["rpc_url"], "rpc_user": btc["rpc_user"], "rpc_pass": btc["rpc_pass"],
         }))
-        ln = self.settings["lightning"]
-        loader.register_plugin(envelope.TYPE_LIGHTNING_INVOICE, LightningInvoicePlugin({
-            "lnd_rest_url": ln["lnd_rest_url"] or None,
-        }))
+        # Lightning invoices are handled here with LND (see _describe_invoice)
         loader.register_plugin(envelope.TYPE_BINARY, GenericDataPlugin({}))
         self.router = PayloadRouter(loader)
 
@@ -153,6 +153,9 @@ class BitLink21Service:
         s["passphrase_set"] = bool(s.pop("passphrase", ""))
         if s["bitcoin"].get("rpc_pass"):
             s["bitcoin"]["rpc_pass"] = "********"
+        ln = s["lightning"]
+        ln["macaroon_set"] = bool(ln.pop("macaroon_hex", ""))
+        ln["cert_pinned"] = bool(ln.pop("cert_pem", ""))
         return s
 
     def get_state(self) -> Dict[str, Any]:
@@ -182,6 +185,9 @@ class BitLink21Service:
                 value = merged
             if key == "bitcoin" and value.get("rpc_pass") == "********":
                 value = {**value, "rpc_pass": self.settings["bitcoin"]["rpc_pass"]}
+            if key == "lightning":
+                # secrets only change through lightning_connect
+                value = {k: v for k, v in value.items() if k not in ("macaroon_hex", "cert_pem", "macaroon_set", "cert_pinned")}
             if isinstance(self.settings.get(key), dict) and isinstance(value, dict) and key != "profile":
                 value = {**self.settings[key], **value}
             self.settings[key] = value
@@ -477,11 +483,23 @@ class BitLink21Service:
                 "id": event.get("msg_row"), "progress": event.get("progress"),
                 "duration_s": event.get("duration_s"),
             })
+        elif etype == "bitlink21_align":
+            # Dish alignment meter, ~15/s: live only, straight to the browser
+            await self._emit("bitlink21:align", {k: v for k, v in event.items() if k != "type"})
         elif etype == "bitlink21_station_error":
             self.station_sdr_id = None
             await self._emit("bitlink21:station_state", {"running": False, "error": event.get("error")})
         elif etype == "bitlink21_frame":
             pass  # frame-level detail is already summarised in the status
+
+    def keep_alignment(self, seconds: float = 15.0) -> bool:
+        """The dish alignment page is open: run the meter for the next
+        `seconds` (the page renews this every few seconds)."""
+        pluto = self._find_pluto()
+        if pluto is None or pluto["config_queue"] is None or self.station_sdr_id is None:
+            raise RuntimeError("Start the station first (Link page): the meter uses the receiver.")
+        pluto["config_queue"].put({"bitlink21_align": float(seconds)})
+        return True
 
     async def _remember_lnb_correction(self, status: Dict[str, Any]) -> None:
         """Keep the beacon-measured receive error as the start for the next run (saved
@@ -574,6 +592,11 @@ class BitLink21Service:
         """Hand the payload to the matching plugin (Bitcoin relay is opt-in)."""
         if msg.payload_type == envelope.TYPE_TEXT or self.router is None:
             return
+        if msg.payload_type == envelope.TYPE_LIGHTNING_INVOICE:
+            info = await self._describe_invoice(msg.body.decode("utf-8", "replace"))
+            await store.update_message(row_id, relay_status="unpaid", relay_result=json.dumps(info))
+            await self._emit_message(row_id)
+            return
         if msg.payload_type == envelope.TYPE_BITCOIN_TX and not self.settings["bitcoin"]["relay_enabled"]:
             await store.update_message(row_id, relay_status="disabled")
             await self._emit_message(row_id)
@@ -586,6 +609,133 @@ class BitLink21Service:
             relay_result=json.dumps(plugin_result, default=str),
         )
         await self._emit_message(row_id)
+
+    # ------------------------------------------------------------ lightning
+
+    def _lnd(self) -> lnd.LndClient:
+        try:
+            return lnd.LndClient.from_settings(self.settings["lightning"])
+        except lnd.LndError:
+            raise RuntimeError("Connect your LND node first (Bitcoin & Lightning page).")
+
+    async def _describe_invoice(self, invoice: str) -> Dict[str, Any]:
+        """What a received invoice asks for: decoded by our node when it is
+        connected (amount, description, expiry), else from the invoice prefix."""
+        hrp = parse_bolt11_hrp(invoice) or {}
+        info: Dict[str, Any] = {"network": hrp.get("network")}
+        if hrp.get("amount_msat") is not None:
+            info["amount_sat"] = hrp["amount_msat"] // 1000
+        if self.settings["lightning"].get("macaroon_hex"):
+            try:
+                info.update(await self._lnd().decode(invoice))
+            except Exception as e:  # node offline etc.: still show the invoice
+                info["decode_error"] = str(e)
+        return info
+
+    async def lightning_connect(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Save LND connection details (an lndconnect link, or REST URL +
+        macaroon hex) after checking they work; returns node info."""
+        link = (data.get("lndconnect") or "").strip()
+        if link:
+            cfg = lnd.parse_lndconnect(link)
+        else:
+            cur = self.settings["lightning"]
+            cfg = {
+                "rest_url": (data.get("lnd_rest_url") or cur.get("lnd_rest_url") or "").strip(),
+                "macaroon_hex": (data.get("macaroon_hex") or cur.get("macaroon_hex") or "").strip(),
+                "cert_pem": cur.get("cert_pem") or "",
+            }
+        client = lnd.LndClient(cfg["rest_url"], cfg["macaroon_hex"], cfg["cert_pem"])
+        try:
+            info = await client.get_info()
+        except lnd.LndError as e:
+            raise RuntimeError(str(e))
+        self.settings["lightning"] = {**self.settings["lightning"], "lnd_rest_url": cfg["rest_url"],
+                                      "macaroon_hex": cfg["macaroon_hex"], "cert_pem": cfg["cert_pem"]}
+        await store.set_settings({"lightning": self.settings["lightning"]})
+        logger.info(f"LND connected: {info.get('alias')} ({info.get('network')}, {info.get('active_channels')} channels)")
+        return {**info, "cert_pinned": bool(cfg["cert_pem"])}
+
+    async def lightning_info(self) -> Dict[str, Any]:
+        try:
+            return await self._lnd().get_info()
+        except lnd.LndError as e:
+            raise RuntimeError(str(e))
+
+    async def lightning_pay(self, row_id: int, amount_sat: Optional[int] = None) -> Dict[str, Any]:
+        """Pay a received invoice with our node. Only on the operator's
+        click; never twice; routing fee capped (1 %, at least 10 sats)."""
+        row = await store.get_message(row_id)
+        if not row or row["payload_type"] != envelope.TYPE_LIGHTNING_INVOICE or row["direction"] != "rx":
+            raise ValueError("Not a received Lightning invoice")
+        if row.get("relay_status") in ("paid", "paying"):
+            raise ValueError("This invoice is already paid" if row["relay_status"] == "paid" else "Payment already in progress")
+        invoice = row.get("body_text") or ""
+        client = self._lnd()
+        try:
+            info = await client.decode(invoice)
+        except lnd.LndError as e:
+            raise RuntimeError(f"Your node cannot read this invoice: {e}")
+        amount = info["amount_sat"] or int(amount_sat or 0)
+        if amount <= 0:
+            raise ValueError("This invoice has no amount: enter how many sats to pay")
+        if info["created_at"] and time.time() > info["created_at"] + info["expiry_s"]:
+            raise ValueError("This invoice has expired")
+        fee_limit = lnd.default_fee_limit_sat(amount)
+        result_base = {**(row.get("relay_result") or {}), **info}
+        await store.update_message(row_id, relay_status="paying", relay_result=json.dumps(result_base))
+        await self._emit_message(row_id)
+        try:
+            res = await client.pay(invoice, fee_limit, None if info["amount_sat"] else amount)
+        except lnd.LndError as e:
+            res = {"paid": False, "reason": str(e)}
+        status = "paid" if res.get("paid") else "pay_failed"
+        await store.update_message(row_id, relay_status=status, relay_result=json.dumps({**result_base, "payment": res}))
+        await self._emit_message(row_id)
+        logger.info(f"Lightning payment of {amount} sats: {status} {res.get('reason', '')}")
+        return {**res, "amount_sat": amount, "fee_limit_sat": fee_limit}
+
+    async def lightning_request(self, amount_sat: int, memo: str = "", expiry_s: int = 3600) -> Dict[str, Any]:
+        """Create an invoice on our node and send it over the satellite."""
+        amount_sat = int(amount_sat)
+        if amount_sat <= 0:
+            raise ValueError("Enter an amount in sats")
+        await self._check_can_transmit()
+        try:
+            inv = await self._lnd().add_invoice(amount_sat, memo or "", expiry_s)
+        except lnd.LndError as e:
+            raise RuntimeError(str(e))
+        msg = await self.send_message(envelope.TYPE_LIGHTNING_INVOICE, inv["payment_request"].encode())
+        details = {"own_invoice": True, "payment_hash": inv["payment_hash"], "amount_sat": amount_sat,
+                   "description": memo or "", "created_at": int(time.time()), "expiry_s": expiry_s}
+        await store.update_message(msg["id"], relay_status="unpaid", relay_result=json.dumps(details))
+        await self._emit_message(msg["id"])
+        return await store.get_message(msg["id"])
+
+    async def _watch_invoices(self) -> None:
+        """Mark our own invoices paid (or expired) as our node settles them."""
+        while True:
+            await asyncio.sleep(15)
+            try:
+                await self._check_invoices()
+            except Exception as e:
+                logger.debug(f"invoice watch: {e}")
+
+    async def _check_invoices(self) -> None:
+        if not self.settings["lightning"].get("macaroon_hex"):
+            return
+        for row in await store.list_messages(200, 0):
+            res = row.get("relay_result") or {}
+            if row["direction"] != "tx" or row.get("relay_status") != "unpaid" or not res.get("own_invoice"):
+                continue
+            st = await self._lnd().invoice_state(res["payment_hash"])
+            if st["state"] == "SETTLED":
+                await store.update_message(row["id"], relay_status="paid", relay_result=json.dumps({**res, **st}))
+                await self._emit_message(row["id"])
+                logger.info(f"Our invoice for {res.get('amount_sat')} sats was paid")
+            elif st["state"] == "CANCELED":
+                await store.update_message(row["id"], relay_status="expired")
+                await self._emit_message(row["id"])
 
     async def _unlock_messages(self) -> None:
         for row in await store.locked_messages():

@@ -112,6 +112,10 @@ class BitLink21Runner:
             self.profile, self.plan = profile, self.station.plan
         return True
 
+    def keep_align(self, seconds: float) -> None:
+        with self._station_lock:
+            self.station.keep_align(seconds)
+
     def beacon_offset(self) -> Optional[float]:
         """Current beacon correction if locked (seed for a restart)."""
         b = self.station.beacon
@@ -797,6 +801,9 @@ def plutosdr_worker_process(
                     if "bitlink21_tx_update" in new_config and bitlink21 is not None:
                         bitlink21.update_tx(new_config["bitlink21_tx_update"])
                         logger.info(f"BitLink21 TX plan updated: {bitlink21.plan.tx_channel_rf_hz}")
+
+                    if "bitlink21_align" in new_config and bitlink21 is not None:
+                        bitlink21.keep_align(float(new_config["bitlink21_align"]))
 
                     if "bitlink21_verbose" in new_config:
                         from bitlink21 import diagnostics

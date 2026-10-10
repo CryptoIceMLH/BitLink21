@@ -6,6 +6,7 @@ Runs inside the SDR worker process. Feed it every RX buffer with
     {"type": "bitlink21_status", ...}      ~2 per second
     {"type": "bitlink21_frame", ...}       every decoded HSModem frame
     {"type": "bitlink21_file", ...}        every completed file
+    {"type": "bitlink21_align", ...}       ~10 per second while dish alignment runs
 """
 
 import base64
@@ -15,6 +16,7 @@ from typing import List, Optional
 import numpy as np
 
 from . import envelope, filetransfer, framing
+from .alignment import AlignmentMeter
 from .beacon import BeaconTracker
 from .demodulator import HsModemReceiver
 from .modes import get_mode
@@ -42,6 +44,8 @@ class Station:
                                         span_hz=BEACON_SPAN_HZ)
         self.files = filetransfer.FileReceiver()
         self.correction_hz = 0.0
+        self.align: Optional[AlignmentMeter] = None  # dish alignment meter, only while asked for
+        self._align_until = 0.0
         self._last_status = 0.0
         self._events: List[dict] = []
         if self.beacon is not None and beacon_seed_hz is not None:
@@ -96,10 +100,45 @@ class Station:
                 self._on_frame(frame)
 
         now = time.time()
+        if self.align is not None:
+            if now > self._align_until:
+                self.align = None  # the alignment page stopped asking
+            else:
+                self._run_align(iq)
         if now - self._last_status >= STATUS_INTERVAL_S:
             self._last_status = now
             self._events.append(self.status_event())
         return self._events
+
+    def keep_align(self, seconds: float) -> None:
+        """Run the dish alignment meter for the next `seconds` (renewed by the
+        alignment page while it is open; stops by itself afterwards)."""
+        self._align_until = time.time() + float(seconds)
+        if self.align is None:
+            self.align = AlignmentMeter(self.fs, self._beacon_position())
+
+    def _beacon_position(self) -> float:
+        b = self.beacon
+        if b is not None and b.offset_hz is not None:
+            return self.plan.beacon_offset_hz + b.offset_hz
+        if b is not None and b.raw_offset_hz is not None:
+            return self.plan.beacon_offset_hz + b.raw_offset_hz
+        return self.plan.beacon_offset_hz + self.correction_hz
+
+    def _run_align(self, iq: np.ndarray) -> None:
+        self.align.set_centre(self._beacon_position())
+        reading = self.align.process(iq, self.fs)
+        if reading is None:
+            return
+        b = self.beacon
+        reading.update({
+            "type": "bitlink21_align",
+            "timestamp": time.time(),
+            "beacon_state": "locked" if b is not None and b.locked else
+                            ("found" if b is not None and b.raw_offset_hz is not None else "searching"),
+            "lnb_error_hz": None if b is None or b.offset_hz is None else round(float(b.offset_hz), 1),
+        })
+        self._events.append(reading)
 
     def status_event(self) -> dict:
         rx = self.receiver.status()

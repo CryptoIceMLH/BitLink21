@@ -41,6 +41,7 @@ import MainLayout from "./components/waterfall/main-layout.jsx";
 import {WakeLockProvider} from "./components/dashboard/wake-lock-provider.jsx";
 import LinkPage from "./components/bitlink21/link-page.jsx";
 import PaymentsPage from "./components/bitlink21/payments-page.jsx";
+import AlignPage from "./components/bitlink21/align-page.jsx";
 
 
 
@@ -67,6 +68,10 @@ const router = createBrowserRouter([
                             {
                                 path: "payments",
                                 Component: PaymentsPage,
+                            },
+                            {
+                                path: "align",
+                                Component: AlignPage,
                             },
                         ],
                     },

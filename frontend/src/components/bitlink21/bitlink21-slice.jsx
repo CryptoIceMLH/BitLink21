@@ -36,6 +36,10 @@ export const fetchFiles = request('data_request', 'get_files');
 export const deleteFile = request('data_submission', 'delete_file');
 export const cancelTx = request('data_submission', 'cancel_tx');
 export const testBitcoinConnection = request('data_submission', 'bitcoin_test_connection');
+export const lightningConnect = request('data_submission', 'lightning_connect');
+export const lightningInfo = request('data_request', 'lightning_info');
+export const lightningPay = request('data_submission', 'lightning_pay');
+export const lightningRequest = request('data_submission', 'lightning_request');
 
 const applyState = (state, data) => {
     if (!data) return;

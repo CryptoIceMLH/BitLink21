@@ -26,6 +26,7 @@ import WavesIcon from '@mui/icons-material/Waves';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import CurrencyBitcoinIcon from '@mui/icons-material/CurrencyBitcoin';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
+import SettingsInputAntennaIcon from '@mui/icons-material/SettingsInputAntenna';
 import i18n from '../i18n/config.js';
 import { TleIcon } from '../components/common/custom-icons.jsx';
 import { Box, CircularProgress } from '@mui/material';
@@ -238,6 +239,11 @@ export const getNavigation = () => [
         segment: 'bitlink21/payments',
         title: 'Bitcoin & Lightning',
         icon: <CurrencyBitcoinIcon />,
+    },
+    {
+        segment: 'bitlink21/align',
+        title: 'Dish alignment',
+        icon: <SettingsInputAntennaIcon />,
     },
     {
         kind: 'header',

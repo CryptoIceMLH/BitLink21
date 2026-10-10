@@ -200,6 +200,54 @@ async def bitcoin_test_connection(sio: Any, data: Optional[Dict], logger: Any, s
         return {"success": False, "error": f"Connection failed: {e}"}
 
 
+async def lightning_connect(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Result:
+    """data: {lndconnect: "lndconnect://..."} or {lnd_rest_url, macaroon_hex}."""
+    try:
+        await service.ensure_ready(sio)
+        return {"success": True, "data": await service.lightning_connect(data or {})}
+    except Exception as e:
+        return _fail(logger, "lightning_connect", e)
+
+
+async def lightning_info(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Result:
+    try:
+        await service.ensure_ready(sio)
+        return {"success": True, "data": await service.lightning_info()}
+    except Exception as e:
+        return _fail(logger, "lightning_info", e)
+
+
+async def lightning_pay(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Result:
+    """data: {id: message row, amount_sat: only for invoices without an amount}."""
+    try:
+        await service.ensure_ready(sio)
+        data = data or {}
+        res = await service.lightning_pay(int(data["id"]), data.get("amount_sat"))
+        logger.info(f"Lightning payment for message {data['id']} by {sid}: {'paid' if res.get('paid') else 'failed'}")
+        return {"success": True, "data": res}
+    except Exception as e:
+        return _fail(logger, "lightning_pay", e)
+
+
+async def lightning_request(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Result:
+    """data: {amount_sat, memo}: create an invoice and send it over the satellite."""
+    try:
+        await service.ensure_ready(sio)
+        data = data or {}
+        return {"success": True, "data": await service.lightning_request(int(data.get("amount_sat") or 0), data.get("memo") or "")}
+    except Exception as e:
+        return _fail(logger, "lightning_request", e)
+
+
+async def alignment_keepalive(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Result:
+    """The dish alignment page is open: keep the meter running ~15 s more."""
+    try:
+        await service.ensure_ready(sio)
+        return {"success": True, "data": service.keep_alignment(15.0)}
+    except Exception as e:
+        return _fail(logger, "alignment", e)
+
+
 def register_handlers(registry):
     """Register BitLink21 handlers with the command registry."""
     registry.register_batch(
@@ -219,5 +267,10 @@ def register_handlers(registry):
             "bitlink21:cancel_tx": (cancel_tx, "data_submission"),
             "bitlink21:get_message_file": (get_message_file, "data_request"),
             "bitlink21:bitcoin_test_connection": (bitcoin_test_connection, "data_submission"),
+            "bitlink21:lightning_connect": (lightning_connect, "data_submission"),
+            "bitlink21:lightning_info": (lightning_info, "data_request"),
+            "bitlink21:lightning_pay": (lightning_pay, "data_submission"),
+            "bitlink21:lightning_request": (lightning_request, "data_submission"),
+            "bitlink21:alignment_keepalive": (alignment_keepalive, "data_submission"),
         }
     )
