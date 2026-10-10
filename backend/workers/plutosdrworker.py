@@ -30,6 +30,10 @@ logger = logging.getLogger("plutosdr-worker")
 # AD9361's LO leakage never reaches the uplink.
 TX_IDLE_GAIN_DB = -89.75
 TX_CHUNK = 1 << 16  # samples per TX DMA buffer
+# Signal level into the DAC (full scale 2^15). The modulator keeps peaks at
+# ~0.9 and never above 1.0, so this is ~1 dB under full scale: TX gain 0 dB
+# is the Pluto's full output and TX gain is the only power control.
+TX_DAC_SCALE = 32000
 LBT_CLEAR_S = 2.0     # channel must be quiet this long before we transmit
 LBT_TIMEOUT_S = 60.0  # give up (message fails) if it stays busy
 TX_AHEAD_S = 8.0      # signal synthesised ahead of the DAC
@@ -271,13 +275,13 @@ class BitLink21Runner:
                         for piece in stream:
                             pending = np.concatenate([pending, piece])
                             while len(pending) >= TX_CHUNK:
-                                if self._stop.is_set() or not put(pending[:TX_CHUNK] * 2 ** 14):  # DAC full scale 2^15
+                                if self._stop.is_set() or not put(pending[:TX_CHUNK] * TX_DAC_SCALE):
                                     return
                                 pending = pending[TX_CHUNK:]
                     if len(pending):
                         last = np.zeros(TX_CHUNK, dtype=np.complex64)
                         last[: len(pending)] = pending
-                        put(last * 2 ** 14)
+                        put(last * TX_DAC_SCALE)
                 except Exception as e:  # reported by the consumer
                     failure.append(e)
                 finally:

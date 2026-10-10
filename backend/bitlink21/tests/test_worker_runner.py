@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 pytest.importorskip("psutil")
-from workers.plutosdrworker import TX_CHUNK, TX_IDLE_GAIN_DB, BitLink21Runner  # noqa: E402
+from workers.plutosdrworker import TX_CHUNK, TX_DAC_SCALE, TX_IDLE_GAIN_DB, BitLink21Runner  # noqa: E402
 
 from bitlink21.radio import envelope  # noqa: E402
 from bitlink21.radio.profile import SatelliteProfile  # noqa: E402
@@ -120,7 +120,7 @@ def test_runner_streams_multi_part_file_that_decodes():
     finally:
         runner.stop()
 
-    x = np.concatenate(sdr.samples) / 2 ** 14
+    x = np.concatenate(sdr.samples) / TX_DAC_SCALE
     plan = runner.plan
     rx = HsModemReceiver(fs, get_mode(plan.tx_mode), channel_offset_hz=plan.tx_channel_offset_hz, search_span_hz=3000)
     files = FileReceiver()
