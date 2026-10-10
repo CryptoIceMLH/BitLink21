@@ -25,6 +25,11 @@ HOLD_LOCK_HZ = 60.0    # once locked, stay locked within this of the prediction
 # Drift rates tried when a locked beacon is suddenly not found (Hz/s)
 DRIFT_HYPOTHESES_HZ_S = (-60.0, -40.0, -25.0, -12.0, 12.0, 25.0, 40.0, 60.0)
 HYPOTHESIS_WINDOW_HZ = 120.0
+# The QO-100 PSK beacon (400 Bd) shows weaker copies of its line exactly
+# +-400 Hz away (measured live: carrier 29 dB, copies 19-20 dB). If the line
+# found has a much stronger line 400 Hz beside it, that one is the carrier.
+SIDE_LINE_HZ = 400.0
+SIDE_LINE_MARGIN_DB = 6.0
 
 
 class BeaconTracker:
@@ -175,7 +180,9 @@ class BeaconTracker:
 
     def _find_line(self, x: np.ndarray, rate: float, centre: float, window: float):
         """Strongest beacon line in the window after removing ``rate``.
-        Returns (frequency at the window centre, SNR dB) or (None, SNR)."""
+        Returns (frequency at the window centre, SNR dB, moved) or
+        (None, SNR, False); ``moved`` means it stepped off a side line onto
+        the carrier 400 Hz away."""
         x = self._dechirp(x, rate)
         power = 2 if self.kind == "psk" else 1
         freqs, spec = self._line_spectrum(x ** power, power)
@@ -214,15 +221,31 @@ class BeaconTracker:
             k = cand
             break
         if k is None or k == 0 or k == len(spec) - 1:
-            return None, None
+            return None, None, False
+        moved = False
+        if self.kind == "psk":
+            # On a side line? The carrier is the strongest of the three lines
+            # (checked beyond the search window, which is narrower than 400 Hz)
+            near_bins = max(1, int(round(8.0 / bin_hz)))
+            for _ in range(2):  # a side line can be 800 Hz out at worst
+                best_k, best_p = k, spec[k]
+                for side in (-SIDE_LINE_HZ, SIDE_LINE_HZ):
+                    j = int(np.argmin(np.abs(freqs - (freqs[k] + side))))
+                    lo, hi = max(j - near_bins, 1), min(j + near_bins + 1, len(spec) - 1)
+                    jj = lo + int(np.argmax(spec[lo:hi]))
+                    if spec[jj] > best_p and abs(freqs[jj]) <= self.span_hz:
+                        best_k, best_p = jj, spec[jj]
+                if best_k == k or 10 * np.log10(best_p / spec[k]) < SIDE_LINE_MARGIN_DB:
+                    break
+                k, moved = best_k, True
         snr = float(10 * np.log10(spec[k] / noise))
         if snr < self.min_snr_db:
-            return None, snr
+            return None, snr, False
         # Quadratic interpolation on the log spectrum for sub-bin accuracy
         a, b, c = np.log(spec[k - 1] + 1e-30), np.log(spec[k] + 1e-30), np.log(spec[k + 1] + 1e-30)
         denom = a - 2 * b + c
         delta = 0.5 * (a - c) / denom if denom != 0 else 0.0
-        return float(freqs[k] + delta * bin_hz), snr
+        return float(freqs[k] + delta * bin_hz), snr, moved
 
     def _measure(self) -> None:
         x = self._buf
@@ -241,20 +264,20 @@ class BeaconTracker:
         centre = (predicted - self.rate_hz_s * half) if locked_search else 0.0
 
         rate = self.rate_hz_s
-        line, snr = self._find_line(x, rate, centre, window)
+        line, snr, moved = self._find_line(x, rate, centre, window)
         if line is None and locked_search:
             # Lost it: the receive frequency may have started running (live:
             # 20-40 Hz/s while transmitting) and smeared the line. Try drift
             # rates; the one giving a sharp line also gives the new rate.
             # Only near the expectation: the beacon's symbol-clock lines sit a
             # few hundred Hz away and must not be mistaken for it
-            best = (None, None, rate)
+            best = (None, None, rate, False)
             for r in DRIFT_HYPOTHESES_HZ_S:
-                f, s = self._find_line(x, r, centre, HYPOTHESIS_WINDOW_HZ)
+                f, s, mv = self._find_line(x, r, centre, HYPOTHESIS_WINDOW_HZ)
                 if f is not None and (best[1] is None or s > best[1]):
-                    best = (f, s, r)
+                    best = (f, s, r, mv)
             if best[0] is not None:
-                line, snr, rate = best
+                line, snr, rate, moved = best
                 self.rate_hz_s = rate
                 predicted = self.offset_hz + rate * dt
         self.snr_db = snr
@@ -275,6 +298,14 @@ class BeaconTracker:
         raw = line + rate * half
         self.raw_offset_hz = raw
 
+        if moved and self.locked:
+            # Stepped off a side line onto the carrier: re-centre, stay locked
+            self.offset_hz = raw
+            self._residuals.clear()
+            self._residuals.extend([0.0, 0.0, 0.0])
+            self._seeded = False
+            self._update_spectrum(x)
+            return
         if self._seeded and predicted is not None and abs(raw - predicted) <= 100:
             # Seed confirmed by a real measurement: keep the lock
             self._seeded = False
