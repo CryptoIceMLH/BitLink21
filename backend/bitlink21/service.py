@@ -30,7 +30,7 @@ from bitlink21.plugins.bitcoin_tx import BitcoinTxPlugin
 from bitlink21.plugins.generic_data import GenericDataPlugin
 from bitlink21.plugins.lightning_invoice import LightningInvoicePlugin, parse_bolt11_hrp
 from bitlink21 import diagnostics
-from bitlink21.radio import envelope, filetransfer
+from bitlink21.radio import envelope, filetransfer, hyperlink
 from bitlink21.radio.modes import SPEED_MODES
 from bitlink21.radio.profile import PRESETS, SatelliteProfile, make_plan
 from bitlink21.store import store
@@ -160,7 +160,7 @@ class BitLink21Service:
         return {
             "settings": self.public_settings(),
             "plan": make_plan(profile).to_dict(),
-            "modes": [m.to_dict() for m in SPEED_MODES],
+            "modes": [m.to_dict() for m in SPEED_MODES] + [hyperlink.mode_info()],
             "presets": {k: v.to_dict() for k, v in PRESETS.items()},
             "station_running": self.station_sdr_id is not None,
             "station_sdr_id": self.station_sdr_id,
@@ -369,15 +369,17 @@ class BitLink21Service:
             name.encode("ascii")
         except UnicodeEncodeError:
             raise ValueError("Use a plain ASCII file name (HSModem limitation)")
-        if len(data) <= PART_BYTES:
+        hyper = self.settings["profile"].get("rx_mode") == hyperlink.HYPERLINK_MODE
+        if len(data) <= PART_BYTES or hyper:  # HyperLink has no 1024-frame cap
             name = name[:50]
             parts = [(name, data)]
         else:
             n = -(-len(data) // PART_BYTES)
             name = name[:50 - len(f".part{n}of{n}")]
             parts = [(f"{name}.part{k + 1}of{n}", data[k * PART_BYTES:(k + 1) * PART_BYTES]) for k in range(n)]
-        for part_name, part in parts:
-            filetransfer.build_file_frames(part_name, part)  # validates the HSModem frame-count limit
+        if not hyper:
+            for part_name, part in parts:
+                filetransfer.build_file_frames(part_name, part)  # validates the HSModem frame-count limit
         row_id = await store.add_message(
             direction="tx", msg_id=os.urandom(8).hex(), payload_type=envelope.TYPE_BINARY,
             callsign=self.settings["callsign"], body=data, encrypted=0, status="queued",

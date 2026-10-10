@@ -104,6 +104,53 @@ class SymbolStream:
             yield iq.astype(np.complex64)
 
 
+class ResampledStream:
+    """A ready-made baseband signal (e.g. a HyperLink OFDM burst at 8 kHz)
+    resampled to the SDR rate and shifted by offset_hz, piece by piece.
+    Overlapping windows with aligned starts keep the joined output exact."""
+
+    MARGIN = 64
+    TARGET_SEG_S = 2.0
+
+    def __init__(self, x: np.ndarray, fs_in: float, fs_out: float, offset_hz: float = 0.0):
+        self.x = np.asarray(x, dtype=np.complex64)
+        self.fs_out = float(fs_out)
+        self.offset_hz = float(offset_hz)
+        ratio = Fraction(fs_out / fs_in).limit_denominator(10000)
+        self.up, self.down = ratio.numerator, ratio.denominator
+        q = self.down // gcd(self.up, self.down)
+        self.q = q
+        self.margin = -(-self.MARGIN // q) * q
+        self.seg = max(q, int(self.TARGET_SEG_S * fs_in) // q * q)
+        self.n_in = -(-len(self.x) // q) * q
+        self.total_samples = self.n_in * self.up // self.down
+
+    def __len__(self) -> int:
+        return self.total_samples
+
+    def __iter__(self):
+        step = 2 * np.pi * self.offset_hz / self.fs_out
+        m = self.margin
+        pos = 0
+        for a in range(0, self.n_in, self.seg):
+            b = min(a + self.seg, self.n_in)
+            lo, hi = a - m, b + m
+            win = self.x[max(lo, 0): min(hi, len(self.x))]
+            win = np.concatenate([np.zeros(max(0, -lo), np.complex64), win,
+                                  np.zeros(max(0, hi - max(len(self.x), lo) - len(win) + (min(hi, len(self.x)) - max(lo, 0)) * 0), np.complex64)])
+            if len(win) < hi - lo:
+                win = np.concatenate([win, np.zeros(hi - lo - len(win), np.complex64)])
+            y = signal.resample_poly(win, self.up, self.down)
+            k0 = m * self.up // self.down
+            iq = y[k0: k0 + (b - a) * self.up // self.down].astype(np.complex64)
+            if self.offset_hz:
+                iq = iq * np.exp(1j * step * (pos + np.arange(len(iq)))).astype(np.complex64)
+            np.clip(iq.real, -1, 1, out=iq.real)
+            np.clip(iq.imag, -1, 1, out=iq.imag)
+            pos += len(iq)
+            yield iq
+
+
 class ModulatorStream(SymbolStream):
     """HSModem burst (same waveform as modulate_blocks), streamed."""
 

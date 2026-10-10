@@ -356,3 +356,23 @@ def test_diagnostics_bundle_and_verbose(svc, tmp_path, monkeypatch):
             logging.getLogger().removeHandler(h)
             h.close()
     diagnostics.set_verbose(False)
+
+
+def test_hyperlink_sends_large_files_whole(svc):
+    from bitlink21.radio import hyperlink
+
+    async def run():
+        await svc.ensure_ready()
+        svc.station_sdr_id = "pluto-1"
+        await svc.update_settings({"tx_enabled": True, "callsign": "dl1abc",
+                                   "profile": {"rx_dial_rf_hz": 10489.61e6, "rx_mode": hyperlink.HYPERLINK_MODE}})
+        state = svc.get_state()
+        content = os.urandom(300 * 1024)
+        await svc.send_file("big.bin", content)
+        while not svc.fake_pluto["config_queue"].empty():
+            svc.fake_pluto["config_queue"].get_nowait()
+        return state, svc.fake_pluto["tx_queue"].get_nowait(), content
+
+    state, req, content = asyncio.run(run())
+    assert any(m["index"] == hyperlink.HYPERLINK_MODE and m["name"] == "HyperLink" for m in state["modes"])
+    assert len(req["parts"]) == 1 and base64.b64decode(req["parts"][0]["content_b64"]) == content
