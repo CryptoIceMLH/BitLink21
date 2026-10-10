@@ -4,7 +4,7 @@ name: BitLink21
 tagline: Bitcoin decentralized satellite communication system
 icon: https://raw.githubusercontent.com/CryptoIceMLH/BitLink21/master/bitlink21-128.png
 category: bitcoin
-version: "4.0.6"
+version: "4.0.7"
 port: 7000
 description: >-
   BitLink21 sends messages, Bitcoin transactions and Lightning invoices over the
@@ -23,6 +23,17 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 gallery: []
 releaseNotes: >-
+  v4.0.7: New HyperLink speed (next to Fast/Turbo): BitLink21's own fast
+  mode (OFDM, 16-QAM, LDPC), about twice as fast as Turbo in practice (1 kB
+  in 1.6 s), BitLink21 stations only, needs a ~13 dB signal; large files go
+  as one transmission. Beacon lock fixed: searches +-40 kHz (LNB errors past
+  25 kHz were missed) and never sticks on a side line 400 Hz off the beacon.
+  Receiver fix: QPSK 3000/4000 and 8APSK 5500/6000 lost data (samples were
+  dropped); all speeds now follow your echo's drift while you transmit.
+  Tested on air in every speed. NOTE: transmit now drives the Pluto near full
+  scale, so the same TX gain is about 6 dB STRONGER than before: lower your TX
+  gain (e.g. by 6 dB) after updating. Recommended RX gain: 25 dB.
+
   v4.0.6: Beacon lock and modem now follow a fast-drifting receive
   frequency (20-40 Hz/s, as when the station transmits): no more beacon
   unlock after every message, and long BPSK messages decode through the
