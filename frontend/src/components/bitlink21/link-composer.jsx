@@ -5,7 +5,7 @@ import {
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
 import LockRoundedIcon from '@mui/icons-material/LockRounded';
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded';
-import { PAYLOAD_TYPES, bodyByteLength, estimateAirtime, parseInvoice } from './link-utils.js';
+import { HYPERLINK_MODE, PAYLOAD_TYPES, bodyByteLength, estimateAirtime, parseInvoice } from './link-utils.js';
 
 const MAX_FILE_BYTES = 500 * 1024;
 // Above one HSModem transfer (~224 kB) a file goes out as consecutive parts
@@ -102,7 +102,7 @@ function LinkComposer({ settings, modes, profile, readyState, sending, onSend, o
                     </Button>
                     <Typography variant="body2" sx={{ mt: 1.5 }} color={file ? 'text.primary' : 'text.secondary'}>
                         {file
-                            ? `${file.name} · ${(file.size / 1024).toFixed(1)} kB${file.size > PART_BYTES ? ` · sent in ${Math.ceil(file.size / PART_BYTES)} parts (BitLink21 stations rejoin them)` : ''}`
+                            ? `${file.name} · ${(file.size / 1024).toFixed(1)} kB${file.size > PART_BYTES && profile?.rx_mode !== HYPERLINK_MODE ? ` · sent in ${Math.ceil(file.size / PART_BYTES)} parts (BitLink21 stations rejoin them)` : ''}`
                             : `or drop it here · up to ${MAX_FILE_BYTES / 1024} kB, sent as normal HSModem files any station can open`}
                     </Typography>
                     {problem && problem !== 'empty' && <Typography variant="caption" color="error">{problem}</Typography>}

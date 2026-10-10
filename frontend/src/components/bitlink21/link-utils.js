@@ -7,7 +7,10 @@ export const SPEEDS = [
     { mode: 2, label: 'Standard', detail: 'QPSK · 3 kbit/s', hint: 'Good default' },
     { mode: 4, label: 'Fast', detail: 'QPSK · 4.4 kbit/s', hint: 'HSModem default' },
     { mode: 9, label: 'Turbo', detail: '8APSK · 7.2 kbit/s', hint: 'Needs a strong signal' },
+    { mode: 10, label: 'HyperLink', detail: 'OFDM 16-QAM · 5.5 kbit/s', hint: 'BitLink21 only · needs ~13 dB' },
 ];
+
+export const HYPERLINK_MODE = 10;
 
 export const PAYLOAD_TYPES = [
     { value: 'text', label: 'Message' },
@@ -46,6 +49,11 @@ export const formatHz = (hz) => {
 // 219-byte frames, first/last repeated 3x, plus the 1.5 s lead-in.
 export function estimateAirtime(bodyBytes, mode) {
     if (!mode) return null;
+    if (mode.index === HYPERLINK_MODE) {
+        // 160 data bytes per 220 ms block, plus ~110 ms of preamble/header
+        const blocks = Math.ceil((bodyBytes + 100) / 160);
+        return 0.11 + blocks * 0.22;
+    }
     const content = 20 + 12 + bodyBytes + 140; // envelope + callsign + zip overhead (approx)
     const stream = 55 + content;
     const chunks = Math.max(1, Math.ceil(stream / 219));
