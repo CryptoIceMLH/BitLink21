@@ -4,7 +4,7 @@ name: BitLink21
 tagline: Bitcoin decentralized satellite communication system
 icon: bitlink21-128.png
 category: bitcoin
-version: "4.0.7"
+version: "4.0.8"
 port: 7000
 description: >-
   BitLink21 sends messages, Bitcoin transactions and Lightning invoices over the
@@ -23,6 +23,16 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 dependencies: []
 releaseNotes: >-
+  v4.0.8: Lightning with your own LND node: paste the lndconnect link from
+  your Umbrel's Lightning app, then pay invoices that arrive over the
+  satellite (Pay button with confirmation and a fee cap, never paid twice),
+  send a payment receipt back, and request payments (your node makes the
+  invoice, BitLink21 sends it and shows it as paid). New Dish alignment page:
+  the beacon's C/N0 measured like a satellite meter (steady, does not jump
+  with the beacon's modulation), MER, beacon level and noise floor, best
+  value hold, 60 s graph, live beacon spectrum and a tone for aligning
+  without looking. The station must be running.
+
   v4.0.7: New HyperLink speed (next to Fast/Turbo): BitLink21's own fast
   mode (OFDM, 16-QAM, LDPC), about twice as fast as Turbo in practice (1 kB
   in 1.6 s), BitLink21 stations only, needs a ~13 dB signal; large files go
