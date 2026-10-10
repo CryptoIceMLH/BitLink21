@@ -272,14 +272,34 @@ def burst(name: str, data: bytes) -> np.ndarray:
         for row in q:
             syms.append(_symbol_time({**pilots, **dict(zip(DATA, row))}, TX_RATE))
     syms.append(np.zeros_like(syms[0]))
-    x = np.concatenate(syms)
-    # OFDM has a high crest factor: clip the rare peaks, keep the level up
-    rms = float(np.sqrt(np.mean(np.abs(x) ** 2)))
-    x = x / (3.2 * rms)
-    mag = np.abs(x)
-    over = mag > 0.9
-    x[over] *= 0.9 / mag[over]
-    return x.astype(np.complex64)
+    x = _clip_and_filter(np.concatenate(syms))
+    return (x * (0.9 / float(np.max(np.abs(x))))).astype(np.complex64)
+
+
+# Clip the OFDM peaks at this many times the RMS level. 2.2 gives +1.8 dB
+# average power and was best on air (2026-10-10: 1.6 tested better in
+# simulation but failed on the real transmit chain)
+CLIP_RATIO = 2.2
+
+
+def _clip_and_filter(x: np.ndarray) -> np.ndarray:
+    """OFDM peaks are ~10 dB above the average, so scaled for the DAC peak the
+    average power (what the satellite and the SNR see) was ~3.5 dB below the
+    single-carrier modes. Clip the peaks, then remove the splatter outside
+    our sub-carriers (nothing may leak into the neighbouring channels), a
+    few times over since filtering regrows the peaks a little."""
+    f = np.fft.fftfreq(len(x), 1 / TX_RATE)
+    outside = np.abs(f) > (HALF + 1) * SPACING_HZ
+    for _ in range(4):
+        lim = CLIP_RATIO * float(np.sqrt(np.mean(np.abs(x) ** 2)))
+        mag = np.abs(x)
+        over = mag > lim
+        x = x.copy()
+        x[over] *= lim / mag[over]
+        spec = np.fft.fft(x)
+        spec[outside] = 0
+        x = np.fft.ifft(spec)
+    return x
 
 
 def airtime_s(nbytes: int) -> float:
@@ -301,12 +321,11 @@ class HyperLinkReceiver:
 
     def __init__(self, fs_in: float, channel_offset_hz: float = 0.0):
         self.mode = _ModeView()
-        # Channel rate: an integer decimation giving a multiple of 500 Hz >= 8 kHz
-        d = int(fs_in // 8000)
-        while d > 1 and (fs_in / d) % 500:
-            d -= 1
-        self.fs = fs_in / d
-        self.channel = ChannelSelector(fs_in, channel_offset_hz, min_out_rate=self.fs * (1 - 1e-9),
+        # Channel rate ~8 kHz by integer decimation. Real SDR rates are not
+        # exact (the Pluto reports 599999 Hz for 600 kS/s); the symbol length
+        # is rounded to whole samples, the tiny spacing error is harmless.
+        d = max(1, int(round(fs_in / TX_RATE)))
+        self.channel = ChannelSelector(fs_in, channel_offset_hz, min_out_rate=fs_in / d * (1 - 1e-6),
                                        passband_hz=self.CHANNEL_BW_HZ / 2 + 150)
         self.fs = self.channel.fs_out
         self.n = int(round(self.fs * SYMBOL_S))
@@ -491,10 +510,13 @@ class HyperLinkReceiver:
         self._ptr += self.step
         if self._stage == "p2":
             H = Y / self._p2_ref
-            # flat channel: smooth across neighbouring carriers
-            k = np.ones(5) / 5
-            self._H = np.convolve(H, k, mode="same")
-            self._H[:2], self._H[-2:] = H[:2], H[-2:]
+            # An SSB channel is close to flat over 2.7 kHz: a smooth fit over
+            # all carriers (level and phase) instead of a 5-carrier average,
+            # whose noise went into every data symbol (~0.8 dB on air)
+            kk = self._carriers
+            amp = np.polyval(np.polyfit(kk, np.log(np.abs(H) + 1e-12), 2), kk)
+            ph = np.polyval(np.polyfit(kk, np.unwrap(np.angle(H)), 2), kk)
+            self._H = np.exp(amp + 1j * ph)
             err = Y - self._H * self._p2_ref
             s = np.mean(np.abs(self._H) ** 2)
             self.snr_db = float(10 * np.log10(s / (np.mean(np.abs(err) ** 2) + 1e-20)))
@@ -537,14 +559,29 @@ class HyperLinkReceiver:
         kk = self._carriers[self.pilot_idx]
         slope, intercept = np.polyfit(kk, ph, 1)
         Z = Z * np.exp(-1j * (intercept + slope * self._carriers))
+        # Refine phase and level with all carriers, using our own decisions:
+        # 6 pilots alone gave a noisy common phase (~0.7 dB on air) and no
+        # level tracking (16-QAM decides by level)
+        ref = np.zeros_like(Z)
+        ref[self.pilot_idx] = PILOT_VALUES
+        d = Z[self.data_idx]
+        if self._stage == "header":
+            ref[self.data_idx] = np.where(d.real >= 0, 1.0, -1.0)
+        else:
+            ref[self.data_idx] = (QAM_LEVELS[np.argmin(np.abs(d.real[:, None] - QAM_LEVELS[None, :]), axis=1)]
+                                  + 1j * QAM_LEVELS[np.argmin(np.abs(d.imag[:, None] - QAM_LEVELS[None, :]), axis=1)])
+        c = complex(np.vdot(ref, Z) / np.vdot(ref, ref))
+        Z = Z / c
+        dphi = float(np.angle(c))
         # Track the remaining frequency error (phase moving symbol to symbol)
-        self._cfo += 0.25 * intercept / (2 * np.pi * (SYMBOL_S + GUARD_S))
+        self._cfo += 0.25 * (intercept + dphi) / (2 * np.pi * (SYMBOL_S + GUARD_S))
         # Timing drift: a slope of 2*pi*SPACING*dt per carrier
         dt = slope / (2 * np.pi * SPACING_HZ)
         if abs(dt * self.fs) > 0.6:
             self._ptr += int(np.round(dt * self.fs))
-        # keep the reference rotating with the corrections we applied
-        self._H = self._H * np.exp(1j * (intercept + slope * self._carriers))
+        # keep the reference rotating with the corrections we applied; the
+        # level follows slowly (one symbol's estimate is noisy)
+        self._H = self._H * np.exp(1j * (intercept + dphi + slope * self._carriers)) * abs(c) ** 0.3
         return Z
 
     def _decode_block(self, syms: np.ndarray) -> None:

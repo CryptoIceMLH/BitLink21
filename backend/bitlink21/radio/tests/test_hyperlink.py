@@ -35,6 +35,18 @@ def test_header_roundtrip_and_rejects_garbage():
     assert hl.parse_header(bad) is None
 
 
+def test_burst_is_loud_but_stays_inside_its_channel():
+    """Clip-and-filter: average level close to the single-carrier modes,
+    nothing leaking into the neighbouring channels (the old hard clip put
+    splatter only ~18 dB down)."""
+    x = hl.burst("f.bin", np.random.default_rng(3).bytes(3000))
+    assert np.max(np.abs(x)) <= 0.9 + 1e-6
+    assert 10 * np.log10(np.mean(np.abs(x) ** 2)) > -9.0  # old hard clip: -10.1 dBFS
+    f, p = signal.welch(x, fs=hl.TX_RATE, nperseg=1024, return_onesided=False)
+    inband = np.mean(p[np.abs(f) <= 1350])
+    assert 10 * np.log10(np.max(p[(np.abs(f) > 1600) & (np.abs(f) < 3500)]) / inband) < -50
+
+
 def _through_channel(bb, fs, chan, snr_db, cfo=0.0, drift=0.0, seed=1):
     rng = np.random.default_rng(seed)
     x = np.concatenate(list(ResampledStream(bb, hl.TX_RATE, fs, chan + cfo)))
