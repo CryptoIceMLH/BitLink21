@@ -38,6 +38,7 @@ STATE_LOCKED = "locked"
 
 
 PLL_TRACK_HZ = 48.0  # minimum carrier-tracking loop bandwidth (Hz)
+FINE_SPAN_HZ = 30.0  # fine frequency search around the coarse estimate (Hz)
 
 
 def _loop_gains(bw: float, damping: float, ted_gain: float = 1.0):
@@ -232,6 +233,11 @@ class HsModemReceiver:
                 self._acq_mf_len -= len(self._acq_mf.pop(0))
 
         self._run_acquisition()
+        if self.state == STATE_LOCKED:
+            # Re-centre in small steps every block: one 10-16 Hz step a second
+            # (the echo drifts ~10 Hz/s while our TX warms up) left a phase
+            # transient through the filters that 8APSK could not take
+            self._recentre()
         self._run_symbol_loops(y, dy)
         return self._run_deframer()
 
@@ -278,7 +284,7 @@ class HsModemReceiver:
             self.state = STATE_ACQUIRED
             return
 
-        fine = self._fine_offset()
+        fine = self._fine_offset(coarse - self.nco_b.freq_hz)
         if fine is not None:
             self._retune(self.nco_b.freq_hz + fine)
         self.state = STATE_ACQUIRED
@@ -349,7 +355,7 @@ class HsModemReceiver:
         centre = float(np.sum(f[lo:hi] * w) / np.sum(w)) if np.sum(w) > 0 else float(f[k])
         return centre
 
-    def _fine_offset(self) -> Optional[float]:
+    def _fine_offset(self, expect_hz: float = 0.0) -> Optional[float]:
         """M-th power estimate on the matched-filter output (Hz, relative)."""
         if self._acq_mf_len < 2 ** 13:
             return None
@@ -363,7 +369,12 @@ class HsModemReceiver:
         n = 1 << int(np.ceil(np.log2(len(z)))) + 2
         spec = np.abs(np.fft.fftshift(np.fft.fft(z * np.hanning(len(z)), n)))
         freqs = np.fft.fftshift(np.fft.fftfreq(n, 1 / self.fs_b))
-        k = int(np.argmax(spec))
+        # The coarse estimate is already within a few Hz; the M-th power
+        # also has symbol-rate lines aliased near DC (e.g. -450 Hz at 8APSK
+        # 5500), which pulled a tracking PLL 64 Hz off. Look only near the
+        # coarse estimate (expect_hz, relative to the mixer).
+        spec_near = np.where(np.abs(freqs - m * expect_hz) <= m * FINE_SPAN_HZ, spec, 0.0)
+        k = int(np.argmax(spec_near))
         if spec[k] < 8 * np.median(spec):
             return None
         return float(freqs[k] / m)
@@ -384,7 +395,7 @@ class HsModemReceiver:
         same idea as gr-dvbs2rx's tagged rotator updates).
         """
         df = self._freq * self.rs / (2 * np.pi) - sum(d for _, d in self._pending_freq_steps)
-        if abs(df) < 2.0:
+        if abs(df) < 0.5:
             return
         self.nco_b.freq_hz += df
         switch_at = (self._a_count + self.stage_b.delay) / self.stage_b.decim + self.mf.delay
@@ -466,8 +477,11 @@ class HsModemReceiver:
             phase = (phase + alpha * e_c + freq + np.pi) % (2 * np.pi) - np.pi
             out.append(z)
 
-        # keep 4 samples of history for the interpolator
-        drop = max(0, int(t) - 2)
+        # keep 4 samples of history for the interpolator. Never drop more
+        # than we have: above ~5 samples/symbol the last step lands past the
+        # end, and dropping int(t)-2 then discarded 1-2 samples of the NEXT
+        # block unseen (the timing loop chased the slip; 4 modes lost frames)
+        drop = max(0, min(int(t) - 2, n))
         self._y = Y[drop:]
         self._dy = DY[drop:]
         self._t = t - drop

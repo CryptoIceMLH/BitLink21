@@ -252,3 +252,32 @@ def test_long_bpsk_message_decodes_while_receive_frequency_runs():
     for i in range(0, n, 65536):
         files += [e for e in st.process(x[i: i + 65536]) if e["type"] == "bitlink21_file"]
     assert len(files) == 1 and files[0]["is_envelope"]
+
+
+@pytest.mark.parametrize("mode_idx", [6, 7])
+def test_8apsk_file_survives_echo_drift(mode_idx):
+    """Regression (on air 2026-10-10): 1 KB files at 8APSK 5500/6000 lost
+    blocks at 17 dB while our own echo drifted ~-5..-10 Hz/s (uplink drift
+    the beacon cannot see): a false fine-frequency line kicked the locked
+    PLL 64 Hz off, and 10-16 Hz re-centre steps broke frames."""
+    fs = 600e3
+    prof = SatelliteProfile(sample_rate_hz=fs, rx_dial_rf_hz=10489.611e6, rx_mode=mode_idx,
+                            tx_mode=mode_idx, beacon_lock=False)
+    tx = Station(prof, fs)
+    data = np.random.default_rng(7).bytes(1024)
+    burst = np.concatenate(list(tx.tx_stream("f.bin", data)))
+    plan = tx.plan
+    n = len(burst) + int(2 * fs)
+    t = np.arange(n) / fs
+    x = np.zeros(n, np.complex128)
+    x[int(fs): int(fs) + len(burst)] = burst
+    x *= np.exp(2j * np.pi * (plan.rx_channel_offset_hz - plan.tx_channel_offset_hz + 7.0) * t
+                - 1j * np.pi * 5.0 * t * t)
+    rng = np.random.default_rng(mode_idx)
+    n0 = np.mean(np.abs(burst) ** 2) * fs / (get_mode(mode_idx).symbol_rate * 1.2) / 10 ** 1.8
+    x = (x + np.sqrt(n0 / 2) * (rng.standard_normal(n) + 1j * rng.standard_normal(n))).astype(np.complex64)
+    rx = Station(prof, fs)
+    files = []
+    for i in range(0, n, 65536):
+        files += [e for e in rx.process(x[i: i + 65536]) if e["type"] == "bitlink21_file"]
+    assert len(files) == 1, (rx.receiver.frames_ok, rx.receiver.frames_failed)
