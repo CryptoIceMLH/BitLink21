@@ -26,7 +26,6 @@ import {
     SettingsTabPreferences,
     SettingsTabMaintenance,
     SettingsTabAbout,
-    SettingsTabCamera,
     SettingsTabSDR
 } from "./components/settings/settings.jsx";
 import App from "./App.jsx";
@@ -81,10 +80,6 @@ const router = createBrowserRouter([
                                 path: "preferences",
                                 Component: SettingsTabPreferences,
                             },
-                            // {
-                            //     path: "users",
-                            //     Component: SettingsTabUsers,
-                            // },
                             {
                                 path: "maintenance",
                                 Component: SettingsTabMaintenance,
@@ -98,10 +93,6 @@ const router = createBrowserRouter([
                     {
                         path: "hardware",
                         children: [
-                            {
-                                path: "cameras",
-                                Component: SettingsTabCamera,
-                            },
                             {
                                 path: "sdrs",
                                 Component: SettingsTabSDR,

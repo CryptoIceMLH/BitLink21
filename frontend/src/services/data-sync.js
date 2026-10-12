@@ -20,12 +20,10 @@
 import { store } from '../components/common/store.jsx';
 import { fetchVersionInfo } from "../components/dashboard/version-slice.jsx";
 import { fetchPreferences } from '../components/settings/preferences-slice.jsx';
-import { fetchLocationForUserId } from '../components/settings/location-slice.jsx';
 import { fetchSDRs } from '../components/hardware/sdr-slice.jsx';
 import {
     setInitialDataLoading,
     setInitialDataProgress,
-    setShowLocationSetupDialog,
 } from '../components/dashboard/dashboard-slice.jsx';
 
 /**
@@ -42,26 +40,9 @@ export async function initializeAppData(socket) {
             name: 'version',
             run: () => store.dispatch(fetchVersionInfo()),
         },
-        {
-            name: 'location',
-            run: async () => {
-                try {
-                    const location = await store.dispatch(fetchLocationForUserId({ socket })).unwrap();
-                    console.log('Location fetched from backend:', location);
-                    if (!location) {
-                        console.log('Location is not set - showing dialog');
-                        store.dispatch(setShowLocationSetupDialog(true));
-                    } else {
-                        console.log('Location is set:', location);
-                    }
-                } catch (error) {
-                    console.error('Failed to fetch location:', error);
-                }
-            },
-        },
         { name: 'sdrs', run: () => store.dispatch(fetchSDRs({ socket })) },
-        // Rigs, rotators, cameras, satellites, maps and the scheduler were removed
-        // with their pages; the classic radio only needs the SDR list.
+        // BitLink21 needs no station location (QO-100 is geostationary); rigs,
+        // rotators, satellites, maps and the scheduler were removed with their pages.
     ];
 
     let completed = 0;

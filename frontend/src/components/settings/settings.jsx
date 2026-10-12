@@ -17,96 +17,45 @@
  *
  */
 
-
-
-import React, {useEffect, useState} from 'react';
-import {
-    Box,
-    Tab,
-    Button,
-    Alert,
-    AlertTitle, Typography
-} from '@mui/material';
+import React, { useState } from 'react';
+import { Box } from '@mui/material';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import Paper from "@mui/material/Paper";
-import Tabs, { tabsClasses } from '@mui/material/Tabs';
-import {gridLayoutStoreName as overviewGridLayoutName} from '../overview/main-layout.jsx';
-import {gridLayoutStoreName as targetGridLayoutName} from '../target/main-layout.jsx';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
-import Grid from "@mui/material/Grid";
-import AntennaRotatorTable from "../hardware/rotator-table.jsx";
-import RigTable from "../hardware/rig-table.jsx";
-import {styled} from "@mui/material/styles";
-import SourcesTable from "../satellites/sources-table.jsx";
-import SatelliteTable from "../satellites/satellite-table.jsx";
+import { tabsClasses } from '@mui/material/Tabs';
+import { AntTab, AntTabs } from "../common/common.jsx";
 import AboutPage from "./about.jsx";
-import SatelliteGroupsTable from "../satellites/groups-table.jsx";
 import PreferencesForm from "./preferences-form.jsx";
 import MaintenanceForm from "./maintenance-form.jsx";
-import CameraTable from "../hardware/camera-table.jsx";
-import {AntTab, AntTabs} from "../common/common.jsx";
 import SDRsPage from "../hardware/sdr-table.jsx";
 
-
-export function SettingsTabSatellites() {
-    return (<SettingsTabs initialMainTab={"satellites"} initialTab={"satellites"}/>);
-}
-
-export function SettingsTabTLESources() {
-    return (<SettingsTabs initialMainTab={"satellites"} initialTab={"tlesources"}/>);
-}
-
-export function SettingsTabSatelliteGroups() {
-    return (<SettingsTabs initialMainTab={"satellites"} initialTab={"groups"}/>);
-}
+// BitLink21 settings: hardware (the PlutoSDR) and app settings. The Ground
+// Station tabs (location, rigs, rotators, cameras, satellites, TLE sources)
+// were removed: BitLink21 needs no station location or tracking hardware.
 
 export function SettingsTabPreferences() {
-    return (<SettingsTabs initialMainTab={"settings"} initialTab={"preferences"}/>);
+    return (<SettingsTabs initialMainTab="settings" initialTab="preferences"/>);
 }
 
-export function SettingsTabRig() {
-    return (<SettingsTabs initialMainTab={"hardware"} initialTab={"rigcontrol"}/>);
+export function SettingsTabMaintenance() {
+    return (<SettingsTabs initialMainTab="settings" initialTab="maintenance"/>);
 }
 
-export function SettingsTabRotator() {
-    return (<SettingsTabs initialMainTab={"hardware"} initialTab={"rotatorcontrol"}/>);
-}
-
-export function SettingsTabCamera() {
-    return (<SettingsTabs initialMainTab={"hardware"} initialTab={"camera"}/>);
+export function SettingsTabAbout() {
+    return (<SettingsTabs initialMainTab="settings" initialTab="about"/>);
 }
 
 export function SettingsTabSDR() {
-    return (<SettingsTabs initialMainTab={"hardware"} initialTab={"sdrs"}/>);
-}
-
-export function SettingsTabMaintenance () {
-    return (<SettingsTabs initialMainTab={"settings"} initialTab={"maintenance"}/>);
-}
-
-
-export function SettingsTabAbout () {
-    return (<SettingsTabs initialMainTab={"settings"} initialTab={"about"}/>);
+    return (<SettingsTabs initialMainTab="hardware" initialTab="sdrs"/>);
 }
 
 const tabsTree = {
-    // BitLink21: PlutoSDR only; rigs, rotators and the satellite database are not used
-    "hardware": ["sdrs"],
-    "settings": ["preferences", "maintenance", "about"],
+    hardware: ["sdrs"],
+    settings: ["preferences", "maintenance", "about"],
 };
 
-function getTabCategory(value) {
-    for (const [key, values] of Object.entries(tabsTree)) {
-        if (values.includes(value)) {
-            return key;
-        }
-    }
-    return null;
-}
+const scrollSx = { [`& .${tabsClasses.scrollButtons}`]: { '&.Mui-disabled': { opacity: 0.3 } } };
 
-export const SettingsTabs = React.memo(function SettingsTabs({initialMainTab, initialTab}) {
+export const SettingsTabs = React.memo(function SettingsTabs({ initialMainTab, initialTab }) {
     const { t } = useTranslation('settings');
     const [activeMainTab, setActiveMainTab] = useState(initialMainTab);
     const [activeTab, setActiveTab] = useState(initialTab);
@@ -118,161 +67,36 @@ export const SettingsTabs = React.memo(function SettingsTabs({initialMainTab, in
 
     const handleTabChange = (event, newValue) => {
         setActiveTab(newValue);
-        const mainTab = getTabCategory(newValue);
-        setActiveMainTab(mainTab);
+        setActiveMainTab(Object.keys(tabsTree).find((k) => tabsTree[k].includes(newValue)));
     };
 
-    let tabsList = [];
-    // Define arrays of tabs for each main category
-    switch (activeMainTab) {
-        case "hardware":
-            tabsList = [
-                // <AntTab key="camera" value="camera" label={t('tabs.cameras')} to="/hardware/cameras" component={Link} />,
-                <AntTab key="sdrs" value="sdrs" label={t('tabs.sdrs')} to="/hardware/sdrs" component={Link}/>,
-            ];
-            break;
-        case "settings":
-            tabsList = [
-                <AntTab key="preferences" value="preferences" label={t('tabs.preferences')} to="/settings/preferences" component={Link} />,
-                // <AntTab key="users" value="users" label="Users" to="/settings/users" component={Link} />,
-                <AntTab key="maintenance" value="maintenance" label="System" to="/settings/maintenance" component={Link} />,
-                <AntTab key="about" value="about" label={t('tabs.about')} to="/settings/about" component={Link} />,
-            ];
-            break;
-        default:
-            console.log("Unknown main tab: " + activeMainTab);
-    }
+    const tabsList = activeMainTab === "hardware"
+        ? [<AntTab key="sdrs" value="sdrs" label={t('tabs.sdrs')} to="/hardware/sdrs" component={Link}/>]
+        : [
+            <AntTab key="preferences" value="preferences" label={t('tabs.preferences')} to="/settings/preferences" component={Link}/>,
+            <AntTab key="maintenance" value="maintenance" label="System" to="/settings/maintenance" component={Link}/>,
+            <AntTab key="about" value="about" label={t('tabs.about')} to="/settings/about" component={Link}/>,
+        ];
 
-    const tabObject = <AntTabs
-        sx={{
-            [`& .${tabsClasses.scrollButtons}`]: {
-                '&.Mui-disabled': { opacity: 0.3 },
-            },
-        }}
-        value={activeTab}
-        onChange={handleTabChange}
-        aria-label={t('tabs.configuration_tabs')}
-        scrollButtons={true}
-        variant="scrollable"
-        allowScrollButtonsMobile
-    >
-        {tabsList}
-    </AntTabs>;
-
-    let activeTabContent = null;
-
-    switch (activeTab) {
-        case "preferences":
-            activeTabContent = <PreferencesForm/>;
-            break;
-        case "rigcontrol":
-            activeTabContent = <RigControlForm/>;
-            break;
-        case "rotatorcontrol":
-            activeTabContent = <RotatorControlForm/>;
-            break;
-        // case "camera":
-        //     activeTabContent = <CameraPage/>;
-        //     break;
-        case "sdrs":
-            activeTabContent = <SDRsPage/>;
-            break;
-        case "tlesources":
-            activeTabContent = <TLESourcesForm/>;
-            break;
-        case "satellites":
-            activeTabContent = <SatellitesForm/>;
-            break;
-        case "groups":
-            activeTabContent = <SatelliteGroupsForm/>;
-            break;
-        case "maintenance":
-            activeTabContent = <MaintenanceForm/>;
-            break;
-        case "about":
-            activeTabContent = <AboutPage/>;
-            break;
-        default:
-            break;
-    }
+    const content = {
+        preferences: <PreferencesForm/>,
+        maintenance: <MaintenanceForm/>,
+        about: <AboutPage/>,
+        sdrs: <SDRsPage/>,
+    }[activeTab] || null;
 
     return (
-         <Box sx={{ flexGrow: 1, bgcolor: 'background.paper' }}>
-             <AntTabs
-                 sx={{
-                     [`& .${tabsClasses.scrollButtons}`]: {
-                         '&.Mui-disabled': { opacity: 0.3 },
-                     },
-                     bottomBorder: '1px #4c4c4c solid',
-                 }}
-                 value={activeMainTab}
-                 onChange={handleMainTabChange}
-                 aria-label={t('tabs.main_settings_tabs')}
-                 scrollButtons={true}
-                 variant="fullWidth"
-                 allowScrollButtonsMobile
-             >
-                 <AntTab value={"hardware"} label={t('tabs.hardware')} to="/hardware/sdrs" component={Link}/>
-                 <AntTab value={"settings"} label={t('tabs.settings')} to="/settings/preferences" component={Link}/>
-             </AntTabs>
-             {tabObject}
-             {activeTabContent}
-         </Box>
+        <Box sx={{ flexGrow: 1, bgcolor: 'background.paper' }}>
+            <AntTabs sx={scrollSx} value={activeMainTab} onChange={handleMainTabChange}
+                aria-label={t('tabs.main_settings_tabs')} scrollButtons variant="fullWidth" allowScrollButtonsMobile>
+                <AntTab value="hardware" label={t('tabs.hardware')} to="/hardware/sdrs" component={Link}/>
+                <AntTab value="settings" label={t('tabs.settings')} to="/settings/preferences" component={Link}/>
+            </AntTabs>
+            <AntTabs sx={scrollSx} value={activeTab} onChange={handleTabChange}
+                aria-label={t('tabs.configuration_tabs')} scrollButtons variant="scrollable" allowScrollButtonsMobile>
+                {tabsList}
+            </AntTabs>
+            {content}
+        </Box>
     );
 });
-
-// Fix for missing marker icons in React-Leaflet
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-    iconRetinaUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png',
-    iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
-});
-
-
-const RotatorControlForm = () => {
-
-    return (
-        <AntennaRotatorTable/>
-    );
-};
-
-
-const CameraPage = () => {
-
-    return (
-        <CameraTable/>
-    );
-};
-
-
-const RigControlForm = () => {
-
-    return (
-        <RigTable/>
-    );
-};
-
-const SatellitesForm = () => {
-
-    return (
-        <Paper elevation={3} sx={{ padding: 2, marginTop: 0}} variant="elevation">
-            <SatelliteTable/>
-        </Paper>);
-};
-
-const SatelliteGroupsForm = () => {
-
-    return (
-        <Paper elevation={3} sx={{ padding: 2, marginTop: 0}} variant="elevation">
-            <SatelliteGroupsTable/>
-        </Paper>);
-};
-
-const TLESourcesForm = () => {
-
-    return (
-        <Paper elevation={3} sx={{ padding: 2, marginTop: 0}} variant="elevation">
-            <SourcesTable/>
-        </Paper>);
-};

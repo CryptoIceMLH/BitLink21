@@ -1,6 +1,4 @@
 import Stack from "@mui/material/Stack";
-import SatelliteInfoPopover from "./target-popover.jsx";
-import HardwareSettingsPopover from "./hardware-popover.jsx";
 import WakeLockStatus from "./wake-lock-icon.jsx";
 import {ThemeSwitcher} from "@toolpad/core/DashboardLayout";
 import Typography from "@mui/material/Typography";
@@ -17,7 +15,6 @@ import * as React from "react";
 import {stringAvatar} from "../common/common.jsx";
 import {useDispatch, useSelector} from "react-redux";
 import {useSocket} from "../common/socket.jsx";
-import {useAudio} from "./audio-provider.jsx";
 import {useCallback, useEffect, useState} from "react";
 import {setConnected, setConnecting, setConnectionError, setReConnectAttempt} from "./dashboard-slice.jsx";
 import Tooltip from "@mui/material/Tooltip";

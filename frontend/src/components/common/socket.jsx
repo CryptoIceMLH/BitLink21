@@ -23,7 +23,6 @@
 import React, {createContext, useCallback, useContext, useEffect, useState, useRef} from 'react';
 import { toast } from '../../utils/toast-with-timestamp.jsx';
 import { Manager } from "socket.io-client";
-import {setSocketForMiddleware} from '../waterfall/vfo-marker/vfo-middleware.jsx';
 
 // Create the context
 const SocketContext = createContext();
@@ -426,7 +425,6 @@ export const SocketProvider = ({ children }) => {
         });
         const newSocket = manager.socket("/");
         setSocket(newSocket);
-        setSocketForMiddleware(newSocket);
 
         // Expose socket globally for development/testing
         window.__socket = newSocket;

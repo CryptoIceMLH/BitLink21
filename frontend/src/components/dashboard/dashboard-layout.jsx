@@ -54,21 +54,13 @@ import {Account, AccountPopoverFooter, AccountPreview, SignOutButton} from "@too
 import {BitLink21Logo} from "../common/dataurl-icons.jsx";
 import {stringAvatar} from "../common/common.jsx";
 import Grid from "@mui/material/Grid";
-import BorderColorIcon from '@mui/icons-material/BorderColor';
 import {useCallback, useEffect, useRef, useState} from "react";
-import {handleSetGridEditableOverview as OverviewModeSetEditing} from '../overview/main-layout.jsx'
-import {handleSetGridEditableTarget as TargetModeSetEditing} from '../target/main-layout.jsx'
-import {handleSetGridEditableWaterfall as WaterfallModeSetEditing} from '../waterfall/main-layout.jsx';
-import CheckIcon from '@mui/icons-material/Check';
 import {useSocket} from "../common/socket.jsx";
 import {useDispatch, useSelector} from "react-redux";
 import { useTranslation } from 'react-i18next';
-import { setIsEditing, setShowLocationSetupDialog } from "./dashboard-slice.jsx";
-import { addStreamingVFO, removeStreamingVFO } from "../waterfall/vfo-marker/vfo-slice.jsx";
 import WakeLockStatus from "./wake-lock-icon.jsx";
 import ConnectionStatus from "./connection-popover.jsx";
 import Tooltip from "@mui/material/Tooltip";
-import { AudioProvider, useAudio } from "./audio-provider.jsx";
 import ConnectionOverlay from "./reconnecting-overlay.jsx";
 import VersionInfo from "./version-info.jsx";
 import VersionUpdateOverlay from "./version-update-overlay.jsx";
@@ -404,90 +396,16 @@ export default function Layout() {
         reConnectAttempt,
         connectionError,
         initialDataLoading,
-        showLocationSetupDialog,
     } = useSelector((state) => state.dashboard);
     const {
         hasVersionChanged,
         data
     } = useSelector((state) => state.version);
 
-    // Use the audio context
-    const { initializeAudio, playAudioSamples, getAudioState } = useAudio();
-    const streamingTimeoutsRef = useRef({}); // Track per-VFO timeouts
-    const streamingVFOsRef = useRef([]); // Track which VFOs are streaming (ref to avoid useEffect re-runs)
-    const streamingVFOs = useSelector((state) => state.vfo.streamingVFOs); // Get Redux state for syncing
-    const isStreaming = useSelector((state) => state.waterfall.isStreaming); // Get streaming state to filter audio
-
-    // Sync ref with Redux state
-    useEffect(() => {
-        streamingVFOsRef.current = streamingVFOs;
-    }, [streamingVFOs]);
-
     // Update navigation when language changes or state changes
     React.useEffect(() => {
         setNavigation(getNavigation());
     }, [t]);
-
-    useEffect(() => {
-        console.info('Initializing audio...');
-
-        // Check if audio is enabled before trying to play
-        const audioState = getAudioState();
-        if (!audioState.enabled) {
-            initializeAudio()
-                .then(() => {
-                    console.info('Audio initialized successfully');
-                })
-                .catch((error) => {
-                    console.error('Error initializing audio', error);
-                });
-        }
-    }, []);
-
-    useEffect(() => {
-        if (socket) {
-            socket.on("audio-data", (data) => {
-                // Extract VFO number from audio data
-                const vfoNumber = data.vfo?.vfo_number;
-
-                if (vfoNumber !== undefined) {
-                    // Clear previous timeout for this VFO
-                    if (streamingTimeoutsRef.current[vfoNumber]) {
-                        clearTimeout(streamingTimeoutsRef.current[vfoNumber]);
-                    }
-
-                    // Only dispatch if VFO is not already marked as streaming
-                    // This prevents flooding Redux store with redundant actions
-                    // Use ref instead of state to avoid triggering useEffect re-runs
-                    if (!streamingVFOsRef.current.includes(vfoNumber)) {
-                        dispatch(addStreamingVFO(vfoNumber));
-                    }
-
-                    // Set timeout to remove this VFO from streaming after 500ms of no audio
-                    streamingTimeoutsRef.current[vfoNumber] = setTimeout(() => {
-                        delete streamingTimeoutsRef.current[vfoNumber];
-                        dispatch(removeStreamingVFO(vfoNumber));
-                    }, 500);
-                }
-
-                // Only play audio if streaming (prevents delayed audio after stop)
-                if (isStreaming) {
-                    playAudioSamples(data);
-                }
-            });
-        }
-
-        return () => {
-            if (socket) {
-                socket.off("audio-data");
-            }
-            // Clear all VFO timeouts on cleanup
-            Object.values(streamingTimeoutsRef.current).forEach(timeout => {
-                clearTimeout(timeout);
-            });
-            streamingTimeoutsRef.current = {};
-        };
-    }, [socket, playAudioSamples, dispatch, isStreaming]);
 
     const handleDrawerToggle = () => {
         // On mobile, toggle the temporary drawer
@@ -773,69 +691,6 @@ export default function Layout() {
                 <PerformanceMetricsDialog />
             </Box>
 
-            {/* Location Setup Dialog (tracking pages only: the BitLink21
-                pages work with a geostationary satellite and need no location) */}
-            <Dialog
-                open={showLocationSetupDialog && !(location.pathname === '/' || location.pathname.startsWith('/bitlink21'))}
-                onClose={() => dispatch(setShowLocationSetupDialog(false))}
-                aria-labelledby="location-setup-dialog-title"
-                maxWidth="sm"
-                fullWidth
-                PaperProps={{
-                    sx: {
-                        borderRadius: 2,
-                        boxShadow: 24,
-                    }
-                }}
-            >
-                <DialogTitle
-                    id="location-setup-dialog-title"
-                    sx={{
-                        pb: 1,
-                        fontSize: '1.5rem',
-                        fontWeight: 600,
-                        color: 'warning.main',
-                    }}
-                >
-                    {t('dashboard.location_not_set_title', 'Station Location Required')}
-                </DialogTitle>
-                <DialogContent sx={{ pt: 2 }}>
-                    <DialogContentText sx={{ fontSize: '1rem', lineHeight: 1.6, color: 'text.primary' }}>
-                        {t('dashboard.location_not_set_message', 'Your station location has not been configured yet. Location information is required for:')}
-                    </DialogContentText>
-                    <Box component="ul" sx={{ mt: 2, mb: 2, pl: 3, '& li': { mb: 1, color: 'text.primary' } }}>
-                        <li>{t('dashboard.location_required_tracking', 'Real-time satellite tracking and visualization')}</li>
-                        <li>{t('dashboard.location_required_passes', 'Calculating satellite pass predictions')}</li>
-                        <li>{t('dashboard.location_required_scheduling', 'Automated observation scheduling')}</li>
-                    </Box>
-                    <DialogContentText sx={{ fontSize: '0.95rem', color: 'text.secondary' }}>
-                        {t('dashboard.location_prompt', 'Please configure your location to enable full functionality.')}
-                    </DialogContentText>
-                </DialogContent>
-                <DialogActions sx={{ px: 3, pb: 3, pt: 1 }}>
-                    <Button
-                        onClick={() => dispatch(setShowLocationSetupDialog(false))}
-                        sx={{ mr: 1 }}
-                    >
-                        {t('dashboard.location_dialog_later', 'Remind Me Later')}
-                    </Button>
-                    <Button
-                        onClick={() => {
-                            dispatch(setShowLocationSetupDialog(false));
-                            navigate('/settings/location');
-                        }}
-                        variant="contained"
-                        size="large"
-                        autoFocus
-                        sx={{
-                            px: 3,
-                            fontWeight: 600,
-                        }}
-                    >
-                        {t('dashboard.location_dialog_go_to_settings', 'Set Location Now')}
-                    </Button>
-                </DialogActions>
-            </Dialog>
         </Box>
     );
 }

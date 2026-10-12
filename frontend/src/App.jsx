@@ -22,12 +22,10 @@ import { Outlet } from "react-router";
 import { ReactRouterAppProvider } from "@toolpad/core/react-router";
 import { setupTheme } from './theme.js';
 import { useSocket } from "./components/common/socket.jsx";
-import { AudioProvider } from "./components/dashboard/audio-provider.jsx";
 import { ToastContainerWithStyles } from "./utils/toast-container.jsx";
 import { getNavigation } from "./config/navigation.jsx";
 import { BRANDING } from "./config/branding.jsx";
 import { useSocketEventHandlers } from "./hooks/useSocketEventHandlers.jsx";
-import { usePassFetching } from "./hooks/usePassFetching.jsx";
 import { useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
 
@@ -91,10 +89,9 @@ export default function App() {
     }, [i18n]);
 
     useSocketEventHandlers(socket);
-    usePassFetching(socket);
 
     return (
-        <AudioProvider>
+        <>
             <ReactRouterAppProvider
                 navigation={navigation}
                 theme={dashboardTheme}
@@ -103,6 +100,6 @@ export default function App() {
                 <Outlet/>
             </ReactRouterAppProvider>
             <ToastContainerWithStyles />
-        </AudioProvider>
+        </>
     );
 }

@@ -121,8 +121,14 @@ export class Waterfall {
 
     push(spec, levels) {
         const n = spec.db.length;
-        const key = `${n}:${Math.round(spec.rfLo)}:${Math.round(spec.rfHi)}`;
-        if (!this.buf || key !== this.key) { // new span or zoom: start over
+        // Start over only on a new zoom/span or a real move: the RF edges shift by
+        // fractions of a Hz every frame as the beacon correction follows the LNB
+        const spanHz = Math.round(spec.rfHi - spec.rfLo);
+        const centre = (spec.rfLo + spec.rfHi) / 2;
+        const moved = this.centre === undefined || Math.abs(centre - this.centre) > Math.max(1000, spanHz / 200);
+        const key = `${n}:${spanHz}`;
+        if (!this.buf || key !== this.key || moved) { // new span or zoom: start over
+            this.centre = centre;
             this.buf = document.createElement('canvas');
             this.buf.width = n;
             this.buf.height = this.rows;
