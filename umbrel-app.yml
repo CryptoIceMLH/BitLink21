@@ -30,7 +30,10 @@ releaseNotes: >-
   retunes the radio, so it no longer stops the station. Dish alignment now
   has a Find mode for first finding the satellite: the transponder's noise
   bump above the floor, with a tone, works before any beacon lock and
-  switches to the beacon reading for fine tuning once locked.
+  switches to the beacon reading for fine tuning once locked. The old
+  Ground Station leftovers (waterfall, satellite tracking, scheduler, file
+  browser, rig and rotator pages) are gone, and the app no longer asks for
+  or uses your location.
 
   v4.0.9: Changing the PlutoSDR address now really switches to the new
   radio (it kept using the old one) and restarts the station on it. No more
