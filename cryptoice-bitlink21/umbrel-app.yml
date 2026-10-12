@@ -4,7 +4,7 @@ name: BitLink21
 tagline: Bitcoin decentralized satellite communication system
 icon: https://raw.githubusercontent.com/CryptoIceMLH/BitLink21/master/bitlink21-128.png
 category: bitcoin
-version: "4.0.8"
+version: "4.0.9"
 port: 7000
 description: >-
   BitLink21 sends messages, Bitcoin transactions and Lightning invoices over the
@@ -23,6 +23,14 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 gallery: []
 releaseNotes: >-
+  v4.0.9: Changing the PlutoSDR address now really switches to the new
+  radio (it kept using the old one) and restarts the station on it. No more
+  false "Satellite lock" with no signal: after a restart the app showed the
+  previous lock before checking for the beacon; now a lock is only shown
+  once the beacon is actually measured. Settings tidied up: leftover
+  developer pages, the station location page and unused API key fields
+  removed (Settings > System keeps the system information).
+
   v4.0.8: Lightning with your own LND node: paste the lndconnect link from
   your Umbrel's Lightning app, then pay invoices that arrive over the
   satellite (Pay button with confirmation and a fee cap, never paid twice),
