@@ -36,11 +36,11 @@ import { Provider as ReduxProvider} from 'react-redux';
 import { PersistGate } from 'redux-persist/integration/react';
 import { store, persistor } from './components/common/store.jsx';
 import ErrorPage from './components/common/error-page.jsx';
-import MainLayout from "./components/waterfall/main-layout.jsx";
 import {WakeLockProvider} from "./components/dashboard/wake-lock-provider.jsx";
 import LinkPage from "./components/bitlink21/link-page.jsx";
 import PaymentsPage from "./components/bitlink21/payments-page.jsx";
 import AlignPage from "./components/bitlink21/align-page.jsx";
+import RadioPage from "./components/bitlink21/radio-page.jsx";
 
 
 
@@ -58,8 +58,8 @@ const router = createBrowserRouter([
                         Component: LinkPage,
                     },
                     {
-                        path: "waterfall",
-                        Component: MainLayout,
+                        path: "radio",
+                        Component: RadioPage,
                     },
                     {
                         path: "bitlink21",

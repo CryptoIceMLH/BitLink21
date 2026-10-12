@@ -16,13 +16,14 @@ from typing import List, Optional
 import numpy as np
 
 from . import envelope, filetransfer, framing
-from .alignment import AlignmentMeter
+from .alignment import TRANSPONDER_RF_HZ, AlignmentMeter, TransponderRise
 from .beacon import BeaconTracker
 from .demodulator import HsModemReceiver
 from .modes import get_mode
 from . import hyperlink
 from .modulator import ModulatorStream, ResampledStream, modulate_blocks
 from .profile import SatelliteProfile, make_plan
+from .viewer import SpectrumView, Vfo, rf_mapping
 
 STATUS_INTERVAL_S = 0.5
 # How far from nominal the beacon is searched. The user's LNB error ranged
@@ -46,6 +47,12 @@ class Station:
         self.correction_hz = 0.0
         self.align: Optional[AlignmentMeter] = None  # dish alignment meter, only while asked for
         self._align_until = 0.0
+        self._rise: Optional[TransponderRise] = None
+        # Radio page (spectrum + VFO audio), only while asked for
+        self.view: Optional[SpectrumView] = None
+        self.vfo: Optional[Vfo] = None
+        self._vfo_rf_hz: Optional[float] = None
+        self._radio_until = 0.0
         self._last_status = 0.0
         self._events: List[dict] = []
         if self.beacon is not None and beacon_seed_hz is not None:
@@ -103,8 +110,14 @@ class Station:
         if self.align is not None:
             if now > self._align_until:
                 self.align = None  # the alignment page stopped asking
+                self._rise = None
             else:
                 self._run_align(iq)
+        if self.view is not None:
+            if now > self._radio_until:
+                self.view = self.vfo = None  # the radio page stopped asking
+            else:
+                self._run_radio(iq)
         if now - self._last_status >= STATUS_INTERVAL_S:
             self._last_status = now
             self._events.append(self.status_event())
@@ -116,6 +129,66 @@ class Station:
         self._align_until = time.time() + float(seconds)
         if self.align is None:
             self.align = AlignmentMeter(self.fs, self._beacon_position())
+            self._rise = TransponderRise(self.fs)
+
+    # ------------------------------------------------------------ radio page
+
+    def rf_mapping(self):
+        """(RF at baseband 0, +-1): true RF of any point in the window."""
+        return rf_mapping(self.profile, self.plan, self.correction_hz)
+
+    def baseband_of_rf(self, rf_hz: float) -> float:
+        rf0, sign = self.rf_mapping()
+        return (rf_hz - rf0) * sign
+
+    def keep_radio(self, seconds: float, zoom_rf_hz: Optional[float] = None, zoom_span_hz: Optional[float] = None,
+                   vfo_rf_hz: Optional[float] = None, vfo_mode: str = "usb") -> None:
+        """Run the radio page's spectrum (and VFO audio when ``vfo_rf_hz`` is
+        given) for the next ``seconds``; renewed by the page while open. The
+        SDR is never retuned from here."""
+        self._radio_until = time.time() + float(seconds)
+        if self.view is None:
+            self.view = SpectrumView(self.fs)
+        centre = self.baseband_of_rf(zoom_rf_hz) if zoom_rf_hz else 0.0
+        self.view.set_zoom(centre, float(zoom_span_hz) if zoom_span_hz else None)
+        self._vfo_rf_hz = float(vfo_rf_hz) if vfo_rf_hz else None
+        if self._vfo_rf_hz is None:
+            self.vfo = None
+        elif self.vfo is None:
+            self.vfo = Vfo(self.fs, self.baseband_of_rf(self._vfo_rf_hz), vfo_mode)
+        else:
+            self.vfo.set_mode(vfo_mode)
+
+    def _run_radio(self, iq: np.ndarray) -> None:
+        if self.vfo is not None:
+            self.vfo.set_offset(self.baseband_of_rf(self._vfo_rf_hz))  # follows the LNB drift
+            audio = self.vfo.process(iq)
+            if len(audio):
+                self._events.append({
+                    "type": "bitlink21_audio",
+                    "rate": self.vfo.rate,
+                    "pcm_b64": base64.b64encode((audio * 32767).astype("<i2").tobytes()).decode("ascii"),
+                })
+        frame = self.view.process(iq)
+        if frame is None:
+            return
+        rf0, sign = self.rf_mapping()
+        b = self.beacon
+        frame["bins_b64"] = base64.b64encode(frame.pop("bins")).decode("ascii")
+        frame.update({
+            "type": "bitlink21_spectrum",
+            "timestamp": time.time(),
+            "rf_centre_hz": rf0 + sign * frame["centre_offset_hz"],
+            "rf_sign": sign,
+            "window_rf_hz": sorted([rf0 - self.fs / 2, rf0 + self.fs / 2]),
+            "sample_rate": self.fs,
+            "beacon_rf_hz": self.profile.beacon_rf_hz,
+            "beacon_locked": bool(b is not None and b.locked),
+            "channel_rf_hz": self.plan.rx_channel_rf_hz,
+            "transponder_rf_hz": list(TRANSPONDER_RF_HZ),
+            "vfo_rf_hz": self._vfo_rf_hz,
+        })
+        self._events.append(frame)
 
     def _beacon_position(self) -> float:
         b = self.beacon
@@ -127,9 +200,12 @@ class Station:
 
     def _run_align(self, iq: np.ndarray) -> None:
         self.align.set_centre(self._beacon_position())
+        lo, hi = (self.baseband_of_rf(f) for f in TRANSPONDER_RF_HZ)
+        rise = self._rise.process(iq, lo, hi) if self._rise is not None else None
         reading = self.align.process(iq, self.fs)
         if reading is None:
             return
+        reading["transponder_rise_db"] = None if rise is None else round(rise, 2)
         b = self.beacon
         reading.update({
             "type": "bitlink21_align",

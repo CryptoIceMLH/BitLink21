@@ -38,6 +38,36 @@ def _db(v: float) -> float:
     return float(10 * np.log10(max(v, 1e-30)))
 
 
+# QO-100 NB transponder passband (downlink RF)
+TRANSPONDER_RF_HZ = (10489.500e6, 10490.000e6)
+
+
+class TransponderRise:
+    """First finding of the satellite, before any beacon can be locked: the
+    transponder's noise bump above the empty spectrum beside it, like the
+    hump seen on a waterfall when the dish swings across the satellite.
+    Only the middle 80 % of the SDR window is used (its edges roll off)."""
+
+    def __init__(self, fs: float):
+        self.fs = float(fs)
+        self.rise_db: Optional[float] = None
+
+    def process(self, iq: np.ndarray, band_lo_off: float, band_hi_off: float) -> Optional[float]:
+        if len(iq) < 4096:
+            return self.rise_db
+        f, p = signal.welch(iq[: 1 << 15], fs=self.fs, nperseg=1024, return_onesided=False, detrend=False)
+        lo, hi = sorted((band_lo_off, band_hi_off))
+        usable = np.abs(f) <= 0.4 * self.fs
+        dc = np.abs(f) < 0.01 * self.fs  # the SDR's own DC spur
+        inside = usable & ~dc & (f >= lo) & (f <= hi)
+        outside = usable & ~dc & ((f < lo - 0.02 * self.fs) | (f > hi + 0.02 * self.fs))
+        if inside.sum() < 8 or outside.sum() < 8:
+            return self.rise_db  # the window does not show both the band and its surroundings
+        rise = _db(float(np.median(p[inside])) / float(np.median(p[outside])))
+        self.rise_db = rise if self.rise_db is None else self.rise_db + 0.35 * (rise - self.rise_db)
+        return self.rise_db
+
+
 class AlignmentMeter:
     def __init__(self, fs_in: float, centre_hz: float):
         # 12.5 kHz out: 1 MS/s -> 80 = 16 x 5 and 0.6 MS/s -> 48 = 16 x 3,

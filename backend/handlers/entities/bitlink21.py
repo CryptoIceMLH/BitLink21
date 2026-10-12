@@ -248,6 +248,15 @@ async def alignment_keepalive(sio: Any, data: Optional[Dict], logger: Any, sid: 
         return _fail(logger, "alignment", e)
 
 
+async def radio_keepalive(sio: Any, data: Optional[Dict], logger: Any, sid: str) -> Result:
+    """The Radio page is open: {zoom_rf_hz, zoom_span_hz, vfo_rf_hz, vfo_mode}."""
+    try:
+        await service.ensure_ready(sio)
+        return {"success": True, "data": service.keep_radio(data or {})}
+    except Exception as e:
+        return _fail(logger, "radio", e)
+
+
 def register_handlers(registry):
     """Register BitLink21 handlers with the command registry."""
     registry.register_batch(
@@ -272,5 +281,6 @@ def register_handlers(registry):
             "bitlink21:lightning_pay": (lightning_pay, "data_submission"),
             "bitlink21:lightning_request": (lightning_request, "data_submission"),
             "bitlink21:alignment_keepalive": (alignment_keepalive, "data_submission"),
+            "bitlink21:radio_keepalive": (radio_keepalive, "data_submission"),
         }
     )

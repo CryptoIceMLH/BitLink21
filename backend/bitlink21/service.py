@@ -522,11 +522,27 @@ class BitLink21Service:
         elif etype == "bitlink21_align":
             # Dish alignment meter, ~15/s: live only, straight to the browser
             await self._emit("bitlink21:align", {k: v for k, v in event.items() if k != "type"})
+        elif etype == "bitlink21_spectrum":
+            await self._emit("bitlink21:spectrum", {k: v for k, v in event.items() if k != "type"})
+        elif etype == "bitlink21_audio":
+            await self._emit("bitlink21:audio", {"rate": event.get("rate"), "pcm_b64": event.get("pcm_b64")})
         elif etype == "bitlink21_station_error":
             self.station_sdr_id = None
             await self._emit("bitlink21:station_state", {"running": False, "error": event.get("error")})
         elif etype == "bitlink21_frame":
             pass  # frame-level detail is already summarised in the status
+
+    def keep_radio(self, params: Dict[str, Any]) -> bool:
+        """The Radio page is open: spectrum (and VFO audio) for ~15 s more.
+        Never retunes the SDR, so the station keeps running undisturbed."""
+        pluto = self._find_pluto()
+        if pluto is None or pluto["config_queue"] is None or self.station_sdr_id is None:
+            raise RuntimeError("Start the station first (Link page): the radio shows its receiver.")
+        allowed = ("zoom_rf_hz", "zoom_span_hz", "vfo_rf_hz", "vfo_mode")
+        cmd = {k: params.get(k) for k in allowed}
+        cmd["seconds"] = 15.0
+        pluto["config_queue"].put({"bitlink21_radio": cmd})
+        return True
 
     def keep_alignment(self, seconds: float = 15.0) -> bool:
         """The dish alignment page is open: run the meter for the next

@@ -116,6 +116,13 @@ class BitLink21Runner:
         with self._station_lock:
             self.station.keep_align(seconds)
 
+    def keep_radio(self, params: Dict[str, Any]) -> None:
+        with self._station_lock:
+            self.station.keep_radio(
+                float(params.get("seconds", 15.0)),
+                zoom_rf_hz=params.get("zoom_rf_hz"), zoom_span_hz=params.get("zoom_span_hz"),
+                vfo_rf_hz=params.get("vfo_rf_hz"), vfo_mode=str(params.get("vfo_mode") or "usb"))
+
     def beacon_offset(self) -> Optional[float]:
         """Current beacon correction if locked (seed for a restart)."""
         b = self.station.beacon
@@ -804,6 +811,9 @@ def plutosdr_worker_process(
 
                     if "bitlink21_align" in new_config and bitlink21 is not None:
                         bitlink21.keep_align(float(new_config["bitlink21_align"]))
+
+                    if "bitlink21_radio" in new_config and bitlink21 is not None:
+                        bitlink21.keep_radio(dict(new_config["bitlink21_radio"]))
 
                     if "bitlink21_verbose" in new_config:
                         from bitlink21 import diagnostics
