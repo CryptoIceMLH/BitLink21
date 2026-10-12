@@ -4,7 +4,7 @@ name: BitLink21
 tagline: Bitcoin decentralized satellite communication system
 icon: bitlink21-128.png
 category: bitcoin
-version: "4.0.9"
+version: "4.0.10"
 port: 7000
 description: >-
   BitLink21 sends messages, Bitcoin transactions and Lightning invoices over the
@@ -23,6 +23,15 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 dependencies: []
 releaseNotes: >-
+  v4.0.10: New Radio page (replaces the old classic radio): live spectrum
+  and waterfall of the station's receiver on a true RF scale (10489.xxx MHz,
+  corrected for your LNB), with the transponder, beacon, your channel and
+  the VFO marked; zoom; click a signal to listen in USB, LSB or CW. It never
+  retunes the radio, so it no longer stops the station. Dish alignment now
+  has a Find mode for first finding the satellite: the transponder's noise
+  bump above the floor, with a tone, works before any beacon lock and
+  switches to the beacon reading for fine tuning once locked.
+
   v4.0.9: Changing the PlutoSDR address now really switches to the new
   radio (it kept using the old one) and restarts the station on it. No more
   false "Satellite lock" with no signal: after a restart the app showed the
