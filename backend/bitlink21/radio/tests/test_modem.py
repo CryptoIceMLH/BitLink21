@@ -174,16 +174,36 @@ def test_station_retune_keeps_beacon_lock():
     assert st.beacon.locked and abs(st.correction_hz - 2500.0) < 10
 
 
-def test_seeded_beacon_is_locked_at_once_and_confirmed():
+def test_seeded_beacon_locks_on_the_first_confirming_measurement():
     fs = 1e6
     prof = SatelliteProfile(sample_rate_hz=fs, rx_dial_rf_hz=10489.6e6)
     st = Station(prof, fs, beacon_seed_hz=2510.0)
-    assert st.beacon.locked and st.correction_hz == 2510.0  # before any sample
+    # The seed only says where to look: no lock is claimed before a measurement
+    assert not st.beacon.locked and st.correction_hz == 2510.0
     x = _beacon_signal(fs, st.plan.beacon_offset_hz, 2500.0, 2.5)
+    locked_at = None
     for i in range(0, len(x), 65536):
         st.process(x[i: i + 65536])
-        assert st.beacon.locked  # never drops while confirming
+        if st.beacon.locked and locked_at is None:
+            locked_at = i / fs
+        if locked_at is not None:
+            assert st.beacon.locked  # never drops once confirmed
+    assert locked_at is not None and locked_at < 1.2  # the first measurement confirms it
     assert abs(st.correction_hz - 2500.0) < 10
+
+
+def test_no_beacon_no_lock_even_from_a_seed():
+    """Regression (live 2026-10-12): a receive-only station with its dish
+    pointing at an office wall showed "Satellite lock" from the seed of the
+    last lock; on the real capture the old tracker reported locked for ~3 s."""
+    fs = 1e6
+    prof = SatelliteProfile(sample_rate_hz=fs, rx_dial_rf_hz=10489.6e6)
+    rng = np.random.default_rng(5)
+    for seed in (None, 2510.0):
+        st = Station(prof, fs, beacon_seed_hz=seed)
+        for _ in range(int(20 * fs / 65536)):
+            st.process(((rng.standard_normal(65536) + 1j * rng.standard_normal(65536)) * 30).astype(np.complex64))
+            assert not st.beacon.locked, seed
 
 
 def test_wrong_seed_falls_back_to_search():

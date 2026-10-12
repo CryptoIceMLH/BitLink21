@@ -41,7 +41,9 @@ class BeaconTracker:
         span_hz: float = 25000.0,
         integration_s: float = 1.0,
         update_interval_s: float = 0.5,
-        min_snr_db: float = 15.0,
+        # Pure noise reaches ~14.7 dB at the strongest bin of the squared
+        # spectrum; real beacon lines are 23-30 dB (user's 60-90 cm class dish)
+        min_snr_db: float = 18.0,
     ):
         if kind not in ("psk", "cw"):
             raise ValueError("beacon kind must be 'psk' or 'cw'")
@@ -95,13 +97,14 @@ class BeaconTracker:
 
     def seed(self, offset_hz: float) -> None:
         """Start from a known beacon offset (the last lock before a restart):
-        treated as locked straight away and confirmed by the next measurements.
-        If the beacon is not there any more (> 300 Hz away), the misses unlock
-        the tracker and it searches the whole span as usual."""
+        searched first, and locked as soon as one measurement finds the beacon
+        there. Not reported as locked before that (with the dish pointing at a
+        wall it showed "locked" from the seed alone). If the beacon is not
+        there, the misses drop the seed and the whole span is searched."""
         self.offset_hz = float(offset_hz)
         self.rate_hz_s = 0.0
-        self.locked = True
-        self._locked_since = None  # counts once a measurement confirms it
+        self.locked = False
+        self._locked_since = None
         self._misses = 0
         self._residuals.clear()
         self._seeded = True
@@ -257,7 +260,7 @@ class BeaconTracker:
         predicted = None
         if self.offset_hz is not None:
             predicted = self.offset_hz + self.rate_hz_s * dt
-        locked_search = self.locked and predicted is not None
+        locked_search = (self.locked or self._seeded) and predicted is not None
         window = 300.0 if locked_search else self.span_hz
         # Window centre lies half an integration time in the past
         half = self.integration_s / 2
@@ -287,6 +290,7 @@ class BeaconTracker:
             self._misses += 1
             if self._misses >= 4:  # ~2 s without the beacon
                 self.locked = False
+                self._seeded = False  # not where it was: search everything
                 self._locked_since = None
                 self._residuals.clear()
             elif self.offset_hz is not None:
@@ -307,8 +311,9 @@ class BeaconTracker:
             self._update_spectrum(x)
             return
         if self._seeded and predicted is not None and abs(raw - predicted) <= 100:
-            # Seed confirmed by a real measurement: keep the lock
+            # Seed confirmed by a real measurement: lock now (no 3-reading wait)
             self._seeded = False
+            self.locked = True
             self._residuals.extend([0.0, 0.0])
         if locked_search and not self._seeded and abs(raw - predicted) > 100:
             # A single far-off reading while locked is not trusted (a symbol-
@@ -341,7 +346,7 @@ class BeaconTracker:
             # drift onset briefly misses by tens of Hz until the rate settles
             self.locked = self._residuals[-1] < HOLD_LOCK_HZ
         else:
-            self.locked = (len(self._residuals) >= 3 and max(self._residuals) < 15.0) or self._seeded
+            self.locked = len(self._residuals) >= 3 and max(self._residuals) < 15.0
         if self.locked and self._locked_since is None:
             self._locked_since = self._stream_t
         elif not self.locked:

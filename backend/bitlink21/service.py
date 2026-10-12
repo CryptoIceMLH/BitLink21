@@ -173,11 +173,18 @@ class BitLink21Service:
 
     async def update_settings(self, values: Dict[str, Any]) -> Dict[str, Any]:
         changed = {}
+        old_host = self.settings.get("pluto_host")
         for key, value in values.items():
             if key not in self.settings and key != "passphrase":
                 continue
             if key == "encryption" and value not in (ENCRYPTION_CLEAR, ENCRYPTION_PASSPHRASE):
                 raise ValueError("encryption must be 'clear' or 'passphrase'")
+            if key == "pluto_host":
+                value = str(value or "").strip()
+                if value.lower().startswith("ip:"):
+                    value = value[3:]
+                if not value:
+                    raise ValueError("Enter the PlutoSDR address")
             if key == "profile":
                 SatelliteProfile.from_dict(value)  # validates field names / types
                 merged = dict(self.settings["profile"])
@@ -205,7 +212,10 @@ class BitLink21Service:
             logger.info(f"Verbose logging {'on' if verbose else 'off'}")
         if "passphrase" in changed and self.settings["passphrase"]:
             await self._unlock_messages()
-        if self.station_sdr_id and "profile" in changed:
+        if "pluto_host" in changed and changed["pluto_host"] != old_host:
+            # A new Pluto: the running worker is still connected to the old one
+            await self._switch_pluto()
+        elif self.station_sdr_id and "profile" in changed:
             pluto = self._find_pluto()
             if pluto is None or pluto["config_queue"] is None:
                 await self.start_station()
@@ -244,7 +254,15 @@ class BitLink21Service:
         async with AsyncSessionLocal() as db:
             res = await crud.hardware.fetch_sdrs(db)
             plutos = [s for s in (res.get("data") or []) if s.get("type") == "plutosdr"]
-            device = next((s for s in plutos if s.get("host") == host), plutos[0] if plutos else None)
+            device = next((s for s in plutos if s.get("host") == host), None)
+            if device is None and plutos:
+                # The address was changed in BitLink21: move the registered Pluto
+                # to it (falling back to the first Pluto kept using the old one)
+                res = await crud.hardware.edit_sdr(db, {"id": plutos[0]["id"], "host": host})
+                if not res.get("success"):
+                    raise RuntimeError(f"Could not update the PlutoSDR address: {res.get('error')}")
+                device = res["data"]
+                logger.info(f"PlutoSDR address changed to {host}")
             if device is None:
                 res = await crud.hardware.add_sdr(db, {
                     "name": "PlutoSDR", "type": "plutosdr", "host": host,
@@ -271,6 +289,24 @@ class BitLink21Service:
         if pluto is None:
             raise RuntimeError(f"The PlutoSDR at {host} did not start. Is it powered and reachable?")
         return pluto
+
+    async def _switch_pluto(self) -> None:
+        """Disconnect from the current Pluto; restart on the new address if the
+        station was running."""
+        from pipeline.orchestration.processmanager import process_manager
+
+        was_running = self.station_sdr_id is not None
+        for sdr in process_manager.get_running_sdrs():
+            if (sdr.get("device") or {}).get("type") == "plutosdr":
+                await process_manager.force_stop_sdr(sdr["sdr_id"])
+        self.station_sdr_id = None
+        # Another radio (and maybe another LNB): the last beacon offset is not its
+        self.settings["last_lnb_locked_at"] = None
+        await store.set_settings({"last_lnb_locked_at": None})
+        await self._emit("bitlink21:station_state", {"running": False})
+        logger.info(f"PlutoSDR address set to {self.settings['pluto_host']}")
+        if was_running:
+            await self.start_station()
 
     async def start_station(self) -> Dict[str, Any]:
         # One start at a time: the page's auto-start and a "Start radio" click
