@@ -18,7 +18,6 @@
  */
 
 import EngineeringIcon from '@mui/icons-material/Engineering';
-import AddHomeIcon from '@mui/icons-material/AddHome';
 import {PreferenceVerticalIcon} from "hugeicons-react";
 import InfoIcon from '@mui/icons-material/Info';
 import MicrowaveIcon from '@mui/icons-material/Microwave';
@@ -279,11 +278,6 @@ export const getNavigation = () => [
         title: i18n.t('preferences', { ns: 'navigation' }),
         icon: <PreferenceVerticalIcon/>,
     },
-    {
-        segment: 'settings/location',
-        title: i18n.t('location', { ns: 'navigation' }),
-        icon: <AddHomeIcon/>,
-    },
     // {
     //     segment: 'settings/users',
     //     title: 'Users',
@@ -291,7 +285,7 @@ export const getNavigation = () => [
     // },
     {
         segment: 'settings/maintenance',
-        title: i18n.t('maintenance', { ns: 'navigation' }),
+        title: 'System',
         icon: <EngineeringIcon/>,
     },
     {

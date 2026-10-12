@@ -43,7 +43,6 @@ import SourcesTable from "../satellites/sources-table.jsx";
 import SatelliteTable from "../satellites/satellite-table.jsx";
 import AboutPage from "./about.jsx";
 import SatelliteGroupsTable from "../satellites/groups-table.jsx";
-import LocationPage from "./location-form.jsx";
 import PreferencesForm from "./preferences-form.jsx";
 import MaintenanceForm from "./maintenance-form.jsx";
 import CameraTable from "../hardware/camera-table.jsx";
@@ -65,10 +64,6 @@ export function SettingsTabSatelliteGroups() {
 
 export function SettingsTabPreferences() {
     return (<SettingsTabs initialMainTab={"settings"} initialTab={"preferences"}/>);
-}
-
-export function SettingsTabLocation() {
-    return (<SettingsTabs initialMainTab={"settings"} initialTab={"location"}/>);
 }
 
 export function SettingsTabRig() {
@@ -99,7 +94,7 @@ export function SettingsTabAbout () {
 const tabsTree = {
     // BitLink21: PlutoSDR only; rigs, rotators and the satellite database are not used
     "hardware": ["sdrs"],
-    "settings": ["preferences", "location", "maintenance", "users", "about"],
+    "settings": ["preferences", "maintenance", "about"],
 };
 
 function getTabCategory(value) {
@@ -127,11 +122,6 @@ export const SettingsTabs = React.memo(function SettingsTabs({initialMainTab, in
         setActiveMainTab(mainTab);
     };
 
-    // Forms for each tab can be extracted into separate components if desired:
-    const LocationForm = () => (
-        <LocationPage/>
-    );
-
     let tabsList = [];
     // Define arrays of tabs for each main category
     switch (activeMainTab) {
@@ -144,9 +134,8 @@ export const SettingsTabs = React.memo(function SettingsTabs({initialMainTab, in
         case "settings":
             tabsList = [
                 <AntTab key="preferences" value="preferences" label={t('tabs.preferences')} to="/settings/preferences" component={Link} />,
-                <AntTab key="location" value="location" label={t('tabs.location')} to="/settings/location" component={Link} />,
                 // <AntTab key="users" value="users" label="Users" to="/settings/users" component={Link} />,
-                <AntTab key="maintenance" value="maintenance" label={t('tabs.maintenance')} to="/settings/maintenance" component={Link} />,
+                <AntTab key="maintenance" value="maintenance" label="System" to="/settings/maintenance" component={Link} />,
                 <AntTab key="about" value="about" label={t('tabs.about')} to="/settings/about" component={Link} />,
             ];
             break;
@@ -175,9 +164,6 @@ export const SettingsTabs = React.memo(function SettingsTabs({initialMainTab, in
     switch (activeTab) {
         case "preferences":
             activeTabContent = <PreferencesForm/>;
-            break;
-        case "location":
-            activeTabContent = <LocationForm/>;
             break;
         case "rigcontrol":
             activeTabContent = <RigControlForm/>;

@@ -23,7 +23,6 @@ import { createRoot } from 'react-dom/client'
 import './i18n/config.js'
 import {createBrowserRouter, RouterProvider} from "react-router";
 import {
-    SettingsTabLocation,
     SettingsTabPreferences,
     SettingsTabMaintenance,
     SettingsTabAbout,
@@ -81,10 +80,6 @@ const router = createBrowserRouter([
                             {
                                 path: "preferences",
                                 Component: SettingsTabPreferences,
-                            },
-                            {
-                                path: "location",
-                                Component: SettingsTabLocation,
                             },
                             // {
                             //     path: "users",
