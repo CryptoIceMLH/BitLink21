@@ -4,7 +4,7 @@ name: BitLink21
 tagline: Bitcoin decentralized satellite communication system
 icon: https://raw.githubusercontent.com/CryptoIceMLH/BitLink21/master/bitlink21-128.png
 category: bitcoin
-version: "4.0.10"
+version: "4.0.11"
 port: 7000
 description: >-
   BitLink21 sends messages, Bitcoin transactions and Lightning invoices over the
@@ -23,6 +23,11 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 gallery: []
 releaseNotes: >-
+  v4.0.11: Beacon lock on cold nights: the beacon is now searched +-100 kHz
+  around its frequency (was +-40 kHz). On an icy night the LNB was 40.8 kHz
+  off and the beacon was never found. If you set RX calibration to work
+  around it, set it back to 0 after updating.
+
   v4.0.10: New Radio page (replaces the old classic radio): live spectrum
   and waterfall of the station's receiver on a true RF scale (10489.xxx MHz,
   corrected for your LNB), with the transponder, beacon, your channel and

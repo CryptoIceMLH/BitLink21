@@ -28,8 +28,9 @@ from .viewer import SpectrumView, Vfo, rf_mapping
 STATUS_INTERVAL_S = 0.5
 # How far from nominal the beacon is searched. The user's LNB error ranged
 # -4..-25.5 kHz; at +-25 kHz the true line fell outside the search and the
-# tracker locked a side line 400 Hz inside it (live, 2026-10-10).
-BEACON_SPAN_HZ = 40000.0
+# tracker locked a side line 400 Hz inside it (live, 2026-10-10). On an icy
+# night it was -40.8 kHz, outside +-40 kHz (live, 2026-11-24).
+BEACON_SPAN_HZ = 100000.0
 
 
 class Station:
