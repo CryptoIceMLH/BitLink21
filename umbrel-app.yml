@@ -4,7 +4,7 @@ name: BitLink21
 tagline: Bitcoin decentralized satellite communication system
 icon: bitlink21-128.png
 category: bitcoin
-version: "4.0.11"
+version: "4.0.12"
 port: 7000
 description: >-
   BitLink21 sends messages, Bitcoin transactions and Lightning invoices over the
@@ -23,6 +23,12 @@ repo: https://github.com/CryptoIceMLH/BitLink21
 support: https://github.com/CryptoIceMLH/BitLink21/issues
 dependencies: []
 releaseNotes: >-
+  v4.0.12: Beacon tracker: searches +-100 kHz only until the beacon is found,
+  then tracks it on a narrow channel. Fixes "Receiver falling behind" in
+  4.0.11 (the wide search cost ~17% of a core all the time, now ~2-3% once
+  locked) and the beacon lock dropping for a few seconds after each send. The
+  beacon reading is cleaner, so beacon SNR now shows higher than before.
+
   v4.0.11: Beacon lock on cold nights: the beacon is now searched +-100 kHz
   around its frequency (was +-40 kHz). On an icy night the LNB was 40.8 kHz
   off and the beacon was never found. If you set RX calibration to work

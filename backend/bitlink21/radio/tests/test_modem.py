@@ -244,6 +244,37 @@ def test_beacon_tracker_follows_fast_drift_without_unlocking():
     assert not unlocked_after_lock
 
 
+@pytest.mark.parametrize("err", [-40800.0, -90000.0, 75000.0])
+def test_wide_search_then_narrow_tracking_through_tx_drift(err):
+    """Live 2026-11-24: on an icy night the LNB was -40.8 kHz off, outside the
+    old +-40 kHz search. Search +-100 kHz, then track on the narrow channel
+    only (the wide one cost CPU and 3.5 dB of beacon SNR) and stay locked
+    through the receive drift while transmitting."""
+    fs = 1e6
+    dur = 20
+    n = int(fs * dur)
+    t = np.arange(n) / fs
+    rate = np.where((t >= 8) & (t < 14), -40.0, -1.0)
+    e = err + np.cumsum(rate) / fs
+    rng = np.random.default_rng(2)
+    bits = rng.integers(0, 2, int(400 * dur) + 2) * 2 - 1
+    bb = signal.lfilter(signal.firwin(301, 400, fs=fs), 1, np.repeat(bits, int(fs / 400))[:n])
+    x = (0.18 * bb * np.exp(2j * np.pi * np.cumsum(64262.0 + e) / fs)
+         + (rng.standard_normal(n) + 1j * rng.standard_normal(n))).astype(np.complex64)
+    bt = BeaconTracker(fs, 64262.0, kind="psk", span_hz=100000.0)
+    locked_at = None
+    for i in range(0, n, 65536):
+        bt.process(x[i: i + 65536])
+        k = min(i + 65535, n - 1)
+        if bt.locked and locked_at is None:
+            locked_at = t[k]
+        if locked_at is not None:
+            assert bt.locked, t[k]  # never drops, also through the drift
+            assert len(bt._wide_buf) == 0  # search channel idle while locked
+    assert locked_at is not None and locked_at < 4.0
+    assert abs(bt.offset_hz - e[-1]) < 5.0
+
+
 def test_long_bpsk_message_decodes_while_receive_frequency_runs():
     """Regression (live 2026-10-09): a 12 s BPSK message got 1 good frame
     out of 11 while the receive chain drifted ~40 Hz/s."""
